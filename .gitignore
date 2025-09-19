@@ -1,0 +1,44 @@
+# Build artifacts
+target/
+build/
+
+# Maven-specific
+.mvn/wrapper/maven-wrapper.jar
+
+# Gradle-specific
+.gradle/
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+
+# IDE-specific files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+
+# Log files
+logs/
+*.log
+*.tmp
+
+# Environment variables and secrets
+.env
+application*.properties
+application*.yml
+!application.properties.example
+!application.yml.example
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Other temporary or generated files
+tmp/
+out/
