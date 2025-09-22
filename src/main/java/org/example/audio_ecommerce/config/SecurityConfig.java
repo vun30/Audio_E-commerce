@@ -38,8 +38,11 @@ public class SecurityConfig {
                     corsConfiguration.setAllowedHeaders(List.of("*"));
                     corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
                     corsConfiguration.setAllowedOrigins(List.of(
-                            "http://localhost:5173"//dùng để test local front-end
-                            //"https://audio-ecommerce.vercel.app" //dùng để test deploy front-end
+                            "http://localhost:5173",
+                            "https://conicboulevard.pro.vn",
+                            "https://www.conicboulevard.pro.vn",
+                            "https://conicboulevard.vercel.app",
+                            "https://manager.conicboulevard.pro.vn"
                     ));
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
@@ -50,7 +53,7 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/api/account/register",
                                 "/api/account/login").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN") // Chỉ admin mới được truy cập, các api liên quan tới admin quăng vào đây
+                        .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
                         .anyRequest().authenticated()
                 )

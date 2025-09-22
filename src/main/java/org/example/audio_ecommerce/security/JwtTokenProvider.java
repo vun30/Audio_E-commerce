@@ -2,6 +2,8 @@ package org.example.audio_ecommerce.security;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.io.Encoders;
+import java.nio.charset.StandardCharsets;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -16,88 +18,40 @@ import java.util.Date;
 public class JwtTokenProvider {
     private final UserDetailsService uds;
 
-    private final Key accessKey;
-    private final long accessExpiryMs;
-
-    private final Key refreshKey;
-    private final long refreshExpiryMs;
+    private final Key key;
+    private final long expiry;
 
     public JwtTokenProvider(
-            UserDetailsService uds,
-            @Value("${jwt.access-secret}") String accessSecretBase64,
-            @Value("${jwt.access-expiration-ms}") long accessExpiryMs,
-            @Value("${jwt.refresh-secret}") String refreshSecretBase64,
-            @Value("${jwt.refresh-expiration-ms}") long refreshExpiryMs
+            @Value("${jwt.secret}") String secretBase64,
+            @Value("${jwt.expiration-ms}") long expiry,
+            UserDetailsService uds
     ) {
         this.uds = uds;
-        this.accessKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(accessSecretBase64));   // >= 256-bit
-        this.accessExpiryMs = accessExpiryMs;
-        this.refreshKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(refreshSecretBase64)); // >= 256-bit
-        this.refreshExpiryMs = refreshExpiryMs;
+        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretBase64)); // >=256-bit
+        this.expiry = expiry;
     }
 
-    /* ===================== ACCESS TOKEN ===================== */
-
-    public String generateAccessToken(String subject) {
-        Date now = new Date();
-        Date exp = new Date(now.getTime() + accessExpiryMs);
+    public String generateToken(String subject) {
+        var now = new Date();
+        var exp = new Date(now.getTime() + expiry);
         return Jwts.builder()
                 .setSubject(subject)
                 .setIssuedAt(now)
                 .setExpiration(exp)
-                .claim("typ", "access")
-                .signWith(accessKey, SignatureAlgorithm.HS256)
+                .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    public boolean validateAccessToken(String token) {
+    public boolean validateToken(String token) {
         try {
-            var claims = Jwts.parserBuilder().setSigningKey(accessKey).build().parseClaimsJws(token);
-            Object typ = claims.getBody().get("typ");
-            return "access".equals(typ);
-        } catch (JwtException | IllegalArgumentException e) {
-            return false;
-        }
+            Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
+            return true;
+        } catch (Exception e) { return false; }
     }
 
-    /* ===================== REFRESH TOKEN ===================== */
-
-    public String generateRefreshToken(String subject) {
-        Date now = new Date();
-        Date exp = new Date(now.getTime() + refreshExpiryMs);
-        return Jwts.builder()
-                .setSubject(subject)
-                .setIssuedAt(now)
-                .setExpiration(exp)
-                .claim("typ", "refresh")
-                .signWith(refreshKey, SignatureAlgorithm.HS256)
-                .compact();
-    }
-
-    public boolean validateRefreshToken(String token) {
-        try {
-            var claims = Jwts.parserBuilder().setSigningKey(refreshKey).build().parseClaimsJws(token);
-            Object typ = claims.getBody().get("typ");
-            return "refresh".equals(typ);
-        } catch (JwtException | IllegalArgumentException e) {
-            return false;
-        }
-    }
-
-    /* ===================== COMMON HELPERS ===================== */
-
-    public String getUsernameFromAccess(String accessToken) {
-        return Jwts.parserBuilder().setSigningKey(accessKey).build()
-                .parseClaimsJws(accessToken).getBody().getSubject();
-    }
-
-    public String getUsernameFromRefresh(String refreshToken) {
-        return Jwts.parserBuilder().setSigningKey(refreshKey).build()
-                .parseClaimsJws(refreshToken).getBody().getSubject();
-    }
-
-    public Authentication getAuthentication(String accessToken) {
-        String username = getUsernameFromAccess(accessToken);
+    public Authentication getAuthentication(String token) {
+        String username = Jwts.parserBuilder().setSigningKey(key).build()
+                .parseClaimsJws(token).getBody().getSubject();
         var user = uds.loadUserByUsername(username);
         return new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
     }

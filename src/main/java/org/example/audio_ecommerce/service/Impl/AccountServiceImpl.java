@@ -26,7 +26,6 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class AccountServiceImpl implements AccountService {
-
     private final AccountRepository repository;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
@@ -40,13 +39,10 @@ public class AccountServiceImpl implements AccountService {
                     .body(new BaseResponse<>(409, "Email already in use", null));
         }
 
-        // Lấy role mặc định cho người dùng mới (khuyến nghị ROLE_USER)
-        // Nếu RoleRepository của bạn trả Optional<Role>, đổi theo .orElseThrow(...)
-        Role role = roleRepository.findByName(RoleEnum.CUSTOMER);
-
+        Role role = roleRepository.findByName(RoleEnum.ADMIN);
         Account entity = Account.builder()
                 .name(request.getName())
-                .email(request.getEmail().trim().toLowerCase())
+                .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(role)
                 .build();
@@ -56,9 +52,6 @@ public class AccountServiceImpl implements AccountService {
         RegisterResponse response = new RegisterResponse();
         response.setEmail(entity.getEmail());
         response.setName(entity.getName());
-        // (tuỳ) có thể add role vào response nếu cần:
-        // response.setRole(role.getName().name());
-
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new BaseResponse<>(201, "Created", response));
     }
@@ -67,29 +60,12 @@ public class AccountServiceImpl implements AccountService {
     public ResponseEntity<BaseResponse> login(LoginRequest request) {
         try {
             var authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            request.getEmail(), request.getPassword()
-                    )
-            );
-
-            // username ở đây chính là email
-            String username = authentication.getName();
-
-            // Sinh token theo JwtTokenProvider mới
-            String accessToken = jwtTokenProvider.generateAccessToken(username);
-            String refreshToken = jwtTokenProvider.generateRefreshToken(username);
-
-            var account = repository.findByEmailIgnoreCase(username)
+                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
+            String token = jwtTokenProvider.generateToken(authentication.getName());
+            var user = repository.findByEmailIgnoreCase(request.getEmail())
+                    .map( u -> new AccountResponse(u.getEmail(), u.getName(), u.getRole().getName().toString()))
                     .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-
-            var user = new AccountResponse(
-                    account.getEmail(),
-                    account.getName(),
-                    account.getRole().getName().name()
-            );
-
-            LoginResponse loginResponse = new LoginResponse(accessToken, refreshToken, user);
-
+            LoginResponse loginResponse = new LoginResponse(token, user);
             return ResponseEntity.ok(new BaseResponse<>(200, "Success", loginResponse));
         } catch (BadCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
