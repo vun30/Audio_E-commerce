@@ -12,11 +12,14 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 @Entity
+@Table(name = "roles")
 public class Role extends BaseEntity {
+
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, unique = true, length = 50)
     private RoleEnum name;
 
-    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private List<Account> accountList;
 }
