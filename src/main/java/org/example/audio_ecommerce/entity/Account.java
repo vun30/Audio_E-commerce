@@ -1,8 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import lombok.*;
 
 @Getter
@@ -11,17 +9,19 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 @Entity
+@Table(name = "accounts") // thêm để tránh trùng keyword
 public class Account extends BaseEntity {
-    @Column(nullable = false, columnDefinition = "NVARCHAR(255)")
+
+    @Column(nullable = false, length = 255) // VARCHAR(255) mặc định
     private String name;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false, unique = true, length = 255)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 255)
     private String password;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "role_id")
+    @JoinColumn(name = "role_id", nullable = false)
     private Role role;
 }
