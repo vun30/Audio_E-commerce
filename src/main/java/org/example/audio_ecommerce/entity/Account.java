@@ -22,6 +22,6 @@ public class Account extends BaseEntity {
     private String password;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "role_id", nullable = false)
+    @JoinColumn(name = "role_id", nullable = false, columnDefinition = "CHAR(36)")
     private Role role;
 }
