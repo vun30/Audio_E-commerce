@@ -11,7 +11,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Optional;
+import java.util.List;
 
 @Profile("!test")
 @Service
@@ -26,30 +26,25 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String usernameWithRole) throws UsernameNotFoundException {
-        // ✅ Expect format: email:ROLE
+        // ✅ Expect: username = email:ROLE (đồng bộ với token)
         String[] parts = usernameWithRole.split(":");
         if (parts.length != 2) {
             throw new UsernameNotFoundException("Username must be in format 'email:ROLE'");
         }
 
         String email = parts[0];
-        RoleEnum role;
-        try {
-            role = RoleEnum.valueOf(parts[1]); // convert string -> enum
-        } catch (IllegalArgumentException ex) {
-            throw new UsernameNotFoundException("Invalid role in username");
-        }
+        String roleName = parts[1];
 
-        // ✅ Tìm account theo email + role
-        Account acc = repo.findByEmailAndRole(email, role)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with role " + role));
+        Account acc = repo.findByEmailAndRole(email, RoleEnum.valueOf(roleName))
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with email " + email + " and role " + roleName));
 
         var authority = new SimpleGrantedAuthority("ROLE_" + acc.getRole().name());
 
-        return org.springframework.security.core.userdetails.User.withUsername(email + ":" + acc.getRole().name())
+        return org.springframework.security.core.userdetails.User
+                .withUsername(email + ":" + acc.getRole().name()) // đồng bộ
                 .password(acc.getPassword())
-                .authorities(authority)
-                .disabled(false) // bạn có thể dùng acc.isActive() nếu có field active
+                .authorities(List.of(authority))
+                .disabled(false)
                 .build();
     }
 }
