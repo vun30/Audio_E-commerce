@@ -8,9 +8,9 @@ import java.util.UUID;
 
 public interface StoreRepository extends JpaRepository<Store, UUID> {
 
-    // Tìm store theo accountId (mỗi account có thể có 0 hoặc 1 store)
-    Optional<Store> findByAccount_AccountId(UUID accountId);
+    // Tìm store theo id của account
+    Optional<Store> findByAccount_Id(UUID accountId);
 
     // Kiểm tra account đã có store chưa
-    boolean existsByAccount_AccountId(UUID accountId);
+    boolean existsByAccount_Id(UUID accountId);
 }
