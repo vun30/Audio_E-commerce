@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.RoleEnum;
 
 @Getter
 @Setter
@@ -9,23 +10,26 @@ import lombok.*;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "accounts")
+@Table(
+    name = "accounts",
+    uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"email", "role"}) // Email + Role phải duy nhất
+    }
+)
 public class Account extends BaseEntity {
-
     @Column(nullable = false, length = 255)
     private String name;
 
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(nullable = false, length = 255)
     private String email;
 
     @Column(nullable = false, length = 255)
     private String password;
 
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "role_id", nullable = false, columnDefinition = "CHAR(36)")
-    private Role role;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 50)
+    private RoleEnum role;
 
-    // 🔹 Quan hệ 1-1: Account có thể có hoặc không có Store
-    @OneToOne(mappedBy = "account", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToOne(mappedBy = "account", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     private Store store;
 }

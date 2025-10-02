@@ -1,11 +1,12 @@
 package org.example.audio_ecommerce.dto.response;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
+import lombok.*;
 
-@Data
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor // ✅ thêm cái này để có constructor (String email, String name)
 public class RegisterResponse {
-    private String name;
     private String email;
+    private String name;
 }
