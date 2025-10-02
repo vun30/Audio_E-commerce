@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.security.Key;
 import java.util.Date;
-import java.util.Map;
 
 @Component
 public class JwtTokenProvider {
@@ -30,21 +29,20 @@ public class JwtTokenProvider {
         this.expiry = expiry;
     }
 
-    // 🔹 Sinh token với email + role
+    // ✅ TOKEN: subject = email:ROLE (giữ đúng format)
     public String generateToken(String email, String role) {
         var now = new Date();
         var exp = new Date(now.getTime() + expiry);
 
         return Jwts.builder()
-                .setSubject(email) // email làm subject
-                .addClaims(Map.of("role", role)) // thêm role vào claim
+                .setSubject(email + ":" + role) // đồng bộ
+                .claim("role", role)
                 .setIssuedAt(now)
                 .setExpiration(exp)
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    // 🔹 Kiểm tra token hợp lệ
     public boolean validateToken(String token) {
         try {
             Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
@@ -54,7 +52,6 @@ public class JwtTokenProvider {
         }
     }
 
-    // 🔹 Lấy Authentication từ token
     public Authentication getAuthentication(String token) {
         Claims claims = Jwts.parserBuilder()
                 .setSigningKey(key)
@@ -62,20 +59,12 @@ public class JwtTokenProvider {
                 .parseClaimsJws(token)
                 .getBody();
 
-        String email = claims.getSubject();
-        String role = claims.get("role", String.class);
-
-        var user = uds.loadUserByUsername(email);
-
-        // UserDetailsService phải trả về UserDetails có authorities từ DB
-        // Nếu bạn muốn lấy role từ token thay vì DB:
-        // var auth = new SimpleGrantedAuthority("ROLE_" + role);
-        // return new UsernamePasswordAuthenticationToken(email, null, List.of(auth));
+        String usernameWithRole = claims.getSubject(); // email:ROLE
+        var user = uds.loadUserByUsername(usernameWithRole);
 
         return new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
     }
 
-    // 🔹 Lấy role trực tiếp từ token (nếu cần dùng nhanh)
     public String getRoleFromToken(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(key)

@@ -79,28 +79,29 @@ public class AccountServiceImpl implements AccountService {
     }
 
     private ResponseEntity<BaseResponse> login(LoginRequest request, RoleEnum role) {
-    try {
-        // ✅ username phải có format "email:ROLE"
-        String usernameWithRole = request.getEmail() + ":" + role.name();
+        try {
+            // ✅ AUTH step: sử dụng email:ROLE làm username
+            String usernameWithRole = request.getEmail() + ":" + role.name();
+            authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(usernameWithRole, request.getPassword())
+            );
 
-        authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(usernameWithRole, request.getPassword())
-        );
+            // ✅ DB check email + role
+            Account user = repository.findByEmailAndRole(request.getEmail(), role)
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found with this role"));
 
-        Account user = repository.findByEmailAndRole(request.getEmail(), role)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with this role"));
+            // ✅ TOKEN: subject = email:ROLE (đồng bộ với CustomUserDetailsService)
+            String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
+            AccountResponse userResponse =
+                    new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
 
-        AccountResponse userResponse =
-                new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
+            LoginResponse loginResponse = new LoginResponse(token, userResponse);
 
-        LoginResponse loginResponse = new LoginResponse(token, userResponse);
-
-        return ResponseEntity.ok(new BaseResponse<>(200, "Login success", loginResponse));
-    } catch (BadCredentialsException ex) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(new BaseResponse<>(401, "Invalid credentials", null));
+            return ResponseEntity.ok(new BaseResponse<>(200, "Login success", loginResponse));
+        } catch (BadCredentialsException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new BaseResponse<>(401, "Invalid credentials", null));
+        }
     }
-}
 }
