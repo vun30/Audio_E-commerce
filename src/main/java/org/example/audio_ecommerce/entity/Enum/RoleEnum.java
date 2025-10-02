@@ -1,4 +1,4 @@
-package org.example.audio_ecommerce.entity;
+package org.example.audio_ecommerce.entity.Enum;
 
 import lombok.Getter;
 
@@ -8,7 +8,7 @@ public enum RoleEnum {
     GUEST(2),
     STAFF(3),
     CUSTOMER(4),
-    OWNER(5);
+    STOREOWNER(5);
 
     private final int value;
 

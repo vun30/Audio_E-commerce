@@ -9,7 +9,7 @@ import org.example.audio_ecommerce.dto.response.RegisterResponse;
 import org.example.audio_ecommerce.dto.response.AccountResponse;
 import org.example.audio_ecommerce.entity.Account;
 import org.example.audio_ecommerce.entity.Role;
-import org.example.audio_ecommerce.entity.RoleEnum;
+import org.example.audio_ecommerce.entity.Enum.RoleEnum;
 import org.example.audio_ecommerce.repository.AccountRepository;
 import org.example.audio_ecommerce.repository.RoleRepository;
 import org.example.audio_ecommerce.security.JwtTokenProvider;

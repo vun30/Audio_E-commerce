@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.RoleEnum;
 
 import java.util.List;
 
