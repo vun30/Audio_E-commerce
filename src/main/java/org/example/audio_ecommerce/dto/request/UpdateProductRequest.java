@@ -17,7 +17,6 @@ public class UpdateProductRequest {
 
     private UUID categoryId;
     private UUID brandId;
-
     private String name;
     private String slug;
     private String shortDescription;

@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
@@ -30,6 +31,7 @@ public class Product {
     // =====================
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "store_id", nullable = false)
+    @JsonIgnore
     private Store store; // 🔹 Cửa hàng sở hữu (FK)
 
     @Column(name = "category_id", columnDefinition = "CHAR(36)", nullable = false)

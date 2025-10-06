@@ -21,6 +21,6 @@ public class OpenApiConfig {
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")))
-                .info(new Info().title("Conic Boulevard API").version("v1"));
+                .info(new Info().title("Audio System").version("v1"));
     }
 }

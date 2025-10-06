@@ -6,7 +6,10 @@ import org.example.audio_ecommerce.dto.request.RegisterRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.Account;
 import org.example.audio_ecommerce.entity.Enum.RoleEnum;
+import org.example.audio_ecommerce.entity.Enum.StoreStatus;
+import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.repository.AccountRepository;
+import org.example.audio_ecommerce.repository.StoreRepository;
 import org.example.audio_ecommerce.security.JwtTokenProvider;
 import org.example.audio_ecommerce.service.AccountService;
 import org.springframework.http.HttpStatus;
@@ -18,10 +21,15 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 @Service
 @RequiredArgsConstructor
 public class AccountServiceImpl implements AccountService {
+
     private final AccountRepository repository;
+    private final StoreRepository storeRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
@@ -48,6 +56,7 @@ public class AccountServiceImpl implements AccountService {
                     .body(new BaseResponse<>(409, "Email already used with role " + role, null));
         }
 
+        // ✅ Tạo tài khoản
         Account entity = Account.builder()
                 .name(request.getName())
                 .email(request.getEmail())
@@ -57,10 +66,35 @@ public class AccountServiceImpl implements AccountService {
 
         repository.save(entity);
 
+        // ✅ Nếu role là STOREOWNER → tạo store mặc định
+        if (role == RoleEnum.STOREOWNER) {
+            createDefaultStoreForAccount(entity);
+        }
+
         RegisterResponse response = new RegisterResponse(entity.getEmail(), entity.getName());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new BaseResponse<>(201, successMsg, response));
     }
+
+    /**
+     * ✅ Hàm tạo store mặc định khi account có role STOREOWNER
+     */
+    private void createDefaultStoreForAccount(Account account) {
+    if (storeRepository.existsByAccount_Id(account.getId())) { // ✅ gọi getId()
+        return;
+    }
+
+    Store store = Store.builder()
+            .account(account)
+            .walletId(UUID.randomUUID())
+            .storeName("Store of " + account.getName())
+            .description("This store is created automatically and is inactive until KYC is approved.")
+            .status(StoreStatus.INACTIVE)
+            .createdAt(LocalDateTime.now())
+            .build();
+
+    storeRepository.save(store);
+}
 
     // ==================== LOGIN ====================
     @Override
@@ -83,7 +117,7 @@ public class AccountServiceImpl implements AccountService {
             // ✅ AUTH step: sử dụng email:ROLE làm username
             String usernameWithRole = request.getEmail() + ":" + role.name();
             authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(usernameWithRole, request.getPassword())
+                    new UsernamePasswordAuthenticationToken(usernameWithRole, request.getPassword())
             );
 
             // ✅ DB check email + role

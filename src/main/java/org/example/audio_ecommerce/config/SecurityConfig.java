@@ -52,7 +52,8 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/api/account/register/**",
-                                "/api/account/login/**").permitAll()
+                                "/api/account/login/**",
+                                "/api/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
                         .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
                         .anyRequest().authenticated()
