@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
@@ -27,6 +28,7 @@ public class Store {
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "account_id", nullable = false, columnDefinition = "CHAR(36)")
+    @JsonIgnore
     private Account account; // 🔹 Liên kết với Account
 
     @Column(name = "wallet_id", columnDefinition = "CHAR(36)", nullable = false)
@@ -53,7 +55,7 @@ public class Store {
     @Column(precision = 3, scale = 2)
     private BigDecimal rating;
 
-    @Enumerated(EnumType.STRING)
+
     @Column(length = 20)
     private StoreStatus status;
 

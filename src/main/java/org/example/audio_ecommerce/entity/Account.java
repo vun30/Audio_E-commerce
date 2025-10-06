@@ -17,6 +17,7 @@ import org.example.audio_ecommerce.entity.Enum.RoleEnum;
     }
 )
 public class Account extends BaseEntity {
+
     @Column(nullable = false, length = 255)
     private String name;
 
