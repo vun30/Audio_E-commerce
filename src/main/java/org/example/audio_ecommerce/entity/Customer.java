@@ -133,6 +133,9 @@ public class Customer extends BaseEntity {
     @JoinColumn(name = "account_id", nullable = false, unique = true, columnDefinition = "CHAR(36)")
     private Account account;
 
+    @OneToOne(mappedBy = "customer", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
+    private Wallet wallet;
 
     // ===== Helpers =====
     public void addAddress(CustomerAddress addr, boolean makeDefault) {

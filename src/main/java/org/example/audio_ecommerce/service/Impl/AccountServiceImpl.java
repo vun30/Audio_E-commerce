@@ -11,9 +11,11 @@ import org.example.audio_ecommerce.entity.Enum.KycStatus;              // ✅
 import org.example.audio_ecommerce.entity.Enum.RoleEnum;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.entity.Store;
+import org.example.audio_ecommerce.entity.Wallet;
 import org.example.audio_ecommerce.repository.AccountRepository;
 import org.example.audio_ecommerce.repository.CustomerRepository;       // ✅
 import org.example.audio_ecommerce.repository.StoreRepository;
+import org.example.audio_ecommerce.repository.WalletRepository;
 import org.example.audio_ecommerce.security.JwtTokenProvider;
 import org.example.audio_ecommerce.service.AccountService;
 import org.springframework.http.HttpStatus;
@@ -39,7 +41,8 @@ public class AccountServiceImpl implements AccountService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
-
+    private final WalletRepository walletRepository;
+    
     // ==================== REGISTER ====================
     @Override
     public ResponseEntity<BaseResponse> registerCustomer(RegisterRequest request) {
@@ -111,6 +114,7 @@ public class AccountServiceImpl implements AccountService {
                 .build();
 
         customerRepository.save(customer);
+        createDefaultWalletForCustomer(customer);
     }
 
     /** ✅ Tạo store mặc định khi account có role STOREOWNER */
@@ -129,6 +133,14 @@ public class AccountServiceImpl implements AccountService {
         storeRepository.save(store);
     }
 
+    private void createDefaultWalletForCustomer(Customer customer) {
+        if (walletRepository.existsByCustomer_Id(customer.getId())) return;
+        Wallet wallet = Wallet.builder()
+                .customer(customer)
+                // balance/currency/status dùng default trong entity
+                .build();
+        walletRepository.save(wallet);
+    }
     // ==================== LOGIN ====================
     @Override
     public ResponseEntity<BaseResponse> loginCustomer(LoginRequest request) {
