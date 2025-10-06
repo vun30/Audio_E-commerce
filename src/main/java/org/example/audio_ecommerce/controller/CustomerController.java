@@ -22,11 +22,11 @@ public class CustomerController {
 
     // ===== Customers =====
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public CustomerResponse create(@Valid @RequestBody CustomerCreateRequest req) {
-        return customerService.create(req);
-    }
+//    @PostMapping
+//    @ResponseStatus(HttpStatus.CREATED)
+//    public CustomerResponse create(@Valid @RequestBody CustomerCreateRequest req) {
+//        return customerService.create(req);
+//    }
 
     @GetMapping("/{id}")
     public CustomerResponse get(@PathVariable UUID id) {
