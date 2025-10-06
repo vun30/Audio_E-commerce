@@ -4,6 +4,8 @@ import org.example.audio_ecommerce.dto.request.UpdateStoreRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Repository;
@@ -31,5 +33,7 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
 
     // 🔍 Lấy store theo ID nhưng load luôn account (nếu cần)
     Optional<Store> findByStoreId(UUID storeId);
+
+     Page<Store> findByStoreNameContainingIgnoreCase(String keyword, Pageable pageable);
 
 }

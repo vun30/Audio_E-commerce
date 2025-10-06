@@ -8,9 +8,14 @@ import org.springframework.http.ResponseEntity;
 import java.util.UUID;
 
 public interface StoreService {
-     ResponseEntity<BaseResponse> getStoreById(UUID storeId);
+
+    ResponseEntity<BaseResponse> getStoreById(UUID storeId);
+
     ResponseEntity<BaseResponse> getStoreByAccountId(UUID accountId);
-    ResponseEntity<BaseResponse> getAllStores();
+
     ResponseEntity<BaseResponse> updateStore(UUID storeId, UpdateStoreRequest request);
+
     ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus status);
+
+    ResponseEntity<BaseResponse> getAllStores(int page, int size, String keyword);
 }
