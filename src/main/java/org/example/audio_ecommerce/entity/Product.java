@@ -1,6 +1,4 @@
 package org.example.audio_ecommerce.entity;
-
-import org.example.audio_ecommerce.entity.Enum.Category;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
