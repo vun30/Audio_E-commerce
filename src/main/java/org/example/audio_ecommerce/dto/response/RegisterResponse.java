@@ -9,4 +9,5 @@ import lombok.*;
 public class RegisterResponse {
     private String email;
     private String name;
+    private String phone;
 }
