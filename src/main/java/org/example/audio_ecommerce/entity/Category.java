@@ -1,4 +1,4 @@
-package org.example.audio_ecommerce.entity.Enum;
+package org.example.audio_ecommerce.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
