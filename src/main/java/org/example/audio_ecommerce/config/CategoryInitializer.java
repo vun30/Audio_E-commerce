@@ -18,7 +18,7 @@ public class CategoryInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         List<String> defaultCategories = List.of(
-                "Loa", "Micro", "DAC", "Mixer", "Amp", "Turntable", "Sound Card", "DJ Controller"
+                "Loa", "Micro", "DAC", "Mixer", "Amp", "Turntable", "Sound Card", "DJ Controller", "Combo"
         );
 
         for (String name : defaultCategories) {
