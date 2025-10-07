@@ -1,10 +1,7 @@
-package org.example.audio_ecommerce.dto.response;
+package org.example.audio_ecommerce.dto.request;
 
 import lombok.*;
-import org.example.audio_ecommerce.entity.Enum.ProductStatus;
-
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,16 +10,13 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ProductResponse {
+public class ProductRequest {
 
     // ======================
-    // 🔑 Định danh
+    // 🔗 Liên kết
     // ======================
-    private UUID productId;
-    private UUID storeId;
-    private String storeName;
-    private UUID categoryId;
-    private String categoryName;
+    private UUID storeId;          // ID cửa hàng mà sản phẩm thuộc về
+    private UUID categoryId;       // ID danh mục sản phẩm
     private String brandName;
 
     // ======================
@@ -55,19 +49,8 @@ public class ProductResponse {
     private String warehouseLocation;
     private String shippingAddress;
 
-    // ======================
-    // 📊 Trạng thái
-    // ======================
-    private ProductStatus status;
-    private Boolean isFeatured;
-    private BigDecimal ratingAverage;
-    private Integer reviewCount;
-    private Integer viewCount;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
-
     // =========================
-    // 🔊 Loa
+    // 🔊 Loa (Speaker)
     // =========================
     private String driverConfiguration;
     private String driverSize;
@@ -82,7 +65,7 @@ public class ProductResponse {
     private String connectionType;
 
     // =========================
-    // 🎤 Micro
+    // 🎤 Microphone
     // =========================
     private String micType;
     private String polarPattern;
@@ -91,7 +74,7 @@ public class ProductResponse {
     private String micSensitivity;
 
     // =========================
-    // 📻 Ampli
+    // 📻 Receiver / Amplifier
     // =========================
     private String amplifierType;
     private String totalPowerOutput;
@@ -112,7 +95,7 @@ public class ProductResponse {
     private Boolean autoReturn;
 
     // =========================
-    // 🎛️ DAC
+    // 🎛️ DAC / Sound Card
     // =========================
     private String dacChipset;
     private String sampleRate;
@@ -122,7 +105,7 @@ public class ProductResponse {
     private String outputInterface;
 
     // =========================
-    // 🎚️ Mixer
+    // 🎚️ Mixer / DJ Controller
     // =========================
     private Integer channelCount;
     private Boolean hasPhantomPower;

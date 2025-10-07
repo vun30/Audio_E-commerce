@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
@@ -12,9 +13,10 @@ import java.util.UUID;
 
 @Getter
 @Setter
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@Builder(toBuilder = true)
 @Entity
 @Table(name = "products")
 public class Product {
@@ -37,9 +39,9 @@ public class Product {
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
 
-    @Column(name = "brand_id", columnDefinition = "CHAR(36)", nullable = false)
-    private UUID brandId;
-
+    // ✅ Đổi brandId thành brandName
+    @Column(name = "brand_name", nullable = false, length = 255)
+    private String brandName;
     // ======================
     // 🔖 THÔNG TIN CƠ BẢN
     // ======================
