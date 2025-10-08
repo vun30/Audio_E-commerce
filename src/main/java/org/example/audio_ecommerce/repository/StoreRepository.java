@@ -36,4 +36,8 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
 
      Page<Store> findByStoreNameContainingIgnoreCase(String keyword, Pageable pageable);
 
+    // ✅ (Tuỳ chọn) tìm theo ID và trạng thái — dùng nếu muốn check nhanh
+    Optional<Store> findByStoreIdAndStatus(UUID storeId, StoreStatus status);
+
+
 }

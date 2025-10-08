@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
@@ -16,6 +17,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Entity
 @Table(name = "stores")
 public class Store {
@@ -31,14 +33,15 @@ public class Store {
     @JsonIgnore
     private Account account; // 🔹 Liên kết với Account
 
-    @Column(name = "wallet_id", columnDefinition = "CHAR(36)", nullable = false)
-    private UUID walletId; // 🔹 Ví liên kết (FK)
+    // ✅ Liên kết 1-1 với StoreWallet (thay vì lưu walletId thủ công)
+    @OneToOne(mappedBy = "store", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private StoreWallet wallet;
 
     @Column(nullable = false, length = 255)
-    private String storeName; // 🔹 Tên cửa hàng
+    private String storeName;
 
     @Column(columnDefinition = "TEXT")
-    private String description; // 🔹 Mô tả cửa hàng
+    private String description;
 
     private String logoUrl;
     private String coverImageUrl;
@@ -55,7 +58,7 @@ public class Store {
     @Column(precision = 3, scale = 2)
     private BigDecimal rating;
 
-
+    @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private StoreStatus status;
 
