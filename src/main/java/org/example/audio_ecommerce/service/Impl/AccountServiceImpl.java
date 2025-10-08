@@ -4,18 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.LoginRequest;
 import org.example.audio_ecommerce.dto.request.RegisterRequest;
 import org.example.audio_ecommerce.dto.response.*;
-import org.example.audio_ecommerce.entity.Account;
-import org.example.audio_ecommerce.entity.Customer;                      // ✅
-import org.example.audio_ecommerce.entity.Enum.CustomerStatus;         // ✅
-import org.example.audio_ecommerce.entity.Enum.KycStatus;              // ✅
-import org.example.audio_ecommerce.entity.Enum.RoleEnum;
-import org.example.audio_ecommerce.entity.Enum.StoreStatus;
-import org.example.audio_ecommerce.entity.Store;
-import org.example.audio_ecommerce.entity.Wallet;
-import org.example.audio_ecommerce.repository.AccountRepository;
-import org.example.audio_ecommerce.repository.CustomerRepository;       // ✅
-import org.example.audio_ecommerce.repository.StoreRepository;
-import org.example.audio_ecommerce.repository.WalletRepository;
+import org.example.audio_ecommerce.entity.*;
+import org.example.audio_ecommerce.entity.Enum.*;
+import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.security.JwtTokenProvider;
 import org.example.audio_ecommerce.service.AccountService;
 import org.springframework.http.HttpStatus;
@@ -26,10 +17,10 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;            // ✅
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -37,12 +28,14 @@ public class AccountServiceImpl implements AccountService {
 
     private final AccountRepository repository;
     private final StoreRepository storeRepository;
-    private final CustomerRepository customerRepository;               // ✅
+    private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
     private final WalletRepository walletRepository;
-    
+    private final StoreWalletRepository storeWalletRepository;
+    private final StoreWalletTransactionRepository storeWalletTransactionRepository;
+
     // ==================== REGISTER ====================
     @Override
     public ResponseEntity<BaseResponse> registerCustomer(RegisterRequest request) {
@@ -59,17 +52,18 @@ public class AccountServiceImpl implements AccountService {
         return register(request, RoleEnum.ADMIN, "Admin created");
     }
 
-    @Transactional  // ✅ tạo Account + Customer trong 1 giao dịch
+    @Transactional
     public ResponseEntity<BaseResponse> register(RegisterRequest request, RoleEnum role, String successMsg) {
         if (repository.existsByEmailAndRole(request.getEmail(), role)) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new BaseResponse<>(409, "Email already used with role " + role, null));
         }
-        if (repository.existsByPhone(request.getPhone())){
+        if (repository.existsByPhone(request.getPhone())) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new BaseResponse<>(409, "Phone number already used", null));
         }
-        // ✅ Tạo tài khoản
+
+        // ✅ 1️⃣ Tạo tài khoản
         Account entity = Account.builder()
                 .name(request.getName())
                 .email(request.getEmail())
@@ -79,12 +73,12 @@ public class AccountServiceImpl implements AccountService {
                 .build();
         repository.save(entity);
 
-        // ✅ Tạo Customer mặc định cho account (mọi role)
+        // ✅ 2️⃣ Tạo Customer mặc định
         createDefaultCustomerForAccount(entity);
 
-        // ✅ Nếu role là STOREOWNER → tạo store mặc định
+        // ✅ 3️⃣ Nếu role là STOREOWNER → tạo store + ví + transaction mặc định
         if (role == RoleEnum.STOREOWNER) {
-            createDefaultStoreForAccount(entity);
+            createDefaultStoreWithWallet(entity);
         }
 
         RegisterResponse response = new RegisterResponse(entity.getEmail(), entity.getName(), entity.getPhone());
@@ -98,16 +92,15 @@ public class AccountServiceImpl implements AccountService {
     private void createDefaultCustomerForAccount(Account account) {
         if (customerRepository.existsByAccount_Id(account.getId())) return;
 
-        // username mặc định = phần trước @ của email
         String defaultUsername = account.getEmail().split("@")[0];
 
         Customer customer = Customer.builder()
-                .account(account)                          // 🔗 liên kết 1–1
+                .account(account)
                 .fullName(account.getName())
                 .userName(defaultUsername)
                 .email(account.getEmail())
-                .phoneNumber(account.getPhone())                         // có thể cập nhật sau qua API profile
-                .passwordHash(account.getPassword())       // dùng hash đã encode ở Account
+                .phoneNumber(account.getPhone())
+                .passwordHash(account.getPassword())
                 .status(CustomerStatus.ACTIVE)
                 .twoFactorEnabled(false)
                 .kycStatus(KycStatus.NONE)
@@ -117,30 +110,56 @@ public class AccountServiceImpl implements AccountService {
         createDefaultWalletForCustomer(customer);
     }
 
-    /** ✅ Tạo store mặc định khi account có role STOREOWNER */
-    private void createDefaultStoreForAccount(Account account) {
+    private void createDefaultWalletForCustomer(Customer customer) {
+        if (walletRepository.existsByCustomer_Id(customer.getId())) return;
+        Wallet wallet = Wallet.builder()
+                .customer(customer)
+                .build();
+        walletRepository.save(wallet);
+    }
+
+    /** ✅ Tạo store + store_wallet + transaction mặc định khi đăng ký Store Owner */
+    private void createDefaultStoreWithWallet(Account account) {
         if (storeRepository.existsByAccount_Id(account.getId())) return;
 
+        // 1️⃣ Tạo Store mặc định
         Store store = Store.builder()
                 .account(account)
-                .walletId(UUID.randomUUID())
                 .storeName("Store of " + account.getName())
                 .description("This store is created automatically and is inactive until KYC is approved.")
                 .status(StoreStatus.INACTIVE)
                 .createdAt(LocalDateTime.now())
                 .build();
-
         storeRepository.save(store);
+
+        // 2️⃣ Tạo Store Wallet mặc định
+        StoreWallet wallet = StoreWallet.builder()
+                .store(store)
+                .availableBalance(BigDecimal.ZERO)
+                .pendingBalance(BigDecimal.ZERO)
+                .totalRevenue(BigDecimal.ZERO)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        storeWalletRepository.save(wallet);
+
+        // Gán ví vào store và lưu lại (quan hệ 1-1 hai chiều)
+        store.setWallet(wallet);
+        storeRepository.save(store);
+
+        // 3️⃣ Tạo giao dịch khởi tạo ví
+        StoreWalletTransaction initTransaction = StoreWalletTransaction.builder()
+                .wallet(wallet)
+                .type(StoreWalletTransactionType.ADJUSTMENT)
+                .amount(BigDecimal.ZERO)
+                .balanceAfter(BigDecimal.ZERO)
+                .description("📦 Ví cửa hàng được tạo tự động khi đăng ký tài khoản Store Owner")
+                .createdAt(LocalDateTime.now())
+                .build();
+        storeWalletTransactionRepository.save(initTransaction);
     }
 
-    private void createDefaultWalletForCustomer(Customer customer) {
-        if (walletRepository.existsByCustomer_Id(customer.getId())) return;
-        Wallet wallet = Wallet.builder()
-                .customer(customer)
-                // balance/currency/status dùng default trong entity
-                .build();
-        walletRepository.save(wallet);
-    }
     // ==================== LOGIN ====================
     @Override
     public ResponseEntity<BaseResponse> loginCustomer(LoginRequest request) {
