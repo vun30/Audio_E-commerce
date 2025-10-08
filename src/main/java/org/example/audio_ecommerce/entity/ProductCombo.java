@@ -1,10 +1,12 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,6 +17,7 @@ import java.util.UUID;
 @Builder
 @Entity
 @Table(name = "product_combos")
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class ProductCombo {
 
     @Id
@@ -23,12 +26,16 @@ public class ProductCombo {
     @Column(name = "combo_id", columnDefinition = "CHAR(36)")
     private UUID comboId;
 
-    // 🔗 Combo chính là 1 product luôn
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "product_id", nullable = false)
-    private Product comboProduct; // product đại diện combo (để bán, thêm giỏ hàng, SEO...)
+    // 🔗 Cửa hàng tạo combo
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "store_id", nullable = false)
+    private Store store;
 
-    // 📦 Danh sách sản phẩm thuộc combo
+    // 📂 Danh mục
+    @Column(name = "category_id", columnDefinition = "CHAR(36)")
+    private UUID categoryId;
+
+    // 📦 Danh sách sản phẩm trong combo
     @ManyToMany
     @JoinTable(
             name = "combo_items",
@@ -37,28 +44,45 @@ public class ProductCombo {
     )
     private List<Product> includedProducts;
 
-    // 🏬 🔗 Cửa hàng sở hữu combo
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "store_id", nullable = false)
-    private Store store;
+    // 🏷️ Thông tin cơ bản
+    @Column(nullable = false)
+    private String name;
 
-    // 🖼️ Ảnh đại diện combo
-    private String comboImageUrl;
-
-    // 📂 Danh mục chính của combo (VD: "Combo nghe nhạc", "Combo thu âm", ...)
-    private String categoryName;
-    private String categoryIconUrl;
-
-    // 📝 Mô tả combo
     @Column(columnDefinition = "TEXT")
-    private String comboDescription;
+    private String shortDescription;
 
-    // 💰 Giá combo (giá bán cuối cùng)
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    // 📸 Media
+    @ElementCollection
+    @CollectionTable(name = "combo_images", joinColumns = @JoinColumn(name = "combo_id"))
+    @Column(name = "image_url")
+    private List<String> images;
+
+    private String videoUrl;
+
+    // ⚖️ Thông số kỹ thuật / giao hàng
+    private BigDecimal weight;
+    private Integer stockQuantity;
+    private String shippingAddress;
+    private String warehouseLocation;
+
+    // 💰 Giá combo
+    @Column(nullable = false)
     private BigDecimal comboPrice;
 
-    // 📊 Giá tổng sản phẩm nếu mua lẻ (để hiển thị % giảm giá)
     private BigDecimal originalTotalPrice;
 
-    // ✅ Có đang bán combo này hay không
+    // 📊 Trạng thái
     private Boolean isActive;
+
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+    @Column(name = "created_by", columnDefinition = "CHAR(36)")
+    private UUID createdBy;
+
+    @Column(name = "updated_by", columnDefinition = "CHAR(36)")
+    private UUID updatedBy;
 }
