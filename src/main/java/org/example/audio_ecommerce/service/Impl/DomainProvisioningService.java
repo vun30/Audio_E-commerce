@@ -8,7 +8,9 @@ import org.example.audio_ecommerce.entity.Enum.RoleEnum;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.repository.CustomerRepository;
 import org.example.audio_ecommerce.repository.StoreRepository;
+import org.example.audio_ecommerce.repository.StoreWalletRepository;
 import org.example.audio_ecommerce.repository.WalletRepository;
+import org.example.audio_ecommerce.service.CustomerService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +24,7 @@ public class DomainProvisioningService {
     private final CustomerRepository customerRepository;
     private final StoreRepository storeRepository;
     private final WalletRepository walletRepository;
-
+    private final StoreWalletRepository storeWalletRepository;
     /** Tạo Customer + Wallet mặc định nếu chưa có */
     @Transactional
     public void ensureCustomerAndWallet(Account account) {
@@ -49,19 +51,19 @@ public class DomainProvisioningService {
     }
 
     /** (Tuỳ chọn) tạo Store mặc định cho STOREOWNER */
-    @Transactional
-    public void ensureDefaultStore(Account account) {
-        if (account.getRole() != RoleEnum.STOREOWNER) return;
-        if (!storeRepository.existsByAccount_Id(account.getId())) {
-            Store s = Store.builder()
-                    .account(account)
-                    .walletId(UUID.randomUUID())
-                    .storeName("Store of " + account.getName())
-                    .description("This store is created automatically and is inactive until KYC is approved.")
-                    .status(StoreStatus.INACTIVE)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            storeRepository.save(s);
-        }
-    }
+//    @Transactional
+//    public void ensureDefaultStore(Account account) {
+//        if (account.getRole() != RoleEnum.STOREOWNER) return;
+//        if (!storeRepository.existsByAccount_Id(account.getId())) {
+//            StoreWallet s = StoreWallet.builder()
+//                    .store(Store)
+//                    .walletId(UUID.randomUUID())
+//                    .storeName("Store of " + account.getName())
+//                    .description("This store is created automatically and is inactive until KYC is approved.")
+//                    .status(StoreStatus.INACTIVE)
+//                    .createdAt(LocalDateTime.now())
+//                    .build();
+//            storeWalletRepository.save(s);
+//        }
+//    }
 }

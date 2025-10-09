@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.security.Key;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 public class JwtTokenProvider {
@@ -30,12 +31,13 @@ public class JwtTokenProvider {
     }
 
     // ✅ TOKEN: subject = email:ROLE (giữ đúng format)
-    public String generateToken(String email, String role) {
+    public String generateToken(UUID id, String email, String role) {
         var now = new Date();
         var exp = new Date(now.getTime() + expiry);
 
         return Jwts.builder()
-                .setSubject(email + ":" + role) // đồng bộ
+                .setSubject(email + ":" + role)
+                .claim("accountId", id)// đồng bộ
                 .claim("role", role)
                 .setIssuedAt(now)
                 .setExpiration(exp)

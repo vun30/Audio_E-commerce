@@ -52,7 +52,7 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
 
         provisioningService.ensureCustomerAndWallet(account);
 
-        String token = jwtTokenProvider.generateToken(account.getEmail(), account.getRole().name());
+        String token = jwtTokenProvider.generateToken(account.getId(), account.getEmail(), account.getRole().name());
 
         // === Trả JSON thẳng ===
         try {

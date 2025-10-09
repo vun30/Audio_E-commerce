@@ -186,7 +186,7 @@ public class AccountServiceImpl implements AccountService {
             Account user = repository.findByEmailAndRole(request.getEmail(), role)
                     .orElseThrow(() -> new UsernameNotFoundException("User not found with this role"));
 
-            String token = jwtTokenProvider.generateToken(user.getEmail(), user.getRole().name());
+            String token = jwtTokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole().name());
             AccountResponse userResponse = new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
             LoginResponse loginResponse = new LoginResponse(token, userResponse);
 
