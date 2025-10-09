@@ -73,28 +73,15 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
 
         // 5) Trả JSON (kèm sẵn id cho tiện FE)
         try {
-            response.setStatus(200);
-            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            response.setContentType("application/json");
-            String body = """
-                {"status":200,"message":"OAuth2 login success",
-                 "data":{
-                    "token":"%s",
-                    "email":"%s",
-                    "verified":%s,
-                    "role":"%s",
-                    "accountId":"%s",
-                    "customerId":%s
-                 }}
-                """.formatted(
+            String redirectUrl = String.format(
+                    "http://localhost:5173/oauth-success?token=%s&accountId=%s&customerId=%s",
                     token,
-                    email,
-                    emailVerified,
-                    account.getRole().name(),
                     account.getId(),
-                    customerId != null ? "\"" + customerId + "\"" : null
+                    customerId != null ? customerId.toString() : ""
             );
-            response.getWriter().write(body);
-        } catch (Exception ignored) {}
+            response.sendRedirect(redirectUrl);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
