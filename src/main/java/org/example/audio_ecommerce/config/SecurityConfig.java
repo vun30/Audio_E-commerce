@@ -3,6 +3,8 @@ package org.example.audio_ecommerce.config;
 
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.security.JwtFilter;
+import org.example.audio_ecommerce.security.oauth.OAuth2AuthenticationFailureHandler;
+import org.example.audio_ecommerce.security.oauth.OAuth2AuthenticationSuccessHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -13,6 +15,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -25,7 +28,9 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
     private final JwtFilter jwtFilter;
-
+    private final OAuth2UserService oAuth2UserService;
+    private final OAuth2AuthenticationSuccessHandler  oAuth2SuccessHandler;
+    private final OAuth2AuthenticationFailureHandler oAuth2FailureHandler;
     @Bean
     PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
 
@@ -53,11 +58,21 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/api/account/register/**",
                                 "/api/account/login/**",
-                                "/api/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
+                                "/api/**",
+                                "/oauth2/**",
+                                "/login/oauth2/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
                         .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
                         .anyRequest().authenticated()
                 )
+                .oauth2Login(oauth -> oauth
+                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization")) // => /oauth2/authorization/google
+                        .redirectionEndpoint(re -> re.baseUri("/login/oauth2/code/*"))
+                        .userInfoEndpoint(ui -> ui.userService(oAuth2UserService))
+                        .successHandler(oAuth2SuccessHandler)
+                        .failureHandler(oAuth2FailureHandler)
+                )
+
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(restAuthEntryPoint())
