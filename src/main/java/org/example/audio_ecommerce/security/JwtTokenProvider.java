@@ -31,13 +31,14 @@ public class JwtTokenProvider {
     }
 
     // ✅ TOKEN: subject = email:ROLE (giữ đúng format)
-    public String generateToken(UUID id, String email, String role) {
+    public String generateToken(UUID id, UUID customerId, String email, String role) {
         var now = new Date();
         var exp = new Date(now.getTime() + expiry);
 
         return Jwts.builder()
                 .setSubject(email + ":" + role)
-                .claim("accountId", id)// đồng bộ
+                .claim("accountId", id != null ? id.toString() : null)
+                .claim("customerId", customerId != null ? customerId.toString() : null)
                 .claim("role", role)
                 .setIssuedAt(now)
                 .setExpiration(exp)
@@ -75,4 +76,12 @@ public class JwtTokenProvider {
                 .getBody()
                 .get("role", String.class);
     }
+
+    public UUID getCustomerIdFromToken(String token) {
+        String id = Jwts.parserBuilder().setSigningKey(key).build()
+                .parseClaimsJws(token).getBody()
+                .get("customerId", String.class);
+        return (id != null) ? UUID.fromString(id) : null;
+    }
+
 }

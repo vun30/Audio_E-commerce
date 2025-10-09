@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -186,7 +187,10 @@ public class AccountServiceImpl implements AccountService {
             Account user = repository.findByEmailAndRole(request.getEmail(), role)
                     .orElseThrow(() -> new UsernameNotFoundException("User not found with this role"));
 
-            String token = jwtTokenProvider.generateToken(user.getId(), user.getEmail(), user.getRole().name());
+
+            var customerOpt = customerRepository.findByAccount_Id(user.getId());
+            UUID customerId = customerOpt.map(Customer::getId).orElse(null);
+            String token = jwtTokenProvider.generateToken(user.getId(), customerId,user.getEmail(), user.getRole().name());
             AccountResponse userResponse = new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
             LoginResponse loginResponse = new LoginResponse(token, userResponse);
 
