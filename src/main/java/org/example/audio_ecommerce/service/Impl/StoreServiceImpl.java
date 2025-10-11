@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -173,4 +174,10 @@ public class StoreServiceImpl implements StoreService {
 
 
     }
+
+    @Override
+public Optional<Store> getStoreByEmail(String email) {
+    return storeRepository.findByAccount_Email(email);
+}
+
 }
