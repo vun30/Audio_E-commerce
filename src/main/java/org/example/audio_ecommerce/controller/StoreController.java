@@ -12,6 +12,7 @@ import org.example.audio_ecommerce.dto.request.UpdateStoreStatusRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.service.StoreService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -57,16 +58,16 @@ public class StoreController {
                     content = @Content(
                             schema = @Schema(implementation = UpdateStoreRequest.class),
                             examples = @ExampleObject(value = """
-                                    {
-                                      "storeName": "Loa Nghe Nhạc Cao Cấp",
-                                      "description": "Chuyên thiết bị âm thanh Hi-End",
-                                      "logoUrl": "https://cdn.example.com/logo.png",
-                                      "coverImageUrl": "https://cdn.example.com/cover.jpg",
-                                      "address": "123 Nguyễn Trãi, Hà Nội",
-                                      "phoneNumber": "0987654321",
-                                      "email": "contact@store.vn"
-                                    }
-                                """)
+                                        {
+                                          "storeName": "Loa Nghe Nhạc Cao Cấp",
+                                          "description": "Chuyên thiết bị âm thanh Hi-End",
+                                          "logoUrl": "https://cdn.example.com/logo.png",
+                                          "coverImageUrl": "https://cdn.example.com/cover.jpg",
+                                          "address": "123 Nguyễn Trãi, Hà Nội",
+                                          "phoneNumber": "0987654321",
+                                          "email": "contact@store.vn"
+                                        }
+                                    """)
                     )
             )
     )
@@ -91,10 +92,10 @@ public class StoreController {
                     content = @Content(
                             schema = @Schema(implementation = UpdateStoreStatusRequest.class),
                             examples = @ExampleObject(value = """
-                                    {
-                                      "status": "ACTIVE"
-                                    }
-                                """)
+                                        {
+                                          "status": "ACTIVE"
+                                        }
+                                    """)
                     )
             )
     )
@@ -133,5 +134,37 @@ public class StoreController {
             @RequestParam(required = false) String keyword
     ) {
         return storeService.getAllStores(page, size, keyword);
+    }
+
+    @Operation(
+            summary = "Lấy thông tin cửa hàng đang đăng nhập",
+            description = """
+                    API dùng để lấy UUID của cửa hàng hiện đang login.
+                    Hệ thống sẽ đọc `email` từ token JWT, sau đó tìm cửa hàng tương ứng.
+                    Chỉ dành cho người dùng có role `STOREOWNER`.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy thành công storeId của cửa hàng"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy cửa hàng cho tài khoản này")
+    })
+    @GetMapping("/me/id")
+    public ResponseEntity<BaseResponse> getMyStoreId() {
+        // 🔐 Lấy email từ JWT trong SecurityContext
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        // 🔎 Tìm store theo email
+        var storeOpt = storeService.getStoreByEmail(email);
+        if (storeOpt.isEmpty()) {
+            return ResponseEntity.status(404)
+                    .body(new BaseResponse<>(404, "❌ Không tìm thấy cửa hàng cho tài khoản: " + email, null));
+        }
+
+        // ✅ Trả về storeId
+        UUID storeId = storeOpt.get().getStoreId();
+        return ResponseEntity.ok(
+                new BaseResponse<>(200, "✅ Lấy storeId thành công", storeId)
+        );
     }
 }
