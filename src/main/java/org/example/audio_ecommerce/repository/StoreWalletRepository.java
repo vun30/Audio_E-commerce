@@ -1,6 +1,10 @@
 package org.example.audio_ecommerce.repository;
 
+import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
 import org.example.audio_ecommerce.entity.StoreWallet;
+import org.example.audio_ecommerce.entity.StoreWalletTransaction;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
