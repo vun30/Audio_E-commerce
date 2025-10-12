@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.repository;
 
+import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
 import org.example.audio_ecommerce.entity.StoreWalletTransaction;
 import org.example.audio_ecommerce.entity.StoreWallet;
 import org.springframework.data.domain.Page;
@@ -21,4 +22,10 @@ public interface StoreWalletTransactionRepository extends JpaRepository<StoreWal
 
     // 🔍 Lấy giao dịch gần nhất của ví (dễ dùng khi cần kiểm tra số dư cuối)
     StoreWalletTransaction findTop1ByWallet_WalletIdOrderByCreatedAtDesc(UUID walletId);
+
+    Page<StoreWalletTransaction> findByWallet_WalletIdOrderByCreatedAtDesc(UUID walletId, Pageable pageable);
+
+    Page<StoreWalletTransaction> findByWallet_WalletIdAndTypeOrderByCreatedAtDesc(
+            UUID walletId, StoreWalletTransactionType type, Pageable pageable);
+
 }

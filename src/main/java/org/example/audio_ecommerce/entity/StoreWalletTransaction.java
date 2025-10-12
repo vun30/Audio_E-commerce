@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
@@ -15,6 +16,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Table(name = "store_wallet_transactions")
 public class StoreWalletTransaction {
 

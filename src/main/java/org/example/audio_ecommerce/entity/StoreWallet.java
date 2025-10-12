@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
@@ -15,6 +16,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Table(name = "store_wallets")
 public class StoreWallet {
 
@@ -31,6 +33,9 @@ public class StoreWallet {
 
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal availableBalance = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 18, scale = 2)
+private BigDecimal depositBalance = BigDecimal.ZERO; // tiền cọc / ký quỹ
 
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal pendingBalance = BigDecimal.ZERO;

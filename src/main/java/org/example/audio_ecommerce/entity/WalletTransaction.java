@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.WalletTransactionStatus;
@@ -8,8 +9,13 @@ import org.example.audio_ecommerce.entity.Enum.WalletTransactionType;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 @Entity
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Table(
         name = "wallet_transactions",
         indexes = {
