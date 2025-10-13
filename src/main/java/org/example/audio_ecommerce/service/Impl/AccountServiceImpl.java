@@ -139,6 +139,7 @@ public class AccountServiceImpl implements AccountService {
                 .availableBalance(BigDecimal.ZERO)
                 .pendingBalance(BigDecimal.ZERO)
                 .totalRevenue(BigDecimal.ZERO)
+                .depositBalance(BigDecimal.ZERO)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
