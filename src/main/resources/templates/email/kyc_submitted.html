@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="UTF-8"><title>Xác nhận nộp KYC</title></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6;">
+  <h2>Xin chào, <span th:text="${ownerName}"></span> 👋</h2>
+  <p>Chúng tôi đã nhận hồ sơ KYC cho cửa hàng <b th:text="${storeName}"></b>.</p>
+  <ul>
+    <li>Điện thoại: <span th:text="${phoneNumber}"></span></li>
+    <li>Giấy phép KD: <span th:text="${businessLicenseNumber}"></span></li>
+    <li>Mã số thuế: <span th:text="${taxCode}"></span></li>
+    <li>Ngân hàng: <span th:text="${bankName}"></span></li>
+    <li>Chủ TK: <span th:text="${bankAccountName}"></span></li>
+    <li>Số TK: <span th:text="${bankAccountNumber}"></span></li>
+    <li>Thời gian nộp: <span th:text="${submittedAt}"></span></li>
+  </ul>
+  <p>Bạn có thể theo dõi tại:
+     <a th:href="${siteUrl}" style="color:#1E88E5;">Trang KYC</a></p>
+  <hr/>
+  <p>Trân trọng,<br/>Đội ngũ AudioEcommerce</p>
+</body>
+</html>

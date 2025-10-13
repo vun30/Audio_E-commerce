@@ -122,5 +122,5 @@ public ResponseEntity<List<PlatformTransactionResponse>> filterTransactions(
         LocalDateTime to
 ) {
     return ResponseEntity.ok(walletService.filterTransactions(storeId, customerId, status, type, from, to));
-}
+ }
 }

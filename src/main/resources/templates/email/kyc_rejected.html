@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="UTF-8"><title>KYC Rejected</title></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6;">
+  <h2>Xin chào, <span th:text="${ownerName}"></span> 👋</h2>
+  <p>Rất tiếc, hồ sơ KYC cho cửa hàng <b th:text="${storeName}"></b> chưa được phê duyệt.</p>
+  <p><b>Lý do:</b> <span th:text="${reason}"></span></p>
+  <p>Vui lòng cập nhật và gửi lại tại:
+     <a th:href="${siteUrl}" style="color:#1E88E5;">Trang KYC</a></p>
+  <hr/>
+  <p>Trân trọng,<br/>Đội ngũ AudioEcommerce</p>
+</body>
+</html>

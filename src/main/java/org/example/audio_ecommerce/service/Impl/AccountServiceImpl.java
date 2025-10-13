@@ -4,11 +4,14 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.LoginRequest;
 import org.example.audio_ecommerce.dto.request.RegisterRequest;
 import org.example.audio_ecommerce.dto.response.*;
+import org.example.audio_ecommerce.email.AccountData;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.security.JwtTokenProvider;
 import org.example.audio_ecommerce.service.AccountService;
+import org.example.audio_ecommerce.email.EmailService;
+import org.example.audio_ecommerce.email.EmailTemplateType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -36,6 +39,9 @@ public class AccountServiceImpl implements AccountService {
     private final WalletRepository walletRepository;
     private final StoreWalletRepository storeWalletRepository;
     private final StoreWalletTransactionRepository storeWalletTransactionRepository;
+
+    // 👇 thêm dependency EmailService
+    private final EmailService emailService;
 
     // ==================== REGISTER ====================
     @Override
@@ -80,6 +86,20 @@ public class AccountServiceImpl implements AccountService {
         // ✅ 3️⃣ Nếu role là STOREOWNER → tạo store + ví + transaction mặc định
         if (role == RoleEnum.STOREOWNER) {
             createDefaultStoreWithWallet(entity);
+        }
+
+        // ✅ 4️⃣ Gửi email chào mừng theo role
+        try {
+            AccountData mailData = new AccountData(
+                    entity.getEmail(),
+                    entity.getName(),
+                    role.name(),               // CUSTOMER / STOREOWNER / ADMIN
+                    "https://www.facebook.com/hoan.vu.3012" // đường link trang web (sửa theo domain của bạn)
+            );
+
+            emailService.sendEmail(EmailTemplateType.ACCOUNT_WELCOME, mailData);
+        } catch (Exception e) {
+            System.err.println("⚠️ Gửi mail chào mừng thất bại: " + e.getMessage());
         }
 
         RegisterResponse response = new RegisterResponse(entity.getEmail(), entity.getName(), entity.getPhone());
@@ -188,10 +208,9 @@ public class AccountServiceImpl implements AccountService {
             Account user = repository.findByEmailAndRole(request.getEmail(), role)
                     .orElseThrow(() -> new UsernameNotFoundException("User not found with this role"));
 
-
             var customerOpt = customerRepository.findByAccount_Id(user.getId());
             UUID customerId = customerOpt.map(Customer::getId).orElse(null);
-            String token = jwtTokenProvider.generateToken(user.getId(), customerId,user.getEmail(), user.getRole().name());
+            String token = jwtTokenProvider.generateToken(user.getId(), customerId, user.getEmail(), user.getRole().name());
             AccountResponse userResponse = new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
             LoginResponse loginResponse = new LoginResponse(token, userResponse);
 
