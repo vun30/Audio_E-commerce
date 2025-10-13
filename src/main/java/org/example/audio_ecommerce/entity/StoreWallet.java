@@ -34,8 +34,9 @@ public class StoreWallet {
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal availableBalance = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
-private BigDecimal depositBalance = BigDecimal.ZERO; // tiền cọc / ký quỹ
+    private BigDecimal depositBalance = BigDecimal.ZERO; // tiền cọc / ký quỹ
 
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal pendingBalance = BigDecimal.ZERO;
