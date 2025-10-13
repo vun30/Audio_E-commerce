@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="UTF-8"><title>Welcome Admin</title></head>
+<body style="font-family:Arial, sans-serif;">
+  <h2>Xin chào, <span th:text="${name}"></span> 👋</h2>
+  <p>Tài khoản <b>Admin</b> của bạn đã được khởi tạo.</p>
+  <p>Vào trang quản trị:
+     <a th:href="${siteUrl} + '/admin'" style="color:#1E88E5;" target="_blank">Admin Console</a>.</p>
+  <hr/><p>Trân trọng,<br/>Đội ngũ AudioEcommerce</p>
+</body></html>

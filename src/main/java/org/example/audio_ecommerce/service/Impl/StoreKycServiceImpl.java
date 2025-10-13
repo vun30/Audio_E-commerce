@@ -2,13 +2,15 @@ package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.StoreKycRequest;
+import org.example.audio_ecommerce.email.EmailService;
+import org.example.audio_ecommerce.email.EmailTemplateType;
+import org.example.audio_ecommerce.email.dto.KycApprovedData;
+import org.example.audio_ecommerce.email.dto.KycRejectedData;
+import org.example.audio_ecommerce.email.dto.KycSubmittedData;
 import org.example.audio_ecommerce.entity.Enum.KycStatus;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
-import org.example.audio_ecommerce.entity.Store;
-import org.example.audio_ecommerce.entity.StoreKyc;
-import org.example.audio_ecommerce.entity.StoreWallet;
-import org.example.audio_ecommerce.entity.StoreWalletTransaction;
+import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.StoreKycService;
 import org.springframework.stereotype.Service;
@@ -27,14 +29,17 @@ public class StoreKycServiceImpl implements StoreKycService {
     private final StoreKycRepository storeKycRepository;
     private final StoreWalletRepository storeWalletRepository;
     private final StoreWalletTransactionRepository storeWalletTransactionRepository;
+    private final EmailService emailService; // 👈 thêm vào
 
+    // ==================== GỬI ĐƠN KYC ====================
     @Override
     public StoreKyc submitKyc(UUID storeId, StoreKycRequest request) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new RuntimeException("Store not found"));
 
         boolean hasPending = storeKycRepository.existsByStore_StoreIdAndStatus(storeId, KycStatus.PENDING);
-        if (hasPending) throw new IllegalStateException("Store đã gửi KYC và đang chờ duyệt");
+        if (hasPending)
+            throw new IllegalStateException("Store đã gửi KYC và đang chờ duyệt");
 
         StoreKyc kyc = StoreKyc.builder()
                 .id(UUID.randomUUID().toString())
@@ -58,31 +63,53 @@ public class StoreKycServiceImpl implements StoreKycService {
                 .build();
 
         storeKycRepository.save(kyc);
-
-        // ✅ Cập nhật trạng thái store
         store.setStatus(StoreStatus.PENDING);
         storeRepository.save(store);
+
+        // 📧 Gửi mail xác nhận đã nhận đơn KYC
+        try {
+            KycSubmittedData mailData = KycSubmittedData.builder()
+                    .email(store.getAccount().getEmail())
+                    .ownerName(store.getAccount().getName())
+                    .storeName(kyc.getStoreName())
+                    .phoneNumber(kyc.getPhoneNumber())
+                    .businessLicenseNumber(kyc.getBusinessLicenseNumber())
+                    .businessLicenseUrl(kyc.getBusinessLicenseUrl())
+                    .isOfficial(kyc.isOfficial())
+                    .taxCode(kyc.getTaxCode())
+                    .bankName(kyc.getBankName())
+                    .bankAccountName(kyc.getBankAccountName())
+                    .bankAccountNumber(kyc.getBankAccountNumber())
+                    .idCardFrontUrl(kyc.getIdCardFrontUrl())
+                    .idCardBackUrl(kyc.getIdCardBackUrl())
+                    .submittedAt(kyc.getSubmittedAt())
+                    .siteUrl("https://yourplatform.com/stores/me/kyc")
+                    .build();
+
+            emailService.sendEmail(EmailTemplateType.KYC_SUBMITTED, mailData);
+        } catch (Exception e) {
+            System.err.println("⚠️ Lỗi gửi email KYC_SUBMITTED: " + e.getMessage());
+        }
 
         return kyc;
     }
 
+    // ==================== DUYỆT KYC ====================
     @Override
     @Transactional
     public void approveKyc(String kycId) {
         StoreKyc kyc = storeKycRepository.findById(kycId)
                 .orElseThrow(() -> new RuntimeException("KYC not found"));
 
-        // ✅ 1️⃣ Cập nhật trạng thái KYC
         kyc.setStatus(KycStatus.APPROVED);
         kyc.setReviewedAt(LocalDateTime.now());
         storeKycRepository.save(kyc);
 
-        // ✅ 2️⃣ Kích hoạt Store
         Store store = kyc.getStore();
         store.setStatus(StoreStatus.ACTIVE);
         storeRepository.save(store);
 
-        // ✅ 3️⃣ Nếu chưa có ví → tạo ví + transaction mặc định
+        // Nếu chưa có ví → tạo ví mặc định
         if (store.getWallet() == null) {
             StoreWallet wallet = StoreWallet.builder()
                     .store(store)
@@ -93,14 +120,10 @@ public class StoreKycServiceImpl implements StoreKycService {
                     .updatedAt(LocalDateTime.now())
                     .build();
 
-            // 🔗 Gắn ví ngược lại vào store
             store.setWallet(wallet);
-
-            // 📥 Lưu cả ví và store
             storeWalletRepository.save(wallet);
             storeRepository.save(store);
 
-            // ✅ 4️⃣ Tạo transaction khởi tạo ví
             StoreWalletTransaction initTran = StoreWalletTransaction.builder()
                     .wallet(wallet)
                     .type(StoreWalletTransactionType.ADJUSTMENT)
@@ -109,11 +132,25 @@ public class StoreKycServiceImpl implements StoreKycService {
                     .description("📦 Ví cửa hàng được khởi tạo tự động khi KYC được duyệt")
                     .createdAt(LocalDateTime.now())
                     .build();
-
             storeWalletTransactionRepository.save(initTran);
+        }
+
+        // 📧 Gửi mail xác nhận được duyệt
+        try {
+            KycApprovedData mailData = KycApprovedData.builder()
+                    .email(store.getAccount().getEmail())
+                    .ownerName(store.getAccount().getName())
+                    .storeName(store.getStoreName())
+                    .siteUrl("https://yourplatform.com/stores/me")
+                    .build();
+
+            emailService.sendEmail(EmailTemplateType.KYC_APPROVED, mailData);
+        } catch (Exception e) {
+            System.err.println("⚠️ Lỗi gửi email KYC_APPROVED: " + e.getMessage());
         }
     }
 
+    // ==================== TỪ CHỐI KYC ====================
     @Override
     public void rejectKyc(String kycId, String reason) {
         StoreKyc kyc = storeKycRepository.findById(kycId)
@@ -127,8 +164,24 @@ public class StoreKycServiceImpl implements StoreKycService {
         Store store = kyc.getStore();
         store.setStatus(StoreStatus.REJECTED);
         storeRepository.save(store);
+
+        // 📧 Gửi mail bị từ chối (có lý do)
+        try {
+            KycRejectedData mailData = KycRejectedData.builder()
+                    .email(store.getAccount().getEmail())
+                    .ownerName(store.getAccount().getName())
+                    .storeName(store.getStoreName())
+                    .reason(reason)
+                    .siteUrl("https://yourplatform.com/stores/me/kyc")
+                    .build();
+
+            emailService.sendEmail(EmailTemplateType.KYC_REJECTED, mailData);
+        } catch (Exception e) {
+            System.err.println("⚠️ Lỗi gửi email KYC_REJECTED: " + e.getMessage());
+        }
     }
 
+    // ==================== QUERY ====================
     @Override
     public List<StoreKyc> getAllRequestsOfStore(UUID storeId) {
         return storeKycRepository.findByStore_StoreIdOrderByCreatedAtDesc(storeId);
