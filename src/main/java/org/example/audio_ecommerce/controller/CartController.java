@@ -74,4 +74,21 @@ public class CartController {
             @Valid @org.springframework.web.bind.annotation.RequestBody AddCartItemsRequest req) {
         return cartService.addItems(customerId, req);
     }
+
+    @Operation(
+        summary = "Checkout giỏ hàng",
+        description = "Khách hàng tiến hành checkout giỏ hàng, tạo đơn hàng mới, đồng thời ghi transaction vào ví customer và ví web (platform)."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Checkout thành công"),
+        @ApiResponse(responseCode = "400", description = "Giỏ hàng rỗng, số dư không đủ hoặc lỗi khác")
+    })
+    @PostMapping("/checkout")
+    @ResponseStatus(HttpStatus.OK)
+    public void checkout(
+        @Parameter(description = "ID khách hàng (UUID)", required = true)
+        @PathVariable UUID customerId
+    ) {
+        cartService.checkout(customerId);
+    }
 }
