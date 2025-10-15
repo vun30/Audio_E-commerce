@@ -25,4 +25,5 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
 
     // 🔍 Tìm category có tên chứa từ khóa (cho tìm kiếm trong admin panel)
     List<Category> findByNameContainingIgnoreCase(String keyword);
+    Optional<Category> findByNameIgnoreCase(String name);
 }
