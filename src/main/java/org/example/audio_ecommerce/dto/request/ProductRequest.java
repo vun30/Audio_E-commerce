@@ -1,9 +1,9 @@
 package org.example.audio_ecommerce.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 @Getter
 @Setter
@@ -15,15 +15,22 @@ public class ProductRequest {
     // ======================
     // 🔗 Liên kết
     // ======================
-    private UUID storeId;          // ID cửa hàng mà sản phẩm thuộc về
-    private UUID categoryId;       // ID danh mục sản phẩm
-    private String brandName;
+    @Schema(
+        description = "Tên danh mục sản phẩm (BE tự tìm categoryId trong DB)",
+        example = "Loa",
+        allowableValues = {
+            "Loa", "Micro", "DAC", "Mixer", "Amp",
+            "Turntable", "Sound Card", "DJ Controller", "Combo"
+        }
+    )
+    private String categoryName;   // 🟢 FE chọn theo tên — BE tự tìm Category
+
+    private String brandName;      // 🏷️ Tên thương hiệu
 
     // ======================
     // 🔖 Thông tin cơ bản
     // ======================
     private String name;
-    private String slug;
     private String shortDescription;
     private String description;
     private String model;
@@ -35,13 +42,13 @@ public class ProductRequest {
     // ======================
     // 📸 Media
     // ======================
-    private List<String> images;
-    private String videoUrl;
+    private List<String> images;   // Danh sách URL ảnh
+    private String videoUrl;       // URL video giới thiệu
 
     // ======================
     // 💵 Giá & Kho
     // ======================
-    private String sku;
+    private String sku;            // FE nhập
     private BigDecimal price;
     private BigDecimal discountPrice;
     private String currency;

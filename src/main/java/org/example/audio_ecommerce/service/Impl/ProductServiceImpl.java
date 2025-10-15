@@ -10,6 +10,7 @@ import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ProductService;
 import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -24,65 +25,133 @@ public class ProductServiceImpl implements ProductService {
     private final StoreRepository storeRepository;
     private final CategoryRepository categoryRepository;
 
-    /**
-     * ➕ Tạo sản phẩm mới
-     */
-    @Override
-    public ResponseEntity<BaseResponse> createProduct(ProductRequest request) {
-        Store store = storeRepository.findById(request.getStoreId())
-                .orElseThrow(() -> new RuntimeException("Store not found"));
-        Category category = categoryRepository.findById(request.getCategoryId())
-                .orElseThrow(() -> new RuntimeException("Category not found"));
+    // ============================================================
+    // 🔧 Helper: Sinh slug duy nhất
+    // ============================================================
+    private String generateUniqueSlug(String productName) {
+        if (productName == null || productName.isBlank())
+            return UUID.randomUUID().toString().substring(0, 8);
 
-        if (request.getSku() == null || request.getSku().isBlank()) {
-            throw new RuntimeException("SKU must not be empty");
+        String base = productName.toLowerCase()
+                .replaceAll("[^a-z0-9\\s-]", "")
+                .replaceAll("\\s+", "-")
+                .replaceAll("-+", "-");
+
+        String slug = base;
+        int counter = 1;
+        while (productRepository.existsBySlug(slug)) {
+            slug = base + "-" + counter++;
         }
-        if (request.getBrandName() == null) {
-            throw new RuntimeException("Brand Name must not be null");
-        }
-
-        Product product = new Product();
-        product.setStore(store);
-        product.setCategory(category);
-        product.setBrandName(request.getBrandName());
-        product.setName(request.getName());
-        product.setSlug(request.getSlug());
-        product.setShortDescription(request.getShortDescription());
-        product.setDescription(request.getDescription());
-        product.setModel(request.getModel());
-        product.setColor(request.getColor());
-        product.setMaterial(request.getMaterial());
-        product.setDimensions(request.getDimensions());
-        product.setWeight(request.getWeight());
-        product.setImages(request.getImages());
-        product.setVideoUrl(request.getVideoUrl());
-        product.setSku(request.getSku());
-        product.setPrice(request.getPrice());
-        product.setDiscountPrice(request.getDiscountPrice());
-        product.setCurrency(request.getCurrency());
-        product.setStockQuantity(request.getStockQuantity());
-        product.setWarehouseLocation(request.getWarehouseLocation());
-        product.setShippingAddress(request.getShippingAddress());
-        product.setStatus(ProductStatus.ACTIVE);
-        product.setIsFeatured(false);
-        product.setCreatedAt(LocalDateTime.now());
-
-        productRepository.save(product);
-        return ResponseEntity.ok(new BaseResponse<>(201, "✅ Product created successfully", toResponse(product)));
+        return slug;
     }
 
-    /**
-     * 📜 Lấy tất cả sản phẩm (có bộ lọc & phân trang)
-     */
+    // ============================================================
+    // ➕ CREATE PRODUCT
+    // ============================================================
+    @Override
+    public ResponseEntity<BaseResponse> createProduct(ProductRequest req) {
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Store not found for logged-in account"));
+
+        // 🔍 Tìm Category theo tên (categoryName)
+        if (req.getCategoryName() == null || req.getCategoryName().isBlank())
+            throw new RuntimeException("❌ Category Name must not be null");
+
+        Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
+                .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
+
+        // SKU check
+        if (req.getSku() == null || req.getSku().isBlank())
+            throw new RuntimeException("❌ SKU must not be empty");
+
+        if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku()))
+            throw new RuntimeException("❌ SKU already exists in this store");
+
+        // ✅ Tạo Product
+        Product p = new Product();
+        p.setStore(store);
+        p.setCategory(category);
+        p.setBrandName(req.getBrandName());
+        p.setName(req.getName());
+        p.setSlug(generateUniqueSlug(req.getName()));
+        p.setSku(req.getSku());
+        applyRequestToProduct(p, req);
+        p.setStatus(ProductStatus.ACTIVE);
+        p.setIsFeatured(false);
+        p.setCreatedAt(LocalDateTime.now());
+        p.setCreatedBy(store.getAccount().getId());
+
+        productRepository.save(p);
+        return ResponseEntity.ok(new BaseResponse<>(201, "✅ Product created successfully", toResponse(p)));
+    }
+
+    // ============================================================
+    // ✏️ UPDATE PRODUCT
+    // ============================================================
+    @Override
+    public ResponseEntity<BaseResponse> updateProduct(UUID id, ProductRequest req) {
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Store not found"));
+
+        Product p = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+
+        if (!p.getStore().getStoreId().equals(store.getStoreId()))
+            throw new RuntimeException("❌ Cannot update another store's product");
+
+        // Nếu đổi categoryName → tìm category mới
+        if (req.getCategoryName() != null && !req.getCategoryName().isBlank()) {
+            Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
+                    .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
+            p.setCategory(category);
+        }
+
+        if (req.getName() != null) {
+            p.setName(req.getName());
+            p.setSlug(generateUniqueSlug(req.getName()));
+        }
+
+        if (req.getSku() != null && !req.getSku().equals(p.getSku())) {
+            if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku()))
+                throw new RuntimeException("❌ SKU already exists in this store");
+            p.setSku(req.getSku());
+        }
+
+        applyRequestToProduct(p, req);
+
+        p.setUpdatedAt(LocalDateTime.now());
+        p.setUpdatedBy(store.getAccount().getId());
+
+        productRepository.save(p);
+        return ResponseEntity.ok(new BaseResponse<>(200, "✏️ Product updated successfully", toResponse(p)));
+    }
+
+    // ============================================================
+    // 🔄 ENABLE / DISABLE PRODUCT
+    // ============================================================
+    @Override
+    public ResponseEntity<BaseResponse> disableProduct(UUID id) {
+        Product p = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+        p.setStatus(p.getStatus() == ProductStatus.ACTIVE ? ProductStatus.DISCONTINUED : ProductStatus.ACTIVE);
+        p.setUpdatedAt(LocalDateTime.now());
+        productRepository.save(p);
+        return ResponseEntity.ok(new BaseResponse<>(200, "🔄 Product status changed", toResponse(p)));
+    }
+
+    // ============================================================
+    // 📜 GET ALL / 🔍 BY ID
+    // ============================================================
     @Override
     public ResponseEntity<BaseResponse> getAllProducts(
-            UUID categoryId,
-            UUID storeId,
-            String keyword,
-            int page,
-            int size,
-            ProductStatus status
-    ) {
+            UUID categoryId, UUID storeId, String keyword, int page, int size, ProductStatus status) {
+
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Product> products = productRepository.findAll(pageable);
 
@@ -94,143 +163,58 @@ public class ProductServiceImpl implements ProductService {
                 .map(this::toResponse)
                 .toList();
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "📦 List of products", filtered));
+        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Product list", filtered));
     }
 
-    /**
-     * 🔍 Lấy chi tiết sản phẩm theo ID (đồng bộ DTO)
-     */
     @Override
-    public ResponseEntity<BaseResponse> getProductById(UUID productId) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found"));
-        return ResponseEntity.ok(new BaseResponse<>(200, "🔎 Product detail", toResponse(product)));
+    public ResponseEntity<BaseResponse> getProductById(UUID id) {
+        Product p = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+        return ResponseEntity.ok(new BaseResponse<>(200, "🔎 Product detail", toResponse(p)));
     }
 
-    /**
-     * ✏️ Cập nhật sản phẩm (đồng bộ DTO)
-     */
-    @Override
-    public ResponseEntity<BaseResponse> updateProduct(UUID productId, ProductRequest request) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found"));
-
-        if (request.getName() != null) product.setName(request.getName());
-        if (request.getSlug() != null) product.setSlug(request.getSlug());
-        if (request.getShortDescription() != null) product.setShortDescription(request.getShortDescription());
-        if (request.getDescription() != null) product.setDescription(request.getDescription());
-        if (request.getPrice() != null) product.setPrice(request.getPrice());
-        if (request.getDiscountPrice() != null) product.setDiscountPrice(request.getDiscountPrice());
-        if (request.getImages() != null) product.setImages(request.getImages());
-        if (request.getVideoUrl() != null) product.setVideoUrl(request.getVideoUrl());
-        if (request.getStockQuantity() != null) product.setStockQuantity(request.getStockQuantity());
-        if (request.getBrandName() != null) product.setBrandName(request.getBrandName());
-
-
-        product.setUpdatedAt(LocalDateTime.now());
-        productRepository.save(product);
-
-        return ResponseEntity.ok(new BaseResponse<>(200, "✏️ Product updated successfully", toResponse(product)));
-    }
-
-    /**
-     * 🔄 Thay đổi trạng thái sản phẩm (ACTIVE <-> DISCONTINUED)
-     */
-    @Override
-    public ResponseEntity<BaseResponse> disableProduct(UUID productId) {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Product not found"));
-
-        if (product.getStatus() == ProductStatus.ACTIVE) {
-            product.setStatus(ProductStatus.DISCONTINUED);
-        } else {
-            product.setStatus(ProductStatus.ACTIVE);
-        }
-
-        product.setUpdatedAt(LocalDateTime.now());
-        productRepository.save(product);
-
-        return ResponseEntity.ok(new BaseResponse<>(200, "🔄 Product status changed: " + product.getStatus(), toResponse(product)));
-    }
-
-    /**
-     * ✅ Convert Entity -> DTO
-     */
+    // ============================================================
+    // 🧩 Convert Entity → Response
+    // ============================================================
     private ProductResponse toResponse(Product p) {
         return ProductResponse.builder()
                 .productId(p.getProductId())
-                .storeId(p.getStore() != null ? p.getStore().getStoreId() : null)
-                .storeName(p.getStore() != null ? p.getStore().getStoreName() : null)
-                .categoryId(p.getCategory() != null ? p.getCategory().getCategoryId() : null)
-                .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
+                .storeId(p.getStore().getStoreId())
+                .storeName(p.getStore().getStoreName())
+                .categoryId(p.getCategory().getCategoryId())
+                .categoryName(p.getCategory().getName())
                 .brandName(p.getBrandName())
                 .name(p.getName())
                 .slug(p.getSlug())
-                .shortDescription(p.getShortDescription())
-                .description(p.getDescription())
-                .model(p.getModel())
-                .color(p.getColor())
-                .material(p.getMaterial())
-                .dimensions(p.getDimensions())
-                .weight(p.getWeight())
-                .images(p.getImages())
-                .videoUrl(p.getVideoUrl())
                 .sku(p.getSku())
                 .price(p.getPrice())
                 .discountPrice(p.getDiscountPrice())
                 .currency(p.getCurrency())
                 .stockQuantity(p.getStockQuantity())
-                .warehouseLocation(p.getWarehouseLocation())
-                .shippingAddress(p.getShippingAddress())
+                .images(p.getImages())
+                .videoUrl(p.getVideoUrl())
                 .status(p.getStatus())
-                .isFeatured(p.getIsFeatured())
-                .ratingAverage(p.getRatingAverage())
-                .reviewCount(p.getReviewCount())
-                .viewCount(p.getViewCount())
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
-                .driverConfiguration(p.getDriverConfiguration())
-                .driverSize(p.getDriverSize())
-                .frequencyResponse(p.getFrequencyResponse())
-                .sensitivity(p.getSensitivity())
-                .impedance(p.getImpedance())
-                .powerHandling(p.getPowerHandling())
-                .enclosureType(p.getEnclosureType())
-                .coveragePattern(p.getCoveragePattern())
-                .crossoverFrequency(p.getCrossoverFrequency())
-                .placementType(p.getPlacementType())
-                .connectionType(p.getConnectionType())
-                .micType(p.getMicType())
-                .polarPattern(p.getPolarPattern())
-                .maxSPL(p.getMaxSPL())
-                .micOutputImpedance(p.getMicOutputImpedance())
-                .micSensitivity(p.getMicSensitivity())
-                .amplifierType(p.getAmplifierType())
-                .totalPowerOutput(p.getTotalPowerOutput())
-                .thd(p.getThd())
-                .snr(p.getSnr())
-                .inputChannels(p.getInputChannels())
-                .outputChannels(p.getOutputChannels())
-                .supportBluetooth(p.getSupportBluetooth())
-                .supportWifi(p.getSupportWifi())
-                .supportAirplay(p.getSupportAirplay())
-                .platterMaterial(p.getPlatterMaterial())
-                .motorType(p.getMotorType())
-                .tonearmType(p.getTonearmType())
-                .autoReturn(p.getAutoReturn())
-                .dacChipset(p.getDacChipset())
-                .sampleRate(p.getSampleRate())
-                .bitDepth(p.getBitDepth())
-                .balancedOutput(p.getBalancedOutput())
-                .inputInterface(p.getInputInterface())
-                .outputInterface(p.getOutputInterface())
-                .channelCount(p.getChannelCount())
-                .hasPhantomPower(p.getHasPhantomPower())
-                .eqBands(p.getEqBands())
-                .faderType(p.getFaderType())
-                .builtInEffects(p.getBuiltInEffects())
-                .usbAudioInterface(p.getUsbAudioInterface())
-                .midiSupport(p.getMidiSupport())
                 .build();
+    }
+
+    private void applyRequestToProduct(Product p, ProductRequest r) {
+        if (r.getBrandName() != null) p.setBrandName(r.getBrandName());
+        if (r.getShortDescription() != null) p.setShortDescription(r.getShortDescription());
+        if (r.getDescription() != null) p.setDescription(r.getDescription());
+        if (r.getModel() != null) p.setModel(r.getModel());
+        if (r.getColor() != null) p.setColor(r.getColor());
+        if (r.getMaterial() != null) p.setMaterial(r.getMaterial());
+        if (r.getDimensions() != null) p.setDimensions(r.getDimensions());
+        if (r.getWeight() != null) p.setWeight(r.getWeight());
+        if (r.getImages() != null) p.setImages(r.getImages());
+        if (r.getVideoUrl() != null) p.setVideoUrl(r.getVideoUrl());
+        if (r.getPrice() != null) p.setPrice(r.getPrice());
+        if (r.getDiscountPrice() != null) p.setDiscountPrice(r.getDiscountPrice());
+        if (r.getCurrency() != null) p.setCurrency(r.getCurrency());
+        if (r.getStockQuantity() != null) p.setStockQuantity(r.getStockQuantity());
+        if (r.getWarehouseLocation() != null) p.setWarehouseLocation(r.getWarehouseLocation());
+        if (r.getShippingAddress() != null) p.setShippingAddress(r.getShippingAddress());
     }
 }

@@ -41,6 +41,16 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     // ✅ Lấy sản phẩm theo nhiều ID
     List<Product> findAllByProductIdIn(List<UUID> productIds);
 
+      /**
+     * 🔍 Kiểm tra SKU có bị trùng trong cùng một cửa hàng hay không
+     */
+    boolean existsByStore_StoreIdAndSku(UUID storeId, String sku);
+
+    /**
+     * 🔍 Kiểm tra slug đã tồn tại hay chưa (đảm bảo slug duy nhất toàn hệ thống)
+     */
+    boolean existsBySlug(String slug);
+
     // ✅ Lấy sản phẩm theo khoảng giá
     @Query("SELECT p FROM Product p WHERE p.price BETWEEN :minPrice AND :maxPrice")
     Page<Product> findByPriceRange(@Param("minPrice") double minPrice,

@@ -46,7 +46,6 @@ public class Product {
     // 🔖 THÔNG TIN CƠ BẢN
     // ======================
     private String name;
-    @Column(unique = true)
     private String slug;
     private String shortDescription;
     @Lob
@@ -69,8 +68,10 @@ public class Product {
     // ======================
     // 💵 GIÁ & KHO
     // ======================
-    @Column(unique = true, nullable = false)
+
     private String sku;
+
+    @Column(unique = true, nullable = false)
     private BigDecimal price;
     private BigDecimal discountPrice;
     private String currency;
