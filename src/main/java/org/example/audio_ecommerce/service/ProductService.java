@@ -10,12 +10,12 @@ import java.util.UUID;
 public interface ProductService {
     ResponseEntity<BaseResponse> createProduct(ProductRequest request);
     ResponseEntity<BaseResponse> getAllProducts(
-        UUID categoryId,
-        UUID storeId,
-        String keyword,
-        int page,
-        int size,
-        ProductStatus status
+    String categoryName,  // ⚡ đổi từ UUID categoryId -> String categoryName
+    UUID storeId,
+    String keyword,
+    int page,
+    int size,
+    ProductStatus status
 );
     ResponseEntity<BaseResponse> getProductById(UUID productId);
     ResponseEntity<BaseResponse> updateProduct(UUID productId, ProductRequest request);

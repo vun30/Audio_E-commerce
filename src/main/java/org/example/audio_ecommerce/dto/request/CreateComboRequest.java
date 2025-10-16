@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import java.math.BigDecimal;
 import java.util.List;
@@ -13,9 +14,11 @@ import java.util.UUID;
 public class CreateComboRequest {
 
     // 🏪 ID cửa hàng — BE tự động gán từ JWT
+    @Schema(description = "Không cần nhâp từ FE", example = "Không cần nhâp từ FE")
     private UUID storeId;
 
     // ⚙️ Danh mục — BE tự động gán theo category có name = "Combo"
+    @Schema(description = "Không cần nhâp từ FE", example = "Không cần nhâp từ FE")
     private UUID categoryId;
 
     // 📦 Thông tin cơ bản của combo
