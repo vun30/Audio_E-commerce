@@ -3,16 +3,19 @@ package org.example.audio_ecommerce.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
+import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
+import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
 import org.example.audio_ecommerce.dto.response.CartResponse;
+import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
 import org.example.audio_ecommerce.service.CartService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
+import org.springframework.web.bind.annotation.RequestBody;
+import java.util.List;
 import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.*;
-import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -57,21 +60,37 @@ public class CartController {
     public CartResponse addItems(
             @Parameter(description = "ID khách hàng (UUID)", required = true)
             @PathVariable UUID customerId,
-            @RequestBody(
-                    required = true,
-                    description = "Danh sách item cần thêm",
-                    content = @Content(schema = @Schema(implementation = AddCartItemsRequest.class),
-                            examples = @ExampleObject(name = "Add Product + Combo", value = """
-                                {
-                                  "items": [
-                                    { "type": "PRODUCT", "id": "68d41bfd-0c99-cc31-eb55-11111111", "quantity": 2 },
-                                    { "type": "COMBO", "id": "77c41bfd-0c99-cc31-eb55-22222222", "quantity": 1 }
-                                  ]
-                                }
-                                """)
-                    )
-            )
-            @Valid @org.springframework.web.bind.annotation.RequestBody AddCartItemsRequest req) {
+            @Valid @RequestBody AddCartItemsRequest req) {
         return cartService.addItems(customerId, req);
     }
+
+    @Operation(
+            summary = "Checkout COD các sản phẩm/combo được chọn trong giỏ hàng",
+            description = """
+    Thanh toán COD: tạo CustomerOrder và tách StoreOrder theo từng cửa hàng.
+    - Body gồm danh sách items (PRODUCT/COMBO) và addressId (tuỳ chọn).
+    - Nếu không truyền addressId, hệ thống dùng địa chỉ mặc định của customer.
+    Trả về: id, status, createdAt, totalAmount và snapshot địa chỉ giao hàng.
+    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Checkout COD thành công"),
+            @ApiResponse(responseCode = "400", description = "Lỗi khi checkout COD")
+    })
+    @PostMapping("/checkout-cod")
+    @ResponseStatus(HttpStatus.OK)
+    public CustomerOrderResponse checkoutCod(
+            @Parameter(description = "ID khách hàng (UUID)", required = true)
+            @PathVariable UUID customerId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Danh sách item cần checkout và addressId (tùy chọn). " +
+                            "Ví dụ: { \"items\": [{\"type\":\"PRODUCT\",\"id\":\"...\",\"quantity\":2}], " +
+                            "\"addressId\":\"...\" }",
+                    required = true
+            )
+            @RequestBody CheckoutCODRequest request
+    ) {
+        return cartService.checkoutCODWithResponse(customerId, request);
+    }
+
 }
