@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
+import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
@@ -64,60 +65,32 @@ public class CartController {
     }
 
     @Operation(
-            summary = "Checkout giỏ hàng",
-            description = "Khách hàng tiến hành checkout giỏ hàng, tạo đơn hàng mới, đồng thời ghi transaction vào ví customer và ví web (platform)."
+            summary = "Checkout COD các sản phẩm/combo được chọn trong giỏ hàng",
+            description = """
+    Thanh toán COD: tạo CustomerOrder và tách StoreOrder theo từng cửa hàng.
+    - Body gồm danh sách items (PRODUCT/COMBO) và addressId (tuỳ chọn).
+    - Nếu không truyền addressId, hệ thống dùng địa chỉ mặc định của customer.
+    Trả về: id, status, createdAt, totalAmount và snapshot địa chỉ giao hàng.
+    """
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Checkout thành công"),
-            @ApiResponse(responseCode = "400", description = "Giỏ hàng rỗng, số dư không đủ hoặc lỗi khác")
-    })
-    @PostMapping("/checkout")
-    @ResponseStatus(HttpStatus.OK)
-    public void checkout(
-            @Parameter(description = "ID khách hàng (UUID)", required = true)
-            @PathVariable UUID customerId
-    ) {
-        cartService.checkout(customerId);
-    }
-
-    @Operation(
-            summary = "Checkout các sản phẩm/combo được chọn trong giỏ hàng",
-            description = "Thanh toán các sản phẩm hoặc combo được chọn trong giỏ hàng của khách hàng.",
-            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Danh sách sản phẩm/combo muốn checkout",
-                    required = true,
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = CheckoutItemRequest.class)))
-            )
-    )
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Checkout thành công"),
-            @ApiResponse(responseCode = "400", description = "Lỗi khi checkout")
-    })
-    @PostMapping("/checkout-selected")
-    @ResponseStatus(HttpStatus.OK)
-    public void checkoutSelected(
-            @Parameter(description = "ID khách hàng (UUID)", required = true)
-            @PathVariable UUID customerId,
-            @RequestBody List<CheckoutItemRequest> items
-    ) {
-        cartService.checkout(customerId, items);
-    }
-
-    @Operation(
-        summary = "Checkout COD các sản phẩm/combo được chọn trong giỏ hàng",
-        description = "Thanh toán COD: tạo order cho customer và tách order cho từng store. Trả về id và trạng thái order cho customer."
-    )
-    @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Checkout COD thành công"),
-        @ApiResponse(responseCode = "400", description = "Lỗi khi checkout COD")
+            @ApiResponse(responseCode = "200", description = "Checkout COD thành công"),
+            @ApiResponse(responseCode = "400", description = "Lỗi khi checkout COD")
     })
     @PostMapping("/checkout-cod")
     @ResponseStatus(HttpStatus.OK)
     public CustomerOrderResponse checkoutCod(
             @Parameter(description = "ID khách hàng (UUID)", required = true)
             @PathVariable UUID customerId,
-            @RequestBody List<CheckoutItemRequest> items
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Danh sách item cần checkout và addressId (tùy chọn). " +
+                            "Ví dụ: { \"items\": [{\"type\":\"PRODUCT\",\"id\":\"...\",\"quantity\":2}], " +
+                            "\"addressId\":\"...\" }",
+                    required = true
+            )
+            @RequestBody CheckoutCODRequest request
     ) {
-        return cartService.checkoutCODWithResponse(customerId, items);
+        return cartService.checkoutCODWithResponse(customerId, request);
     }
+
 }
