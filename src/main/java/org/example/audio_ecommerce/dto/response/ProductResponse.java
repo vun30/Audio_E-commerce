@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.entity.Product;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -22,19 +23,19 @@ public class ProductResponse {
     @Schema(description = "ID sản phẩm", example = "550e8400-e29b-41d4-a716-446655440000")
     private UUID productId;
 
-    @Schema(description = "ID cửa hàng sở hữu sản phẩm", example = "b0aa8ef1-c12d-4f6a-85f1-3c2b0cfed111")
+    @Schema(description = "ID cửa hàng sở hữu sản phẩm")
     private UUID storeId;
 
-    @Schema(description = "Tên cửa hàng đăng bán", example = "AudioZone Vietnam")
+    @Schema(description = "Tên cửa hàng sở hữu sản phẩm")
     private String storeName;
 
-    @Schema(description = "ID danh mục sản phẩm", example = "bafc3b6a-8321-49cc-9ff5-8378f3a5a9a4")
+    @Schema(description = "ID danh mục sản phẩm")
     private UUID categoryId;
 
-    @Schema(description = "Tên danh mục sản phẩm", example = "Loa")
+    @Schema(description = "Tên danh mục sản phẩm")
     private String categoryName;
 
-    @Schema(description = "Tên thương hiệu", example = "Sony")
+    @Schema(description = "Thương hiệu sản phẩm", example = "Sony")
     private String brandName;
 
     // =========================================================
@@ -51,6 +52,12 @@ public class ProductResponse {
     private BigDecimal weight;
 
     // =========================================================
+    // 🧩 BIẾN THỂ
+    // =========================================================
+    @Schema(description = "Danh sách biến thể sản phẩm (VD: màu sắc, dung lượng, size)")
+    private List<Product.ProductVariant> variants;
+
+    // =========================================================
     // 📸 HÌNH ẢNH & VIDEO
     // =========================================================
     private List<String> images;
@@ -65,6 +72,7 @@ public class ProductResponse {
     private BigDecimal promotionPercent;
     private BigDecimal priceAfterPromotion;
     private BigDecimal priceBeforeVoucher;
+    private BigDecimal voucherAmount;
     private BigDecimal finalPrice;
     private BigDecimal platformFeePercent;
     private String currency;
@@ -73,22 +81,31 @@ public class ProductResponse {
     private String shippingAddress;
 
     // =========================================================
-    // 🧮 MUA NHIỀU GIẢM GIÁ (BULK DISCOUNT)
+    // 🚚 VẬN CHUYỂN
     // =========================================================
-    @Schema(description = "Danh sách khoảng giá khi mua số lượng lớn")
+    @Schema(description = "Phí vận chuyển mặc định", example = "30000")
+    private BigDecimal shippingFee;
+
+    @Schema(description = "Danh sách ID phương thức vận chuyển hỗ trợ")
+    private List<UUID> supportedShippingMethodIds;
+
+    // =========================================================
+    // 🧮 MUA NHIỀU GIẢM GIÁ
+    // =========================================================
+    @Schema(description = "Danh sách các mức giá giảm khi mua số lượng lớn")
     private List<BulkDiscountResponse> bulkDiscounts;
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BulkDiscountResponse {
-        @Schema(description = "Số lượng tối thiểu", example = "5")
+        @Schema(description = "Số lượng tối thiểu để áp dụng", example = "5")
         private Integer fromQuantity;
 
-        @Schema(description = "Số lượng tối đa", example = "10")
+        @Schema(description = "Số lượng tối đa cho mức giá này", example = "10")
         private Integer toQuantity;
 
-        @Schema(description = "Đơn giá áp dụng trong khoảng", example = "950000")
+        @Schema(description = "Giá áp dụng trong khoảng này", example = "950000")
         private BigDecimal unitPrice;
     }
 
@@ -102,6 +119,10 @@ public class ProductResponse {
     private Integer viewCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime lastUpdatedAt;
+    private Long lastUpdateIntervalDays;
+    private UUID createdBy;
+    private UUID updatedBy;
 
     // =========================================================
     // 🔊 THUỘC TÍNH CHUNG
@@ -116,11 +137,11 @@ public class ProductResponse {
     private String warrantyType;
     private String manufacturerName;
     private String manufacturerAddress;
-    private String condition;
+    private String productCondition;
     private Boolean isCustomMade;
 
     // =========================================================
-    // 🔊 LOA (SPEAKER)
+    // 🔊 LOA
     // =========================================================
     private String driverConfiguration;
     private String driverSize;
@@ -130,7 +151,7 @@ public class ProductResponse {
     private String placementType;
 
     // =========================================================
-    // 🎧 TAI NGHE (HEADPHONE)
+    // 🎧 TAI NGHE
     // =========================================================
     private String headphoneType;
     private String compatibleDevices;
@@ -147,7 +168,7 @@ public class ProductResponse {
     private Boolean mcmcApproved;
 
     // =========================================================
-    // 🎤 MICRO (MICROPHONE)
+    // 🎤 MICRO
     // =========================================================
     private String micType;
     private String polarPattern;

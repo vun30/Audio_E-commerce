@@ -2,8 +2,11 @@ package org.example.audio_ecommerce.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Product;
+
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -16,12 +19,12 @@ public class ProductRequest {
     // 🔗 Liên kết & Danh mục
     // ======================
     @Schema(
-        description = "Tên danh mục sản phẩm (BE tự ánh xạ sang categoryId tương ứng)",
-        example = "Loa",
-        allowableValues = {
-            "Tai Nghe","Loa","Micro","DAC","Mixer","Amp",
-            "Turntable","Sound Card","DJ Controller","Combo"
-        }
+            description = "Tên danh mục sản phẩm (BE tự ánh xạ sang categoryId tương ứng)",
+            example = "Loa",
+            allowableValues = {
+                    "Tai Nghe", "Loa", "Micro", "DAC", "Mixer", "Amp",
+                    "Turntable", "Sound Card", "DJ Controller", "Combo"
+            }
     )
     private String categoryName;
 
@@ -73,24 +76,6 @@ public class ProductRequest {
     @Schema(description = "Giá gốc của sản phẩm", example = "1500000")
     private BigDecimal price;
 
-    @Schema(description = "Giá giảm riêng (shop tự đặt)", example = "1200000")
-    private BigDecimal discountPrice;
-
-    @Schema(description = "Phần trăm khuyến mãi (toàn sàn hoặc riêng sản phẩm)", example = "10")
-    private BigDecimal promotionPercent;
-
-    @Schema(description = "Giá sau khi áp dụng khuyến mãi", example = "1080000")
-    private BigDecimal priceAfterPromotion;
-
-    @Schema(description = "Giá hiển thị trước khi áp voucher", example = "1080000")
-    private BigDecimal priceBeforeVoucher;
-
-    @Schema(description = "Giá cuối cùng sau khi áp voucher (giá thanh toán thực tế)", example = "990000")
-    private BigDecimal finalPrice;
-
-    @Schema(description = "% phí sàn tính trên mỗi sản phẩm", example = "5")
-    private BigDecimal platformFeePercent;
-
     @Schema(description = "Loại tiền tệ", example = "VND")
     private String currency;
 
@@ -102,6 +87,21 @@ public class ProductRequest {
 
     @Schema(description = "Địa chỉ giao hàng / xuất kho")
     private String shippingAddress;
+
+    // =========================================================
+// 🚚 VẬN CHUYỂN
+// =========================================================
+    @Schema(description = "Phí vận chuyển mặc định", example = "30000")
+    private BigDecimal shippingFee;
+
+    @Schema(description = "Danh sách ID phương thức vận chuyển được hỗ trợ")
+    private List<UUID> supportedShippingMethodIds;
+
+    // =========================================================
+// 🧩 BIẾN THỂ SẢN PHẨM
+// =========================================================
+    @Schema(description = "Danh sách biến thể của sản phẩm (VD: màu sắc, dung lượng, size, ...)")
+    private List<Product.ProductVariant> variants;
 
     // ======================
     // 🧮 Mua nhiều giảm giá (Bulk Discounts)

@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.dto.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.entity.Product;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -16,94 +17,126 @@ import java.util.UUID;
 public class UpdateProductRequest {
 
     // =========================================================
-    // 🔗 LIÊN KẾT
+    // 🔗 LIÊN KẾT & DANH MỤC
     // =========================================================
-    @Schema(description = "ID danh mục sản phẩm", example = "bafc3b6a-8321-49cc-9ff5-8378f3a5a9a4")
-    private UUID categoryId;
+    @Schema(
+            description = "Tên danh mục sản phẩm (BE tự ánh xạ sang Category tương ứng)",
+            example = "Loa",
+            allowableValues = {
+                    "Tai Nghe", "Loa", "Micro", "DAC", "Mixer", "Amp",
+                    "Turntable", "Sound Card", "DJ Controller", "Combo"
+            }
+    )
+    private String categoryName;
 
-    @Schema(description = "ID thương hiệu (nếu có)", example = "8b9b5e62-b7cb-4785-9c91-5e8a0c6aafbb")
-    private UUID brandId;
+    @Schema(description = "Tên thương hiệu", example = "Sony")
+    private String brandName;
+
+    @Schema(description = "Mã SKU (phải duy nhất trong store)", example = "SONY-SPK-001")
+    private String sku;
 
     // =========================================================
     // 🏷️ THÔNG TIN CƠ BẢN
     // =========================================================
+    @Schema(description = "Tên sản phẩm", example = "Sony SRS-XB33 Extra Bass")
     private String name;
-    private String slug;
+
+    @Schema(description = "Mô tả ngắn", example = "Loa Bluetooth chống nước, âm trầm mạnh mẽ")
     private String shortDescription;
+
+    @Schema(description = "Mô tả chi tiết sản phẩm (HTML hoặc text)")
     private String description;
-    private List<String> images;
-    private String videoUrl;
+
+    @Schema(description = "Mã model", example = "SRS-XB33")
     private String model;
+
+    @Schema(description = "Màu sắc", example = "Đen")
     private String color;
+
+    @Schema(description = "Chất liệu vỏ", example = "Nhựa ABS cao cấp")
     private String material;
+
+    @Schema(description = "Kích thước (Dài x Rộng x Cao)", example = "24cm x 10cm x 12cm")
     private String dimensions;
+
+    @Schema(description = "Trọng lượng (kg)", example = "1.2")
     private BigDecimal weight;
 
-    // =========================================================
-    // 💰 GIÁ & KHUYẾN MÃI
-    // =========================================================
-    private String sku;
-    private BigDecimal price;
-    private BigDecimal discountPrice;
-    private BigDecimal promotionPercent;
-    private BigDecimal priceAfterPromotion;
-    private BigDecimal priceBeforeVoucher;
-    private BigDecimal finalPrice;
-    private BigDecimal platformFeePercent;
-    private String currency;
-    private Integer stockQuantity;
-    private String warehouseLocation;
-    private String shippingAddress;
+    @Schema(description = "Danh sách URL hình ảnh sản phẩm")
+    private List<String> images;
+
+    @Schema(description = "Video mô tả sản phẩm", example = "https://youtube.com/xyz123")
+    private String videoUrl;
+
+    @Schema(description = "Danh sách biến thể sản phẩm (VD: màu sắc, dung lượng, size...)")
+    private List<Product.ProductVariant> variants;
 
     // =========================================================
-    // 🧮 MUA NHIỀU GIẢM GIÁ (BULK DISCOUNT)
+    // 💰 GIÁ & KHO
     // =========================================================
-    @Schema(description = "Danh sách khoảng giá khi mua số lượng lớn")
+    @Schema(description = "Giá gốc của sản phẩm", example = "1500000")
+    private BigDecimal price;
+
+    @Schema(description = "Loại tiền tệ", example = "VND")
+    private String currency;
+
+    @Schema(description = "Số lượng tồn kho", example = "50")
+    private Integer stockQuantity;
+
+    @Schema(description = "Địa chỉ kho hàng", example = "HCM - Quận 7")
+    private String warehouseLocation;
+
+    @Schema(description = "Địa chỉ giao hàng / xuất kho")
+    private String shippingAddress;
+
+    @Schema(description = "Phí vận chuyển mặc định", example = "30000")
+    private BigDecimal shippingFee;
+
+    @Schema(description = "Danh sách ID phương thức vận chuyển được hỗ trợ")
+    private List<UUID> supportedShippingMethodIds;
+
+    // =========================================================
+    // 🧮 MUA NHIỀU GIẢM GIÁ
+    // =========================================================
+    @Schema(description = "Danh sách mức giảm giá theo số lượng mua")
     private List<BulkDiscountRequest> bulkDiscounts;
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BulkDiscountRequest {
-        private Integer fromQuantity; // Số lượng tối thiểu
-        private Integer toQuantity;   // Số lượng tối đa
-        private BigDecimal unitPrice; // Đơn giá áp dụng
+        @Schema(description = "Số lượng tối thiểu", example = "5")
+        private Integer fromQuantity;
+
+        @Schema(description = "Số lượng tối đa", example = "10")
+        private Integer toQuantity;
+
+        @Schema(description = "Giá khi mua trong khoảng", example = "900000")
+        private BigDecimal unitPrice;
     }
 
     // =========================================================
-    // 📊 TRẠNG THÁI & CỜ
+    // 📊 TRẠNG THÁI
     // =========================================================
+    @Schema(description = "Trạng thái sản phẩm", example = "ACTIVE")
     private ProductStatus status;
+
+    @Schema(description = "Sản phẩm nổi bật", example = "false")
     private Boolean isFeatured;
 
     // =========================================================
-    // 🔊 THUỘC TÍNH CHUNG
+    // ⚙️ KỸ THUẬT & BẢO HÀNH
     // =========================================================
-    private String frequencyResponse;
-    private String sensitivity;
-    private String impedance;
-    private String powerHandling;
-    private String connectionType;
     private String voltageInput;
     private String warrantyPeriod;
     private String warrantyType;
     private String manufacturerName;
     private String manufacturerAddress;
-    private String condition;
+    private String productCondition;
     private Boolean isCustomMade;
 
     // =========================================================
-    // 🔊 LOA (SPEAKER)
-    // =========================================================
-    private String driverConfiguration;
-    private String driverSize;
-    private String enclosureType;
-    private String coveragePattern;
-    private String crossoverFrequency;
-    private String placementType;
-
-    // =========================================================
-    // 🎧 TAI NGHE (HEADPHONE)
+    // 🎧 TAI NGHE
     // =========================================================
     private String headphoneType;
     private String compatibleDevices;
@@ -120,13 +153,19 @@ public class UpdateProductRequest {
     private Boolean mcmcApproved;
 
     // =========================================================
-    // 🎤 MICRO (MICROPHONE)
+    // 🔊 LOA
     // =========================================================
-    private String micType;
-    private String polarPattern;
-    private String maxSPL;
-    private String micOutputImpedance;
-    private String micSensitivity;
+    private String driverConfiguration;
+    private String driverSize;
+    private String frequencyResponse;
+    private String sensitivity;
+    private String impedance;
+    private String powerHandling;
+    private String enclosureType;
+    private String coveragePattern;
+    private String crossoverFrequency;
+    private String placementType;
+    private String connectionType;
 
     // =========================================================
     // 📻 AMPLI / RECEIVER
@@ -140,6 +179,15 @@ public class UpdateProductRequest {
     private Boolean supportBluetooth;
     private Boolean supportWifi;
     private Boolean supportAirplay;
+
+    // =========================================================
+    // 🎤 MICRO
+    // =========================================================
+    private String micType;
+    private String polarPattern;
+    private String maxSPL;
+    private String micOutputImpedance;
+    private String micSensitivity;
 
     // =========================================================
     // 📀 TURNTABLE
