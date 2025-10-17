@@ -5,5 +5,6 @@ public enum StoreStatus {
     PENDING,
     ACTIVE,
     REJECTED,
-    SUSPENDED
+    SUSPENDED,
+    PAUSED // store tạm dừng hoạt động, stroe chỉ đổi sang trạng thái này khi chủ store tự chọn từ active  thành paused
 }

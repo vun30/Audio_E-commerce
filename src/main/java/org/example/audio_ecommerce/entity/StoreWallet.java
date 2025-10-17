@@ -32,17 +32,17 @@ public class StoreWallet {
     private Store store;
 
     @Column(precision = 18, scale = 2, nullable = false)
-    private BigDecimal availableBalance = BigDecimal.ZERO;
+    private BigDecimal availableBalance = BigDecimal.ZERO;  // tiền khả dụng rút về
 
     @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal depositBalance = BigDecimal.ZERO; // tiền cọc / ký quỹ
 
     @Column(precision = 18, scale = 2, nullable = false)
-    private BigDecimal pendingBalance = BigDecimal.ZERO;
+    private BigDecimal pendingBalance = BigDecimal.ZERO;    // tiên đang chờ xử lý (chưa rút được)
 
     @Column(precision = 18, scale = 2, nullable = false)
-    private BigDecimal totalRevenue = BigDecimal.ZERO;
+    private BigDecimal totalRevenue = BigDecimal.ZERO; // tổng pending  + availableBalance
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

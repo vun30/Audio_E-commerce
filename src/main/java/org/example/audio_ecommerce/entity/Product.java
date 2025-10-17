@@ -9,6 +9,7 @@ import org.hibernate.annotations.GenericGenerator;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -133,6 +134,8 @@ public class Product {
     private BigDecimal priceBeforeVoucher;
     // 📝 NOTE: Giá trước voucher | Ví dụ: `2975000`
 
+    private BigDecimal voucherAmount; // voucher riêng dạng code
+
     private BigDecimal finalPrice;
     // 📝 NOTE: Giá cuối cùng | Ví dụ: `2875000` (sau voucher)
 
@@ -200,10 +203,41 @@ public class Product {
     private Integer viewCount;
     // 📝 NOTE: Lượt xem | Ví dụ: `24567`
 
-    private LocalDateTime createdAt; // 📝 Ví dụ: `2025-01-15T10:30:00`
-    private LocalDateTime updatedAt; // 📝 Ví dụ: `2025-01-16T14:22:00`
-    private UUID createdBy; // 📝 Ví dụ: `UUID("user-admin-123")`
-    private UUID updatedBy; // 📝 Ví dụ: `UUID("user-seller-456")`
+    private LocalDateTime createdAt; // 📝 Ví dụ: 2025-01-15T10:30:00
+    private LocalDateTime updatedAt; // 📝 Ví dụ: 2025-01-16T14:22:00
+    private LocalDateTime lastUpdatedAt;    // thời điểm update gần nhất trước đó
+    private Long lastUpdateIntervalDays;    // số ngày cách lần cập nhật trước
+    private UUID createdBy; // 📝 Ví dụ: UUID("user-admin-123")
+    private UUID updatedBy; // 📝 Ví dụ: UUID("user-seller-456")
+
+    // ============= Gán thời điểm khi tạo mới =============
+    @PrePersist
+    public void onCreate() {
+        LocalDateTime now = LocalDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+        this.lastUpdatedAt = now;          // xem như update gần nhất là khi tạo
+        this.lastUpdateIntervalDays = 0L;  // lần đầu tạo => 0 ngày
+    }
+
+    // ============= Tự tính số ngày mỗi khi update =============
+    @PreUpdate
+    public void onUpdate() {
+        LocalDateTime now = LocalDateTime.now();
+
+        // nếu chưa có lastUpdatedAt thì dùng createdAt làm mốc
+        if (this.lastUpdatedAt == null) {
+            this.lastUpdatedAt = this.createdAt;
+        }
+
+        // tính số ngày giữa lần update trước và hiện tại
+        this.lastUpdateIntervalDays =
+                ChronoUnit.DAYS.between(this.lastUpdatedAt, now);
+
+        // cập nhật lại mốc thời gian
+        this.lastUpdatedAt = this.updatedAt != null ? this.updatedAt : this.createdAt;
+        this.updatedAt = now;
+    }
 
     // =========================================================
     // 🔊 THUỘC TÍNH CHUNG (CHO MỌI THIẾT BỊ)

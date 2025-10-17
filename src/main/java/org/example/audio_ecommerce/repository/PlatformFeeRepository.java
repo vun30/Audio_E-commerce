@@ -7,4 +7,6 @@ import java.util.UUID;
 
 public interface PlatformFeeRepository extends JpaRepository<PlatformFee, UUID> {
     Optional<PlatformFee> findByIsActiveTrue();
+
+    Optional<PlatformFee> findFirstByIsActiveTrueOrderByEffectiveDateDesc();
 }
