@@ -39,7 +39,7 @@ public interface StoreWalletTransactionRepository extends JpaRepository<StoreWal
       AND (:type IS NULL OR t.type = :type)
       AND (:transactionId IS NULL OR t.transactionId = :transactionId)
     ORDER BY t.createdAt DESC
-""")
+    """)
     Page<StoreWalletTransaction> filterTransactions(
             @Param("walletId") UUID walletId,
             @Param("from") LocalDateTime from,

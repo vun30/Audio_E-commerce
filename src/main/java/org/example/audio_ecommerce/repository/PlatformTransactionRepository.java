@@ -44,4 +44,12 @@ public interface PlatformTransactionRepository extends JpaRepository<PlatformTra
             LocalDateTime from,
             LocalDateTime to
     );
+
+    List<PlatformTransaction> findAllByOrderIdAndStatus(UUID orderId, TransactionStatus status);
+
+    @Query("SELECT t FROM PlatformTransaction t " +
+            "WHERE t.status = org.example.audio_ecommerce.entity.Enum.TransactionStatus.PENDING " +
+            "AND t.createdAt < :threshold")
+    List<PlatformTransaction> findExpiredHoldings(LocalDateTime threshold);
+
 }

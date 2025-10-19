@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -37,6 +38,9 @@ public class StoreOrder {
     @JoinColumn(name = "customer_order_id", nullable = false)
     private CustomerOrder customerOrder;
 
+    @Column(name = "total_amount", precision = 18, scale = 2)
+    private BigDecimal totalAmount = BigDecimal.ZERO;
+
     // =========================
     // 🏠 Shipping snapshot từ Customer
     // =========================
@@ -69,4 +73,17 @@ public class StoreOrder {
 
     @Column(name = "ship_note", length = 512)
     private String shipNote;
+
+    @PrePersist
+    @PreUpdate
+    public void calculateTotalAmount() {
+        if (items == null || items.isEmpty()) {
+            totalAmount = BigDecimal.ZERO;
+            return;
+        }
+        totalAmount = items.stream()
+                .map(StoreOrderItem::getLineTotal)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
 }
