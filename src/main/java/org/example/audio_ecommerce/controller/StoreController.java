@@ -9,8 +9,11 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.UpdateStoreRequest;
 import org.example.audio_ecommerce.dto.request.UpdateStoreStatusRequest;
+import org.example.audio_ecommerce.dto.request.StaffCreateRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.dto.response.StaffResponse;
 import org.example.audio_ecommerce.service.StoreService;
+import org.example.audio_ecommerce.service.StaffService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class StoreController {
 
     private final StoreService storeService;
+    private final StaffService staffService;
 
     @Operation(summary = "Xem chi tiết cửa hàng", description = "Trả về thông tin chi tiết của cửa hàng theo `storeId`.")
     @ApiResponses({
@@ -166,5 +170,20 @@ public class StoreController {
         return ResponseEntity.ok(
                 new BaseResponse<>(200, "✅ Lấy storeId thành công", storeId)
         );
+    }
+
+    @Operation(summary = "Tạo staff cho cửa hàng", description = "Chủ shop tạo tài khoản staff, gắn với cửa hàng.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Tạo staff thành công",
+            content = @Content(schema = @Schema(implementation = StaffResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Không tìm thấy cửa hàng")
+    })
+    @PostMapping("/{storeId}/staff")
+    public StaffResponse createStaff(
+        @Parameter(description = "ID cửa hàng (UUID)", required = true)
+        @PathVariable UUID storeId,
+        @Valid @RequestBody StaffCreateRequest request
+    ) {
+        return staffService.createStaff(storeId, request);
     }
 }
