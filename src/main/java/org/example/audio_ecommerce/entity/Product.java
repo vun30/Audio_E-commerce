@@ -150,10 +150,21 @@ public class Product {
 
     private String warehouseLocation;
     // 📝 NOTE: Vị trí kho | Ví dụ: `Kho Hà Nội - KCN Thăng Long`
+    // =========================================================
+// 🌍 ĐỊA CHỈ HÀNH CHÍNH (CODE TỈNH, QUẬN, XÃ)
+// =========================================================
+    private String provinceCode;
+// 📝 NOTE: Mã tỉnh/thành phố | Ví dụ: "01" (Hà Nội), "79" (TP.HCM)
+
+    private String districtCode;
+// 📝 NOTE: Mã quận/huyện | Ví dụ: "760" (Quận 1)
+
+    private String wardCode;
+// 📝 NOTE: Mã phường/xã | Ví dụ: "26734" (Phường Bến Nghé)
+
 
     private String shippingAddress;
     // 📝 NOTE: Địa chỉ giao | Ví dụ: `123 Nguyễn Trãi, Hà Nội`
-
     // =========================================================
     // 🚚 VẬN CHUYỂN
     // =========================================================

@@ -113,98 +113,98 @@ public class ProductServiceImpl implements ProductService {
     // ============================================================
     // ✏️ UPDATE PRODUCT
     // ============================================================
- @Override
-public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest req) {
-    try {
-        // ✅ Lấy thông tin tài khoản đăng nhập hiện tại
-        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+    @Override
+    public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest req) {
+        try {
+            // ✅ Lấy thông tin tài khoản đăng nhập hiện tại
+            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+            String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
-        // ✅ Tìm store từ email
-        Store store = storeRepository.findByAccount_Email(email)
-                .orElseThrow(() -> new RuntimeException("❌ Store not found for current account"));
+            // ✅ Tìm store từ email
+            Store store = storeRepository.findByAccount_Email(email)
+                    .orElseThrow(() -> new RuntimeException("❌ Store not found for current account"));
 
-        // ✅ Lấy product theo ID
-        Product p = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+            // ✅ Lấy product theo ID
+            Product p = productRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
-        // ✅ Kiểm tra quyền sở hữu sản phẩm
-        if (!p.getStore().getStoreId().equals(store.getStoreId())) {
-            throw new RuntimeException("❌ You are not allowed to update another store's product");
-        }
-
-        // ============================================================
-        // 🔗 Cập nhật danh mục (dùng categoryName)
-        // ============================================================
-        if (req.getCategoryName() != null && !req.getCategoryName().isBlank()) {
-            Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
-                    .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
-            p.setCategory(category);
-        }
-
-        // ============================================================
-        // 🏷️ Cập nhật thông tin cơ bản
-        // ============================================================
-        if (req.getName() != null && !req.getName().isBlank()) {
-            p.setName(req.getName());
-            p.setSlug(generateUniqueSlug(req.getName()));
-        }
-
-        if (req.getSku() != null && !req.getSku().equals(p.getSku())) {
-            if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku())) {
-                throw new RuntimeException("❌ SKU already exists in this store");
+            // ✅ Kiểm tra quyền sở hữu sản phẩm
+            if (!p.getStore().getStoreId().equals(store.getStoreId())) {
+                throw new RuntimeException("❌ You are not allowed to update another store's product");
             }
-            p.setSku(req.getSku());
+
+            // ============================================================
+            // 🔗 Cập nhật danh mục (dùng categoryName)
+            // ============================================================
+            if (req.getCategoryName() != null && !req.getCategoryName().isBlank()) {
+                Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
+                        .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
+                p.setCategory(category);
+            }
+
+            // ============================================================
+            // 🏷️ Cập nhật thông tin cơ bản
+            // ============================================================
+            if (req.getName() != null && !req.getName().isBlank()) {
+                p.setName(req.getName());
+                p.setSlug(generateUniqueSlug(req.getName()));
+            }
+
+            if (req.getSku() != null && !req.getSku().equals(p.getSku())) {
+                if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku())) {
+                    throw new RuntimeException("❌ SKU already exists in this store");
+                }
+                p.setSku(req.getSku());
+            }
+
+            // ============================================================
+            // ⏰ Cập nhật thời gian
+            // ============================================================
+            LocalDateTime now = LocalDateTime.now();
+            long intervalDays = p.getLastUpdatedAt() != null
+                    ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), now)
+                    : 0L;
+            p.setLastUpdateIntervalDays(intervalDays);
+            p.setLastUpdatedAt(now);
+            p.setUpdatedAt(now);
+            p.setUpdatedBy(store.getAccount().getId());
+
+            // ============================================================
+            // 🧩 Ánh xạ field còn lại (chỉ update nếu có)
+            // ============================================================
+            mapUpdateRequestToProduct(p, req);
+
+            // ============================================================
+            // 💰 Cập nhật giá nếu có
+            // ============================================================
+            if (req.getPrice() != null) {
+                p.setPrice(req.getPrice());
+                p.setPriceAfterPromotion(req.getPrice());
+                p.setPriceBeforeVoucher(req.getPrice());
+                p.setFinalPrice(req.getPrice());
+            }
+
+            // ✅ Lưu thay đổi
+            productRepository.save(p);
+
+            // ✅ Trả kết quả thành công
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "✏️ Product updated successfully", toResponse(p))
+            );
+
+        } catch (Exception e) {
+            // ⚠️ In chi tiết lỗi thật ra console
+            System.err.println("❌ [Product Update Error] " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            e.printStackTrace();
+
+            // ⚠️ Trả lỗi chi tiết về FE (Swagger sẽ thấy rõ)
+            return ResponseEntity.internalServerError().body(
+                    BaseResponse.error(
+                            "❌ Update product failed: " + e.getMessage()
+                    )
+            );
         }
-
-        // ============================================================
-        // ⏰ Cập nhật thời gian
-        // ============================================================
-        LocalDateTime now = LocalDateTime.now();
-        long intervalDays = p.getLastUpdatedAt() != null
-                ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), now)
-                : 0L;
-        p.setLastUpdateIntervalDays(intervalDays);
-        p.setLastUpdatedAt(now);
-        p.setUpdatedAt(now);
-        p.setUpdatedBy(store.getAccount().getId());
-
-        // ============================================================
-        // 🧩 Ánh xạ field còn lại (chỉ update nếu có)
-        // ============================================================
-        mapUpdateRequestToProduct(p, req);
-
-        // ============================================================
-        // 💰 Cập nhật giá nếu có
-        // ============================================================
-        if (req.getPrice() != null) {
-            p.setPrice(req.getPrice());
-            p.setPriceAfterPromotion(req.getPrice());
-            p.setPriceBeforeVoucher(req.getPrice());
-            p.setFinalPrice(req.getPrice());
-        }
-
-        // ✅ Lưu thay đổi
-        productRepository.save(p);
-
-        // ✅ Trả kết quả thành công
-        return ResponseEntity.ok(
-                new BaseResponse<>(200, "✏️ Product updated successfully", toResponse(p))
-        );
-
-    } catch (Exception e) {
-        // ⚠️ In chi tiết lỗi thật ra console
-        System.err.println("❌ [Product Update Error] " + e.getClass().getSimpleName() + ": " + e.getMessage());
-        e.printStackTrace();
-
-        // ⚠️ Trả lỗi chi tiết về FE (Swagger sẽ thấy rõ)
-        return ResponseEntity.internalServerError().body(
-                BaseResponse.error(
-                        "❌ Update product failed: " + e.getMessage()
-                )
-        );
     }
-}
 
 
     // ============================================================
@@ -222,6 +222,9 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         p.setVideoUrl(r.getVideoUrl());
         p.setWarehouseLocation(r.getWarehouseLocation());
         p.setShippingAddress(r.getShippingAddress());
+        p.setProvinceCode(r.getProvinceCode());
+        p.setDistrictCode(r.getDistrictCode());
+        p.setWardCode(r.getWardCode());
         p.setStockQuantity(r.getStockQuantity());
         p.setShippingFee(r.getShippingFee());
         p.setSupportedShippingMethodIds(r.getSupportedShippingMethodIds());
@@ -338,6 +341,9 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
                 .stockQuantity(p.getStockQuantity())
                 .warehouseLocation(p.getWarehouseLocation())
                 .shippingAddress(p.getShippingAddress())
+                .provinceCode(p.getProvinceCode())
+                .districtCode(p.getDistrictCode())
+                .wardCode(p.getWardCode())
                 .shippingFee(p.getShippingFee())
                 .supportedShippingMethodIds(p.getSupportedShippingMethodIds())
                 .bulkDiscounts(p.getBulkDiscounts() != null
@@ -503,6 +509,9 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         // ============================================================
         if (r.getWarehouseLocation() != null) p.setWarehouseLocation(r.getWarehouseLocation());
         if (r.getShippingAddress() != null) p.setShippingAddress(r.getShippingAddress());
+        if (r.getProvinceCode() != null) p.setProvinceCode(r.getProvinceCode());
+        if (r.getDistrictCode() != null) p.setDistrictCode(r.getDistrictCode());
+        if (r.getWardCode() != null) p.setWardCode(r.getWardCode());
         if (r.getStockQuantity() != null) p.setStockQuantity(r.getStockQuantity());
         if (r.getShippingFee() != null) p.setShippingFee(r.getShippingFee());
         if (r.getSupportedShippingMethodIds() != null)
@@ -512,15 +521,15 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         // 🧮 MUA NHIỀU GIẢM GIÁ
         // ============================================================
         if (r.getBulkDiscounts() != null)
-        p.setBulkDiscounts(
-                r.getBulkDiscounts().stream()
-                        .map(b -> new Product.BulkDiscount(
-                                b.getFromQuantity(),
-                                b.getToQuantity(),
-                                b.getUnitPrice()
-                        ))
-                        .collect(Collectors.toList()) // ✅ mutable list
-        );
+            p.setBulkDiscounts(
+                    r.getBulkDiscounts().stream()
+                            .map(b -> new Product.BulkDiscount(
+                                    b.getFromQuantity(),
+                                    b.getToQuantity(),
+                                    b.getUnitPrice()
+                            ))
+                            .collect(Collectors.toList()) // ✅ mutable list
+            );
 
         // ============================================================
         // 📊 TRẠNG THÁI
