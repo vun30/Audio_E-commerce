@@ -86,6 +86,21 @@ public class UpdateProductRequest {
     @Schema(description = "Địa chỉ kho hàng", example = "HCM - Quận 7")
     private String warehouseLocation;
 
+        // =========================================================
+    // 🌍 ĐỊA CHỈ HÀNH CHÍNH (CODE TỈNH, QUẬN, XÃ)
+    // =========================================================
+    @Schema(description = "Mã tỉnh/thành phố", example = "01 Hà Nội")
+    private String provinceCode;
+    // 📝 NOTE: Mã tỉnh/thành phố | Ví dụ: "01" (Hà Nội), "79" (TP.HCM)
+
+    @Schema(description = "Mã quận/huyện", example = "760")
+    private String districtCode;
+    // 📝 NOTE: Mã quận/huyện | Ví dụ: "760" (Quận 1)
+
+    @Schema(description = "Mã phường/xã", example = "26734")
+    private String wardCode;
+    // 📝 NOTE: Mã phường/xã | Ví dụ: "26734" (Phường Bến Nghé)
+
     @Schema(description = "Địa chỉ giao hàng / xuất kho")
     private String shippingAddress;
 
