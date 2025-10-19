@@ -72,4 +72,29 @@ public class Store {
 
     @OneToMany(mappedBy = "store", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Staff> staffList;
+
+    // =========================================================
+// 🏢 DANH SÁCH ĐỊA CHỈ CHI NHÁNH / KHO CỦA CỬA HÀNG
+// =========================================================
+    @ElementCollection
+    @CollectionTable(
+            name = "store_addresses",
+            joinColumns = @JoinColumn(name = "store_id")
+    )
+    private List<StoreAddress> storeAddresses;
+
+    @Embeddable
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StoreAddress {
+              // Địa chỉ mặc định
+        private Boolean  defaultAddress;    // Địa chỉ mặc định
+        private String provinceCode;      // 🏙️ Mã tỉnh/thành phố | VD: "01"
+        private String districtCode;      // 🏘️ Mã quận/huyện | VD: "760"
+        private String wardCode;          // 🏡 Mã phường/xã | VD: "26734"
+        private String address;           // 📍 Địa chỉ chi tiết | VD: "123 Nguyễn Trãi, Q1, TP.HCM"
+        private String addressLocation;   // 🌍 Toạ độ hoặc mô tả vị trí | VD: "10.762622,106.660172"
+
+    }
 }
