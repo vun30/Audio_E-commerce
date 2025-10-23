@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.LoginRequest;
+import org.example.audio_ecommerce.dto.request.RefreshTokenRequest;
 import org.example.audio_ecommerce.dto.request.RegisterRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.service.AccountService;
@@ -46,5 +47,11 @@ public class AccountController {
     @PostMapping("/login/admin")
     public ResponseEntity<BaseResponse> loginAdmin(@Valid @RequestBody LoginRequest request) {
         return accountService.loginAdmin(request);
+    }
+
+    // ========================= REFRESH TOKEN =========================
+    @PostMapping("/refresh")
+    public ResponseEntity<BaseResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        return accountService.refreshToken(request);
     }
 }
