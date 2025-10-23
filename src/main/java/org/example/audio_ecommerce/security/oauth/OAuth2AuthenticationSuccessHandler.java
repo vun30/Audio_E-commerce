@@ -16,7 +16,6 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
@@ -38,7 +37,6 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
 
         String email = (String) attr.getOrDefault("email", "");
         String name  = (String) attr.getOrDefault("name", email);
-        boolean emailVerified = Boolean.TRUE.equals(attr.get("email_verified"));
 
         // tránh circular: dùng encoder cục bộ
         var passwordEncoder = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
@@ -64,7 +62,14 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
                 .orElse(null);
 
         // 4) Phát JWT kèm accountId + customerId
-        String token = jwtTokenProvider.generateToken(
+        String accessToken = jwtTokenProvider.generateToken(
+                account.getId(),           // accountId
+                customerId,                // customerId
+                account.getEmail(),
+                account.getRole().name()
+        );
+        
+        String refreshToken = jwtTokenProvider.generateRefreshToken(
                 account.getId(),           // accountId
                 customerId,                // customerId
                 account.getEmail(),
@@ -74,8 +79,9 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
         // 5) Trả JSON (kèm sẵn id cho tiện FE)
         try {
             String redirectUrl = String.format(
-                    "http://localhost:5173/oauth-success?token=%s&accountId=%s&customerId=%s",
-                    token,
+                    "http://localhost:5173/oauth-success?accessToken=%s&refreshToken=%s&accountId=%s&customerId=%s",
+                    accessToken,
+                    refreshToken,
                     account.getId(),
                     customerId != null ? customerId.toString() : ""
             );
