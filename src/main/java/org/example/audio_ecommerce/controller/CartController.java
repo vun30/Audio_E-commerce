@@ -1,24 +1,29 @@
 package org.example.audio_ecommerce.controller;
 
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
 import org.example.audio_ecommerce.dto.response.CartResponse;
+import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
 import org.example.audio_ecommerce.service.CartService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.bind.annotation.RequestBody;
-import java.util.List;
-import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.media.*;
-import io.swagger.v3.oas.annotations.responses.*;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.Parameter;
+
+import java.util.List;
+import java.util.UUID;
 
 @Tag(name = "Cart", description = "Các API thao tác giỏ hàng của khách hàng")
 @RestController
@@ -67,14 +72,15 @@ public class CartController {
     @Operation(
             summary = "Checkout COD các sản phẩm/combo được chọn trong giỏ hàng",
             description = """
-    Thanh toán COD: tạo CustomerOrder và tách StoreOrder theo từng cửa hàng.
-    - Body gồm danh sách items (PRODUCT/COMBO) và addressId (tuỳ chọn).
-    - Nếu không truyền addressId, hệ thống dùng địa chỉ mặc định của customer.
-    Trả về: id, status, createdAt, totalAmount và snapshot địa chỉ giao hàng.
-    """
+            Thanh toán COD: tạo CustomerOrder và tách StoreOrder theo từng cửa hàng.
+            - Body gồm danh sách items (PRODUCT/COMBO) và addressId (tuỳ chọn).
+            - Nếu không truyền addressId, hệ thống dùng địa chỉ mặc định của customer.
+            Trả về: id, status, createdAt, totalAmount và snapshot địa chỉ giao hàng.
+            """
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Checkout COD thành công"),
+            @ApiResponse(responseCode = "200", description = "Checkout COD thành công",
+                    content = @Content(schema = @Schema(implementation = CustomerOrderResponse.class))),
             @ApiResponse(responseCode = "400", description = "Lỗi khi checkout COD")
     })
     @PostMapping("/checkout-cod")
@@ -83,9 +89,14 @@ public class CartController {
             @Parameter(description = "ID khách hàng (UUID)", required = true)
             @PathVariable UUID customerId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Danh sách item cần checkout và addressId (tùy chọn). " +
-                            "Ví dụ: { \"items\": [{\"type\":\"PRODUCT\",\"id\":\"...\",\"quantity\":2}], " +
-                            "\"addressId\":\"...\" }",
+                    description = """
+                    Danh sách item cần checkout và addressId (tùy chọn).
+                    Ví dụ:
+                    {
+                      "items": [{"type":"PRODUCT","id":"...","quantity":2}],
+                      "addressId":"..."
+                    }
+                    """,
                     required = true
             )
             @RequestBody CheckoutCODRequest request
@@ -93,4 +104,26 @@ public class CartController {
         return cartService.checkoutCODWithResponse(customerId, request);
     }
 
+    @Operation(
+            summary = "Pre-check COD eligibility cho danh sách item sẽ checkout",
+            description = "Nhận danh sách CheckoutItemRequest[] và trả về `overallEligible` cùng chi tiết từng store."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK",
+                    content = @Content(schema = @Schema(implementation = CodEligibilityResponse.class)))
+    })
+    @PostMapping("/cod-eligibility")
+    public ResponseEntity<CodEligibilityResponse> checkCodEligibility(
+            @Parameter(description = "ID khách hàng (UUID)", required = true)
+            @PathVariable UUID customerId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Array CheckoutItemRequest[]. Ví dụ: [{\"type\":\"PRODUCT\",\"id\":\"...\"}]",
+                    required = true,
+                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = CheckoutItemRequest.class)))
+            )
+            @RequestBody List<CheckoutItemRequest> items
+    ) {
+        CodEligibilityResponse res = cartService.checkCodEligibility(customerId, items);
+        return ResponseEntity.ok(res);
+    }
 }
