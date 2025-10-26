@@ -1,9 +1,11 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.config.CodConfig;
 import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
+import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
 import org.example.audio_ecommerce.entity.*;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +35,10 @@ public class CartServiceImpl implements CartService {
     private final StoreOrderRepository storeOrderRepository;
     private final StoreRepository storeRepo;
 
+    // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
+    private final StoreWalletRepository storeWalletRepository;
+    private final CodConfig codConfig;
+
     @Override
     @Transactional
     public CartResponse addItems(UUID customerId, AddCartItemsRequest request) {
@@ -42,10 +49,11 @@ public class CartServiceImpl implements CartService {
 
         // Dùng key (type + refId) để merge
         Map<String, CartItem> existingMap = new HashMap<>();
-        for (CartItem it : cart.getItems()) {
+        for (CartItem it : Optional.ofNullable(cart.getItems()).orElseGet(ArrayList::new)) {
             String key = key(it.getType(), it.getReferenceId());
             existingMap.put(key, it);
         }
+        if (cart.getItems() == null) cart.setItems(new ArrayList<>());
 
         for (var line : request.getItems()) {
             CartItemType type = CartItemType.valueOf(line.getType().toUpperCase(Locale.ROOT));
@@ -135,6 +143,81 @@ public class CartServiceImpl implements CartService {
         return toResponse(cart);
     }
 
+    // ===== NEW: API để FE kiểm tra và khóa nút COD nếu cần =====
+    @Override
+    @Transactional(readOnly = true)
+    public CodEligibilityResponse checkCodEligibility(UUID customerId, List<CheckoutItemRequest> reqItems) {
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        // 1) Map request -> CartItem trong cart
+        List<CartItem> itemsToCheckout = new ArrayList<>();
+        for (CheckoutItemRequest req : Optional.ofNullable(reqItems).orElse(List.of())) {
+            CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
+            UUID refId = req.getId();
+            cart.getItems().stream()
+                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
+                    .findFirst()
+                    .ifPresent(itemsToCheckout::add);
+        }
+        if (itemsToCheckout.isEmpty()) {
+            throw new IllegalStateException("No matching items in cart for COD eligibility check");
+        }
+
+        // 2) Group theo store và tính subtotal từng store
+        Map<UUID, StoreSubtotal> subtotalByStore = new HashMap<>();
+        for (CartItem it : itemsToCheckout) {
+            UUID storeId = (it.getType() == CartItemType.PRODUCT && it.getProduct() != null)
+                    ? it.getProduct().getStore().getStoreId()
+                    : (it.getCombo() != null ? it.getCombo().getStore().getStoreId() : null);
+            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
+
+            subtotalByStore.computeIfAbsent(storeId, k -> new StoreSubtotal())
+                    .add(it.getLineTotal());
+
+            // lưu name store (để trả ra FE)
+            subtotalByStore.get(storeId).storeName =
+                    (it.getType() == CartItemType.PRODUCT && it.getProduct() != null)
+                            ? it.getProduct().getStore().getStoreName()
+                            : (it.getCombo() != null ? it.getCombo().getStore().getStoreName() : null);
+        }
+
+        // 3) Tính requiredDeposit = subtotal * ratio, lấy depositBalance từ StoreWallet
+        BigDecimal ratio = codConfig.getCodDepositRatio();
+        List<CodEligibilityResponse.PerStore> perStores = new ArrayList<>();
+
+        boolean overall = true;
+        for (Map.Entry<UUID, StoreSubtotal> e : subtotalByStore.entrySet()) {
+            UUID storeId = e.getKey();
+            StoreSubtotal ss = e.getValue();
+
+            BigDecimal required = ss.subtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
+            BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeId)
+                    .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
+                    .orElse(BigDecimal.ZERO);
+
+            boolean eligible = deposit.compareTo(required) >= 0;
+            if (!eligible) overall = false;
+
+            perStores.add(CodEligibilityResponse.PerStore.builder()
+                    .storeId(storeId)
+                    .storeName(ss.storeName)
+                    .storeSubtotal(ss.subtotal)
+                    .requiredDeposit(required)
+                    .depositBalance(deposit)
+                    .eligible(eligible)
+                    .reason(eligible ? null : "INSUFFICIENT_DEPOSIT")
+                    .build());
+        }
+
+        return CodEligibilityResponse.builder()
+                .overallEligible(overall)
+                .stores(perStores)
+                .build();
+    }
+
     @Override
     @Transactional
     public CustomerOrderResponse checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request) {
@@ -179,11 +262,33 @@ public class CartServiceImpl implements CartService {
             itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
         }
 
+        // ===== NEW: Kiểm tra eligibility ngay trước khi tạo CustomerOrder =====
+        BigDecimal ratio = codConfig.getCodDepositRatio();
+        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+            UUID storeIdKey = entry.getKey();
+            BigDecimal storeSubtotal = entry.getValue().stream()
+                    .map(CartItem::getLineTotal)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
+            BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
+                    .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
+                    .orElse(BigDecimal.ZERO);
+
+            if (deposit.compareTo(required) < 0) {
+                // Trả lỗi “kỹ thuật” để FE khóa nút COD — không show cho buyer
+                throw new IllegalStateException(
+                        "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
+                                + " required=" + required + " deposit=" + deposit);
+            }
+        }
+        // ===== END NEW =====
+
         // 3) Lấy địa chỉ (addressId ưu tiên; nếu null -> default)
         CustomerAddress chosenAddr;
         UUID addressId = request.getAddressId();
         if (addressId != null) {
-            // Nếu bạn không có quan hệ addresses trên Customer, dùng repository để load theo id
             chosenAddr = customer.getAddresses().stream()
                     .filter(a -> a.getId().equals(addressId))
                     .findFirst()
@@ -256,19 +361,17 @@ public class CartServiceImpl implements CartService {
                     .shipPostalCode(customerOrder.getShipPostalCode())
                     .shipNote(customerOrder.getShipNote())
                     .build();
-            List<StoreOrderItem> storeOrderItems = new ArrayList<>();
-            for (CartItem item : entry.getValue()) {
-                StoreOrderItem soi = StoreOrderItem.builder()
-                        .storeOrder(storeOrder)
-                        .type(item.getType().name())
-                        .refId(item.getReferenceId())
-                        .name(item.getNameSnapshot())
-                        .quantity(item.getQuantity())
-                        .unitPrice(item.getUnitPrice())
-                        .lineTotal(item.getLineTotal())
-                        .build();
-                storeOrderItems.add(soi);
-            }
+            List<StoreOrderItem> storeOrderItems = entry.getValue().stream().map(item ->
+                    StoreOrderItem.builder()
+                            .storeOrder(storeOrder)
+                            .type(item.getType().name())
+                            .refId(item.getReferenceId())
+                            .name(item.getNameSnapshot())
+                            .quantity(item.getQuantity())
+                            .unitPrice(item.getUnitPrice())
+                            .lineTotal(item.getLineTotal())
+                            .build()
+            ).collect(Collectors.toList());
             storeOrder.setItems(storeOrderItems);
             storeOrderRepository.save(storeOrder);
         }
@@ -319,6 +422,7 @@ public class CartServiceImpl implements CartService {
     private static void recalcTotals(Cart cart) {
         BigDecimal subtotal = cart.getItems().stream()
                 .map(CartItem::getLineTotal)
+                .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         cart.setSubtotal(subtotal);
         cart.setDiscountTotal(BigDecimal.ZERO); // về sau có voucher thì cập nhật ở đây
@@ -347,5 +451,15 @@ public class CartServiceImpl implements CartService {
                         .build()
                 ).toList())
                 .build();
+    }
+
+    // ===== helper class cho tính tổng theo store (chỉ dùng nội bộ) =====
+    private static class StoreSubtotal {
+        BigDecimal subtotal = BigDecimal.ZERO;
+        String storeName;
+
+        void add(BigDecimal v) {
+            if (v != null) subtotal = subtotal.add(v);
+        }
     }
 }
