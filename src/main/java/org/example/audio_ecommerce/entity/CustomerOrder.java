@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -36,6 +37,12 @@ public class CustomerOrder {
     @OneToMany(mappedBy = "customerOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CustomerOrderItem> items = new ArrayList<>();
 
+    @Column(name = "total_amount", precision = 18, scale = 2)
+    private BigDecimal totalAmount = BigDecimal.ZERO;
+
+    @Column(name = "external_order_code")
+    private String externalOrderCode;
+
     // trong CustomerOrder.java (chỉ phần bổ sung)
     @Column(name = "ship_receiver_name", length = 255)
     private String shipReceiverName;
@@ -67,4 +74,16 @@ public class CustomerOrder {
     @Column(name = "ship_note", length = 512)
     private String shipNote;
 
+    @PrePersist
+    @PreUpdate
+    public void calculateTotalAmount() {
+        if (items == null || items.isEmpty()) {
+            totalAmount = BigDecimal.ZERO;
+            return;
+        }
+        totalAmount = items.stream()
+                .map(CustomerOrderItem::getLineTotal)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
 }

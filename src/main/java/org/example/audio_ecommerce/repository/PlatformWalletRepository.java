@@ -13,4 +13,6 @@ public interface PlatformWalletRepository extends JpaRepository<PlatformWallet, 
     List<PlatformWallet> findByOwnerType(WalletOwnerType ownerType);
 
     Optional<PlatformWallet> findByOwnerTypeAndOwnerId(WalletOwnerType ownerType, UUID ownerId);
+
+    Optional<PlatformWallet> findFirstByOwnerType(WalletOwnerType ownerType);
 }

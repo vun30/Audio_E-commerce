@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.LoginRequest;
+import org.example.audio_ecommerce.dto.request.RefreshTokenRequest;
 import org.example.audio_ecommerce.dto.request.RegisterRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.email.AccountData;
@@ -210,14 +211,50 @@ public class AccountServiceImpl implements AccountService {
 
             var customerOpt = customerRepository.findByAccount_Id(user.getId());
             UUID customerId = customerOpt.map(Customer::getId).orElse(null);
-            String token = jwtTokenProvider.generateToken(user.getId(), customerId, user.getEmail(), user.getRole().name());
+            String accessToken = jwtTokenProvider.generateToken(user.getId(), customerId, user.getEmail(), user.getRole().name());
+            String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId(), customerId, user.getEmail(), user.getRole().name());
             AccountResponse userResponse = new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
-            LoginResponse loginResponse = new LoginResponse(token, userResponse);
+            LoginResponse loginResponse = new LoginResponse(accessToken, refreshToken, userResponse);
 
             return ResponseEntity.ok(new BaseResponse<>(200, "Login success", loginResponse));
         } catch (BadCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new BaseResponse<>(401, "Invalid credentials", null));
+        }
+    }
+
+    // ==================== REFRESH TOKEN ====================
+    @Override
+    public ResponseEntity<BaseResponse> refreshToken(RefreshTokenRequest request) {
+        try {
+            // Validate refresh token
+            if (!jwtTokenProvider.validateRefreshToken(request.getRefreshToken())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new BaseResponse<>(401, "Invalid refresh token", null));
+            }
+
+            // Extract information from refresh token
+            UUID accountId = jwtTokenProvider.getAccountIdFromRefreshToken(request.getRefreshToken());
+            UUID customerId = jwtTokenProvider.getCustomerIdFromRefreshToken(request.getRefreshToken());
+            String email = jwtTokenProvider.getEmailFromRefreshToken(request.getRefreshToken());
+            String role = jwtTokenProvider.getRoleFromRefreshToken(request.getRefreshToken());
+
+            // Verify account still exists
+            Account user = repository.findById(accountId)
+                    .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            // Generate new access token
+            String newAccessToken = jwtTokenProvider.generateToken(accountId, customerId, email, role);
+            String newRefreshToken = jwtTokenProvider.generateRefreshToken(accountId, customerId, email, role);
+
+            // Create response
+            AccountResponse userResponse = new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
+            LoginResponse loginResponse = new LoginResponse(newAccessToken, newRefreshToken, userResponse);
+
+            return ResponseEntity.ok(new BaseResponse<>(200, "Token refreshed successfully", loginResponse));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new BaseResponse<>(401, "Invalid refresh token", null));
         }
     }
 }
