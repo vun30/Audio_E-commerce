@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-@Tag(name = "Shop Voucher", description = "API quản lý mã giảm giá của cửa hàng (shop vouchers)")
+@Tag(name = "Shop Voucher", description = "API quản lý mã giảm giá của cửa hàng (Shop Vouchers)")
 @RestController
 @RequestMapping("/api/shop-vouchers")
 @RequiredArgsConstructor
@@ -24,17 +24,22 @@ public class ShopVoucherController {
     private final ShopVoucherService service;
 
     // ============================================================
-    // ➕ CREATE
+    // ➕ CREATE VOUCHER
     // ============================================================
     @Operation(
             summary = "Tạo mới voucher cho nhiều sản phẩm",
             description = """
-                    Cho phép cửa hàng tạo voucher và áp dụng cho nhiều sản phẩm.
-                    <br><br>⚙️ **Logic tự động:**
-                    - Nếu `discountPercent` khác null → áp dụng giảm theo %.
-                    - Nếu `discountAmount` khác null → áp dụng giảm theo số tiền cố định.
-                    - Nếu cả 2 đều null → giữ nguyên giá.
-                    <br><br>✅ **Lưu ý:** Chỉ có thể áp voucher cho sản phẩm thuộc chính cửa hàng đó.
+                    Cho phép cửa hàng tạo voucher và liên kết với nhiều sản phẩm.
+                    <br><br>⚙️ **Logic hoạt động:**
+                    - Voucher chỉ lưu điều kiện (giảm theo % hoặc số tiền cố định).
+                    - Sản phẩm chỉ được liên kết với voucher, **không lưu giá giảm** trong DB.
+                    - FE hoặc BE sẽ gọi API `calculate` để tính giá sau giảm tại runtime.
+                    <br><br>✅ **Lưu ý:**  
+                    - Chỉ có thể áp voucher cho sản phẩm thuộc chính cửa hàng.  
+                    - Không ảnh hưởng đến giá gốc của sản phẩm (`Product.price`).
+                     FIXED,      // Giảm số tiền cố định
+                        PERCENT,    // Giảm phần trăm
+                        SHIPPING    // Miễn phí vận chuyển
                     """,
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -59,15 +64,11 @@ public class ShopVoucherController {
                                       "products": [
                                         {
                                           "productId": "b6dbb60e-bfe5-4e5f-ae7f-bcfb9a1b529a",
-                                          "discountPercent": 10,
-                                          "discountAmount": null,
                                           "promotionStockLimit": 50,
                                           "purchaseLimitPerCustomer": 2
                                         },
                                         {
                                           "productId": "a2c44cda-1f44-4d9a-84e9-6f2b4f5e8a7a",
-                                          "discountPercent": null,
-                                          "discountAmount": 20000,
                                           "promotionStockLimit": 30,
                                           "purchaseLimitPerCustomer": 1
                                         }
@@ -88,13 +89,13 @@ public class ShopVoucherController {
     }
 
     // ============================================================
-    // 📦 GET ALL
+    // 📦 GET ALL VOUCHERS
     // ============================================================
     @Operation(
             summary = "Lấy tất cả voucher của cửa hàng hiện tại",
             description = """
                     Trả về danh sách tất cả voucher thuộc về cửa hàng đang đăng nhập.
-                    Bao gồm các voucher đang hoạt động, đã hết hạn hoặc bị vô hiệu hóa.
+                    Bao gồm cả voucher đang hoạt động, đã hết hạn hoặc bị vô hiệu hóa.
                     """
     )
     @GetMapping
@@ -103,12 +104,12 @@ public class ShopVoucherController {
     }
 
     // ============================================================
-    // 🔍 GET BY ID
+    // 🔍 GET VOUCHER BY ID
     // ============================================================
     @Operation(
             summary = "Xem chi tiết voucher theo ID",
             description = """
-                    Lấy chi tiết voucher bao gồm thông tin cấu hình và danh sách sản phẩm áp dụng.
+                    Lấy chi tiết voucher bao gồm thông tin cấu hình, điều kiện và danh sách sản phẩm được áp dụng.
                     """,
             responses = {
                     @ApiResponse(responseCode = "200", description = "Voucher detail retrieved successfully"),
@@ -121,7 +122,7 @@ public class ShopVoucherController {
     }
 
     // ============================================================
-    // 🚫 DISABLE / ENABLE
+    // 🚫 TOGGLE ENABLE / DISABLE
     // ============================================================
     @Operation(
             summary = "Bật / Tắt trạng thái voucher",
@@ -140,4 +141,17 @@ public class ShopVoucherController {
     public ResponseEntity<BaseResponse> toggleVoucher(@PathVariable UUID id) {
         return service.disableVoucher(id);
     }
+
+    @Operation(
+        summary = "Lấy voucher ACTIVE của một sản phẩm",
+        description = """
+                Trả về thông tin voucher đang hoạt động (ACTIVE)
+                được áp dụng cho sản phẩm có ID tương ứng.
+                """
+)
+@GetMapping("/product/{productId}")
+public ResponseEntity<BaseResponse> getVoucherByProduct(@PathVariable UUID productId) {
+    return service.getActiveVoucherByProductId(productId);
+}
+
 }

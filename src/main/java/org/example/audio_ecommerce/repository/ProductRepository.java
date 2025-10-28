@@ -56,4 +56,6 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     Page<Product> findByPriceRange(@Param("minPrice") double minPrice,
                                    @Param("maxPrice") double maxPrice,
                                    Pageable pageable);
+
+    long countByStore_StoreIdAndStatus(UUID storeId, ProductStatus status);
 }

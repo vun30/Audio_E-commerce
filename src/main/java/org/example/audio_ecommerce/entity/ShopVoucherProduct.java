@@ -1,10 +1,10 @@
 package org.example.audio_ecommerce.entity;
+
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.math.BigDecimal;
-
 import java.util.UUID;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,7 +18,7 @@ public class ShopVoucherProduct {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    // ========== 🔹 Quan hệ ==========
+    // 🔹 Quan hệ
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "voucher_id", nullable = false)
     private ShopVoucher voucher;
@@ -27,17 +27,8 @@ public class ShopVoucherProduct {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    // ========== 🔹 Thông tin giảm giá ==========
-    private BigDecimal originalPrice;      // Giá gốc của sản phẩm
-    private BigDecimal discountedPrice;    // Giá sau giảm
-    private Integer discountPercent;       // % giảm riêng (nếu có)
-    private BigDecimal discountAmount;     // Số tiền giảm (nếu có)
-
-    // ========== 🔹 Hạn mức sản phẩm ==========
-    private Integer stock;                 // Tổng kho của sản phẩm
-    private Integer promotionStockLimit;   // Số lượng áp dụng khuyến mãi
-    private Integer purchaseLimitPerCustomer; // Mỗi KH được mua tối đa bao nhiêu
-
-    // ========== 🔹 Trạng thái ==========
-    private boolean isActive = true;       // Có đang áp dụng khuyến mãi không
+    // 🔹 Cấu hình áp dụng
+    private Integer promotionStockLimit;      // Số lượng được áp voucher
+    private Integer purchaseLimitPerCustomer; // Giới hạn mua / user
+    private boolean active = true;
 }

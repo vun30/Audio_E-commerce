@@ -11,4 +11,6 @@ public interface ShopVoucherService {
     ResponseEntity<BaseResponse> getAllVouchers();
     ResponseEntity<BaseResponse> getVoucherById(UUID id);
     ResponseEntity<BaseResponse> disableVoucher(UUID id);
+    ResponseEntity<BaseResponse> getActiveVoucherByProductId(UUID productId);
+
 }
