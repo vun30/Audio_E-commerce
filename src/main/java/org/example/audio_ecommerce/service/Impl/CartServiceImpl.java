@@ -221,172 +221,18 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional
     public CustomerOrderResponse checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request) {
-        // 0) Load customer & cart
-        Customer customer = customerRepo.findById(customerId)
-                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
-        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
-                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
-        if (cart.getItems() == null || cart.getItems().isEmpty()) {
-            throw new IllegalStateException("Cart is empty");
-        }
+        CustomerOrder customerOrder = createOrderInternal(
+                customerId,
+                request.getItems(),
+                request.getAddressId(),
+                request.getMessage(),
+                true // enforceCodDeposit = true (COD phải check)
+        );
 
-        // 1) Lọc item từ request
-        List<CartItem> itemsToCheckout = new ArrayList<>();
-        for (CheckoutItemRequest req : Optional.ofNullable(request.getItems()).orElse(List.of())) {
-            CartItemType type;
-            try {
-                type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("Invalid type for cart item: " + req.getType() + ". Chỉ chấp nhận PRODUCT hoặc COMBO.");
-            }
-            UUID refId = req.getId();
-            cart.getItems().stream()
-                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
-                    .findFirst()
-                    .ifPresent(itemsToCheckout::add);
-        }
-        if (itemsToCheckout.isEmpty()) {
-            throw new IllegalStateException("No matching items in cart for checkout");
-        }
-
-        // 2) Gom theo store
-        Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
-        for (CartItem item : itemsToCheckout) {
-            UUID storeId = null;
-            if (item.getType() == CartItemType.PRODUCT && item.getProduct() != null) {
-                storeId = item.getProduct().getStore().getStoreId();
-            } else if (item.getType() == CartItemType.COMBO && item.getCombo() != null) {
-                storeId = item.getCombo().getStore().getStoreId();
-            }
-            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
-            itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
-        }
-
-        // ===== NEW: Kiểm tra eligibility ngay trước khi tạo CustomerOrder =====
-        BigDecimal ratio = codConfig.getCodDepositRatio();
-        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-            UUID storeIdKey = entry.getKey();
-            BigDecimal storeSubtotal = entry.getValue().stream()
-                    .map(CartItem::getLineTotal)
-                    .filter(Objects::nonNull)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
-            BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
-                    .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
-                    .orElse(BigDecimal.ZERO);
-
-            if (deposit.compareTo(required) < 0) {
-                // Trả lỗi “kỹ thuật” để FE khóa nút COD — không show cho buyer
-                throw new IllegalStateException(
-                        "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
-                                + " required=" + required + " deposit=" + deposit);
-            }
-        }
-        // ===== END NEW =====
-
-        // 3) Lấy địa chỉ (addressId ưu tiên; nếu null -> default)
-        CustomerAddress chosenAddr;
-        UUID addressId = request.getAddressId();
-        if (addressId != null) {
-            chosenAddr = customer.getAddresses().stream()
-                    .filter(a -> a.getId().equals(addressId))
-                    .findFirst()
-                    .orElseThrow(() -> new NoSuchElementException("Address not found"));
-        } else {
-            chosenAddr = customer.getAddresses().stream()
-                    .filter(CustomerAddress::isDefault)
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("No default address found for COD checkout"));
-        }
-
-        // 4) Tạo CustomerOrder + snapshot địa chỉ
-        CustomerOrder customerOrder = CustomerOrder.builder()
-                .customer(customer)
-                .createdAt(java.time.LocalDateTime.now())
-                .message(request.getMessage())
-                .status(OrderStatus.PENDING)
-                .shipReceiverName(chosenAddr.getReceiverName())
-                .shipPhoneNumber(chosenAddr.getPhoneNumber())
-                .shipCountry(chosenAddr.getCountry())
-                .shipProvince(chosenAddr.getProvince())
-                .shipDistrict(chosenAddr.getDistrict())
-                .shipWard(chosenAddr.getWard())
-                .shipStreet(chosenAddr.getStreet())
-                .shipAddressLine(chosenAddr.getAddressLine())
-                .shipPostalCode(chosenAddr.getPostalCode())
-                .shipNote(chosenAddr.getNote())
-                .build();
-
-        // 5) CustomerOrderItem
-        List<CustomerOrderItem> customerOrderItems = new ArrayList<>();
-        for (CartItem item : itemsToCheckout) {
-            CustomerOrderItem coi = CustomerOrderItem.builder()
-                    .customerOrder(customerOrder)
-                    .type(item.getType().name())
-                    .refId(item.getReferenceId())
-                    .name(item.getNameSnapshot())
-                    .quantity(item.getQuantity())
-                    .unitPrice(item.getUnitPrice())
-                    .lineTotal(item.getLineTotal())
-                    .storeId((item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
-                            ? item.getProduct().getStore().getStoreId()
-                            : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null))
-                    .build();
-            customerOrderItems.add(coi);
-        }
-        customerOrder.setItems(customerOrderItems);
-
-        // 6) Lưu CustomerOrder
-        customerOrder = customerOrderRepository.save(customerOrder);
-
-        // 7) Tạo StoreOrders
-        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-            UUID storeIdKey = entry.getKey();
-            Store store = storeRepo.findById(storeIdKey)
-                    .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
-            StoreOrder storeOrder = StoreOrder.builder()
-                    .store(store)
-                    .createdAt(java.time.LocalDateTime.now())
-                    .status(OrderStatus.PENDING)
-                    .customerOrder(customerOrder)
-                    .shipReceiverName(customerOrder.getShipReceiverName())
-                    .shipPhoneNumber(customerOrder.getShipPhoneNumber())
-                    .shipCountry(customerOrder.getShipCountry())
-                    .shipProvince(customerOrder.getShipProvince())
-                    .shipDistrict(customerOrder.getShipDistrict())
-                    .shipWard(customerOrder.getShipWard())
-                    .shipStreet(customerOrder.getShipStreet())
-                    .shipAddressLine(customerOrder.getShipAddressLine())
-                    .shipPostalCode(customerOrder.getShipPostalCode())
-                    .shipNote(customerOrder.getShipNote())
-                    .build();
-            List<StoreOrderItem> storeOrderItems = entry.getValue().stream().map(item ->
-                    StoreOrderItem.builder()
-                            .storeOrder(storeOrder)
-                            .type(item.getType().name())
-                            .refId(item.getReferenceId())
-                            .name(item.getNameSnapshot())
-                            .quantity(item.getQuantity())
-                            .unitPrice(item.getUnitPrice())
-                            .lineTotal(item.getLineTotal())
-                            .build()
-            ).collect(Collectors.toList());
-            storeOrder.setItems(storeOrderItems);
-            storeOrderRepository.save(storeOrder);
-        }
-
-        // 8) Xoá item đã checkout khỏi cart
-        cart.getItems().removeAll(itemsToCheckout);
-        cartRepo.save(cart);
-        cartItemRepo.deleteAll(itemsToCheckout);
-
-        // 9) Tính tổng tiền
         BigDecimal totalAmount = customerOrder.getItems().stream()
                 .map(CustomerOrderItem::getLineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 10) Build response (kèm địa chỉ)
         CustomerOrderResponse resp = new CustomerOrderResponse();
         resp.setId(customerOrder.getId());
         resp.setStatus(customerOrder.getStatus().name());
@@ -404,8 +250,19 @@ public class CartServiceImpl implements CartService {
         resp.setAddressLine(customerOrder.getShipAddressLine());
         resp.setPostalCode(customerOrder.getShipPostalCode());
         resp.setNote(customerOrder.getShipNote());
-
         return resp;
+    }
+
+    @Override
+    @Transactional
+    public CustomerOrder createOrderForOnline(UUID customerId, CheckoutCODRequest request) {
+        return createOrderInternal(
+                customerId,
+                request.getItems(),
+                request.getAddressId(),
+                request.getMessage(),
+                false // enforceCodDeposit = false (online không check)
+        );
     }
 
 
@@ -452,6 +309,169 @@ public class CartServiceImpl implements CartService {
                 ).toList())
                 .build();
     }
+
+    @Transactional
+    protected CustomerOrder createOrderInternal(
+            UUID customerId,
+            List<CheckoutItemRequest> itemsReq,
+            UUID addressId,
+            String message,
+            boolean enforceCodDeposit
+    ) {
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            throw new IllegalStateException("Cart is empty");
+        }
+
+        // 1) Map request -> CartItem trong cart
+        List<CartItem> itemsToCheckout = new ArrayList<>();
+        for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
+            CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
+            UUID refId = req.getId();
+            cart.getItems().stream()
+                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
+                    .findFirst()
+                    .ifPresent(itemsToCheckout::add);
+        }
+        if (itemsToCheckout.isEmpty()) {
+            throw new IllegalStateException("No matching items in cart for checkout");
+        }
+
+        // 2) Gom theo store
+        Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
+        for (CartItem item : itemsToCheckout) {
+            UUID storeId = (item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
+                    ? item.getProduct().getStore().getStoreId()
+                    : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null);
+            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
+            itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
+        }
+
+        // 2b) CHỈ COD mới check deposit
+        if (enforceCodDeposit) {
+            BigDecimal ratio = codConfig.getCodDepositRatio();
+            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+                UUID storeIdKey = entry.getKey();
+                BigDecimal storeSubtotal = entry.getValue().stream()
+                        .map(CartItem::getLineTotal)
+                        .filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
+                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
+                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
+                        .orElse(BigDecimal.ZERO);
+
+                if (deposit.compareTo(required) < 0) {
+                    throw new IllegalStateException(
+                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
+                                    + " required=" + required + " deposit=" + deposit);
+                }
+            }
+        }
+
+        // 3) Lấy địa chỉ
+        CustomerAddress chosenAddr;
+        if (addressId != null) {
+            chosenAddr = customer.getAddresses().stream()
+                    .filter(a -> a.getId().equals(addressId))
+                    .findFirst()
+                    .orElseThrow(() -> new NoSuchElementException("Address not found"));
+        } else {
+            chosenAddr = customer.getAddresses().stream()
+                    .filter(CustomerAddress::isDefault)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("No default address found for checkout"));
+        }
+
+        // 4) Tạo CustomerOrder + snapshot địa chỉ
+        CustomerOrder customerOrder = CustomerOrder.builder()
+                .customer(customer)
+                .createdAt(java.time.LocalDateTime.now())
+                .message(message)
+                .status(OrderStatus.PENDING) // hoặc AWAITING_PAYMENT nếu bạn có enum này
+                .shipReceiverName(chosenAddr.getReceiverName())
+                .shipPhoneNumber(chosenAddr.getPhoneNumber())
+                .shipCountry(chosenAddr.getCountry())
+                .shipProvince(chosenAddr.getProvince())
+                .shipDistrict(chosenAddr.getDistrict())
+                .shipWard(chosenAddr.getWard())
+                .shipStreet(chosenAddr.getStreet())
+                .shipAddressLine(chosenAddr.getAddressLine())
+                .shipPostalCode(chosenAddr.getPostalCode())
+                .shipNote(chosenAddr.getNote())
+                .build();
+
+        // 5) CustomerOrderItem
+        List<CustomerOrderItem> customerOrderItems = new ArrayList<>();
+        for (CartItem item : itemsToCheckout) {
+            customerOrderItems.add(CustomerOrderItem.builder()
+                    .customerOrder(customerOrder)
+                    .type(item.getType().name())
+                    .refId(item.getReferenceId())
+                    .name(item.getNameSnapshot())
+                    .quantity(item.getQuantity())
+                    .unitPrice(item.getUnitPrice())
+                    .lineTotal(item.getLineTotal())
+                    .storeId((item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
+                            ? item.getProduct().getStore().getStoreId()
+                            : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null))
+                    .build());
+        }
+        customerOrder.setItems(customerOrderItems);
+
+        // 6) Lưu CustomerOrder
+        customerOrder = customerOrderRepository.save(customerOrder);
+
+        // 7) Tạo StoreOrders
+        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+            UUID storeIdKey = entry.getKey();
+            Store store = storeRepo.findById(storeIdKey)
+                    .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
+            StoreOrder storeOrder = StoreOrder.builder()
+                    .store(store)
+                    .createdAt(java.time.LocalDateTime.now())
+                    .status(OrderStatus.PENDING)
+                    .customerOrder(customerOrder)
+                    .shipReceiverName(customerOrder.getShipReceiverName())
+                    .shipPhoneNumber(customerOrder.getShipPhoneNumber())
+                    .shipCountry(customerOrder.getShipCountry())
+                    .shipProvince(customerOrder.getShipProvince())
+                    .shipDistrict(customerOrder.getShipDistrict())
+                    .shipWard(customerOrder.getShipWard())
+                    .shipStreet(customerOrder.getShipStreet())
+                    .shipAddressLine(customerOrder.getShipAddressLine())
+                    .shipPostalCode(customerOrder.getShipPostalCode())
+                    .shipNote(customerOrder.getShipNote())
+                    .build();
+
+            List<StoreOrderItem> storeOrderItems = entry.getValue().stream().map(item ->
+                    StoreOrderItem.builder()
+                            .storeOrder(storeOrder)
+                            .type(item.getType().name())
+                            .refId(item.getReferenceId())
+                            .name(item.getNameSnapshot())
+                            .quantity(item.getQuantity())
+                            .unitPrice(item.getUnitPrice())
+                            .lineTotal(item.getLineTotal())
+                            .build()
+            ).collect(Collectors.toList());
+
+            storeOrder.setItems(storeOrderItems);
+            storeOrderRepository.save(storeOrder);
+        }
+
+        // 8) Xoá item khỏi cart
+        cart.getItems().removeAll(itemsToCheckout);
+        cartRepo.save(cart);
+        cartItemRepo.deleteAll(itemsToCheckout);
+
+        return customerOrder;
+    }
+
 
     // ===== helper class cho tính tổng theo store (chỉ dùng nội bộ) =====
     private static class StoreSubtotal {

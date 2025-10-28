@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutOnlineRequest;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
 import org.example.audio_ecommerce.service.PayOSEcomService;
@@ -32,11 +33,11 @@ public class PayOSEcomController {
     public ResponseEntity<CheckoutOnlineResponse> checkoutOnline(@RequestParam UUID customerId,
                                                                  @RequestBody CheckoutOnlineRequest req) {
         // 1) Tạo CustomerOrder (y hệt COD) nhưng giữ status AWAITING_PAYMENT
-        var codReq = new org.example.audio_ecommerce.dto.request.CheckoutCODRequest();
+        var codReq = new CheckoutCODRequest();
         codReq.setAddressId(req.getAddressId());
         codReq.setMessage(req.getMessage());
         codReq.setItems(req.getItems());
-        var codResp = cartService.checkoutCODWithResponse(customerId, codReq); // đã tạo orders + tính total
+        var codResp = cartService.createOrderForOnline(customerId, codReq); // đã tạo orders + tính total
 
         // 2) Gọi PayOS tạo link
         CheckoutOnlineResponse pay = payOSEcomService.createPaymentForCustomerOrder(
