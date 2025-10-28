@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.dto.response;
 import lombok.*;
 import org.example.audio_ecommerce.entity.ShopVoucher;
 import org.example.audio_ecommerce.entity.ShopVoucherProduct;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -23,10 +24,16 @@ public class ShopVoucherResponse {
     private String type;
     private BigDecimal discountValue;
     private Integer discountPercent;
+    private BigDecimal maxDiscountValue;
     private BigDecimal minOrderValue;
     private String status;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
+    private Integer totalVoucherIssued;
+    private Integer totalUsageLimit;
+    private Integer usagePerUser;
+    private Integer remainingUsage;
+
     private List<ProductInfo> products;
 
     public static ShopVoucherResponse fromEntity(ShopVoucher v) {
@@ -38,30 +45,43 @@ public class ShopVoucherResponse {
                 .type(v.getType() != null ? v.getType().name() : null)
                 .discountValue(v.getDiscountValue())
                 .discountPercent(v.getDiscountPercent())
+                .maxDiscountValue(v.getMaxDiscountValue())
                 .minOrderValue(v.getMinOrderValue())
                 .status(v.getStatus() != null ? v.getStatus().name() : null)
                 .startTime(v.getStartTime())
                 .endTime(v.getEndTime())
-                .products(v.getVoucherProducts().stream()
-                        .map(p -> new ProductInfo(
-                                p.getProduct().getProductId(),
-                                p.getProduct().getName(),
-                                p.getOriginalPrice(),
-                                p.getDiscountedPrice(),
-                                p.getDiscountPercent()
-                        ))
-                        .collect(Collectors.toList()))
+                .totalVoucherIssued(v.getTotalVoucherIssued())
+                .totalUsageLimit(v.getTotalUsageLimit())
+                .usagePerUser(v.getUsagePerUser())
+                .remainingUsage(v.getRemainingUsage())
+                .products(v.getVoucherProducts() != null
+                        ? v.getVoucherProducts().stream()
+                            .map(ShopVoucherResponse.ProductInfo::fromEntity)
+                            .collect(Collectors.toList())
+                        : null)
                 .build();
     }
 
     @Getter
     @Setter
     @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
     public static class ProductInfo {
         private UUID productId;
         private String productName;
-        private BigDecimal originalPrice;
-        private BigDecimal discountedPrice;
-        private Integer discountPercent;
+        private Integer promotionStockLimit;
+        private Integer purchaseLimitPerCustomer;
+        private boolean active;
+
+        public static ProductInfo fromEntity(ShopVoucherProduct p) {
+            return ProductInfo.builder()
+                    .productId(p.getProduct().getProductId())
+                    .productName(p.getProduct().getName())
+                    .promotionStockLimit(p.getPromotionStockLimit())
+                    .purchaseLimitPerCustomer(p.getPurchaseLimitPerCustomer())
+                    .active(p.isActive())
+                    .build();
+        }
     }
 }

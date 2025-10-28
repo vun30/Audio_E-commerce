@@ -25,7 +25,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     private final ProductRepository productRepository;
 
     // ============================================================
-    // ➕ Tạo Voucher cho nhiều sản phẩm
+    // ➕ Tạo Voucher cho nhiều sản phẩm (runtime logic)
     // ============================================================
     @Override
     public ResponseEntity<BaseResponse> createVoucher(ShopVoucherRequest req) {
@@ -40,82 +40,72 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
 
         LocalDateTime now = LocalDateTime.now();
 
-        // === Khởi tạo Voucher
-        ShopVoucher voucher = new ShopVoucher();
-        voucher.setShop(store);
-        voucher.setCode(req.getCode().toUpperCase());
-        voucher.setTitle(req.getTitle());
-        voucher.setDescription(req.getDescription());
-        voucher.setType(req.getType());
-        voucher.setDiscountValue(req.getDiscountValue());
-        voucher.setDiscountPercent(req.getDiscountPercent());
-        voucher.setMaxDiscountValue(req.getMaxDiscountValue());
-        voucher.setMinOrderValue(req.getMinOrderValue());
-        voucher.setTotalVoucherIssued(req.getTotalVoucherIssued());
-        voucher.setTotalUsageLimit(req.getTotalUsageLimit());
-        voucher.setUsagePerUser(req.getUsagePerUser());
-        voucher.setRemainingUsage(req.getTotalUsageLimit());
-        voucher.setStartTime(req.getStartTime());
-        voucher.setEndTime(req.getEndTime());
-        voucher.setStatus(VoucherStatus.ACTIVE);
-        voucher.setCreatedAt(now);
-        voucher.setUpdatedAt(now);
-        voucher.setLastUpdatedAt(now);
-        voucher.setLastUpdateIntervalDays(0L);
-        voucher.setCreatedBy(store.getAccount().getId());
-        voucher.setUpdatedBy(store.getAccount().getId());
+        // === Khởi tạo voucher ===
+        ShopVoucher voucher = ShopVoucher.builder()
+                .shop(store)
+                .code(req.getCode().toUpperCase())
+                .title(req.getTitle())
+                .description(req.getDescription())
+                .type(req.getType())
+                .discountValue(req.getDiscountValue())
+                .discountPercent(req.getDiscountPercent())
+                .maxDiscountValue(req.getMaxDiscountValue())
+                .minOrderValue(req.getMinOrderValue())
+                .totalVoucherIssued(req.getTotalVoucherIssued())
+                .totalUsageLimit(req.getTotalUsageLimit())
+                .usagePerUser(req.getUsagePerUser())
+                .remainingUsage(req.getTotalUsageLimit())
+                .startTime(req.getStartTime())
+                .endTime(req.getEndTime())
+                .status(VoucherStatus.ACTIVE)
+                .createdAt(now)
+                .updatedAt(now)
+                .lastUpdatedAt(now)
+                .lastUpdateIntervalDays(0L)
+                .createdBy(store.getAccount().getId())
+                .updatedBy(store.getAccount().getId())
+                .build();
 
-        // === Áp dụng voucher cho sản phẩm
-        List<ShopVoucherProduct> appliedProducts = new ArrayList<>();
+        // === Gán voucher cho sản phẩm (chỉ lưu liên kết, không tính giá) ===
+List<ShopVoucherProduct> appliedProducts = new ArrayList<>();
 
-        if (req.getProducts() != null && !req.getProducts().isEmpty()) {
-            for (ShopVoucherRequest.VoucherProductItem item : req.getProducts()) {
-                Product product = productRepository.findById(item.getProductId())
-                        .orElseThrow(() -> new RuntimeException("❌ Product not found: " + item.getProductId()));
+if (req.getProducts() != null && !req.getProducts().isEmpty()) {
+    for (ShopVoucherRequest.VoucherProductItem item : req.getProducts()) {
+        Product product = productRepository.findById(item.getProductId())
+                .orElseThrow(() -> new RuntimeException("❌ Product not found: " + item.getProductId()));
 
-                // kiểm tra sản phẩm có thuộc store hiện tại không
-                if (!product.getStore().getStoreId().equals(store.getStoreId())) {
-                    throw new RuntimeException("❌ Product does not belong to current store: " + product.getName());
-                }
-
-                ShopVoucherProduct vp = new ShopVoucherProduct();
-                vp.setVoucher(voucher);
-                vp.setProduct(product);
-                vp.setOriginalPrice(product.getPrice());
-                vp.setDiscountPercent(item.getDiscountPercent());
-                vp.setDiscountAmount(item.getDiscountAmount());
-
-                // tính giá giảm
-                if (item.getDiscountPercent() != null) {
-                    vp.setDiscountedPrice(
-    product.getPrice().subtract(
-        product.getPrice().multiply(
-            new java.math.BigDecimal(item.getDiscountPercent())
-                .divide(new java.math.BigDecimal(100))
-        )
-    )
-);
-                } else if (item.getDiscountAmount() != null) {
-                    vp.setDiscountedPrice(product.getPrice().subtract(item.getDiscountAmount()));
-                } else {
-                    vp.setDiscountedPrice(product.getPrice());
-                }
-
-                vp.setStock(product.getStockQuantity());
-                vp.setPromotionStockLimit(item.getPromotionStockLimit());
-                vp.setPurchaseLimitPerCustomer(item.getPurchaseLimitPerCustomer());
-                vp.setActive(true);
-
-                appliedProducts.add(vp);
-            }
+        if (!product.getStore().getStoreId().equals(store.getStoreId())) {
+            throw new RuntimeException("❌ Product does not belong to current store: " + product.getName());
         }
 
-        voucher.setVoucherProducts(appliedProducts);
-        voucherRepository.save(voucher); // cascade ALL
+        // 🔹 RULE: 1 sản phẩm chỉ có thể nằm trong 1 voucher ACTIVE duy nhất
+        boolean hasActiveVoucher = voucherProductRepository.existsByProduct_ProductIdAndVoucher_Status(
+                product.getProductId(),
+                VoucherStatus.ACTIVE
+        );
 
-        // 🔄 Trả về DTO thay vì Entity
+        if (hasActiveVoucher) {
+            throw new RuntimeException("⚠️ Product '" + product.getName() +
+                    "' đã nằm trong một voucher ACTIVE khác. Hãy disable voucher cũ trước khi thêm mới.");
+        }
+
+        ShopVoucherProduct vp = ShopVoucherProduct.builder()
+                .voucher(voucher)
+                .product(product)
+                .promotionStockLimit(item.getPromotionStockLimit())
+                .purchaseLimitPerCustomer(item.getPurchaseLimitPerCustomer())
+                .active(true)
+                .build();
+
+        appliedProducts.add(vp);
+    }
+}
+
+        voucher.setVoucherProducts(appliedProducts);
+        voucherRepository.save(voucher); // Cascade ALL sẽ tự lưu voucherProducts
+
         ShopVoucherResponse response = ShopVoucherResponse.fromEntity(voucher);
-        return ResponseEntity.ok(new BaseResponse<>(201, "✅ Voucher created and applied to products", response));
+        return ResponseEntity.ok(new BaseResponse<>(201, "✅ Voucher created and linked to products", response));
     }
 
     // ============================================================
@@ -158,6 +148,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     public ResponseEntity<BaseResponse> disableVoucher(UUID id) {
         ShopVoucher voucher = voucherRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("❌ Voucher not found"));
+
         voucher.setStatus(voucher.getStatus() == VoucherStatus.ACTIVE
                 ? VoucherStatus.DISABLED
                 : VoucherStatus.ACTIVE);
@@ -166,4 +157,19 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
 
         return ResponseEntity.ok(new BaseResponse<>(200, "🔄 Voucher status updated", ShopVoucherResponse.fromEntity(voucher)));
     }
+
+    @Override
+public ResponseEntity<BaseResponse> getActiveVoucherByProductId(UUID productId) {
+    ShopVoucherProduct vp = voucherProductRepository
+            .findFirstByProduct_ProductIdAndVoucher_Status(productId, VoucherStatus.ACTIVE)
+            .orElseThrow(() -> new RuntimeException("❌ Sản phẩm này chưa có voucher ACTIVE nào áp dụng"));
+
+    ShopVoucher voucher = vp.getVoucher();
+
+    return ResponseEntity.ok(new BaseResponse<>(200,
+            "🎟️ Voucher ACTIVE của sản phẩm",
+            ShopVoucherResponse.fromEntity(voucher)
+    ));
+}
+
 }
