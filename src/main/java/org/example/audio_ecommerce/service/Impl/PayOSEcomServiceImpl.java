@@ -2,9 +2,14 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.mail.MessagingException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
+import org.example.audio_ecommerce.email.EmailService;
+import org.example.audio_ecommerce.email.EmailTemplateType;
+import org.example.audio_ecommerce.email.OrderData;
+import org.example.audio_ecommerce.email.OrderItemEmailData;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.CustomerOrderItem;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
@@ -14,6 +19,7 @@ import org.example.audio_ecommerce.repository.PlatformTransactionRepository;
 import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 import vn.payos.PayOS;
 import vn.payos.type.CheckoutResponseData;
 import vn.payos.type.ItemData;
@@ -22,20 +28,21 @@ import vn.payos.type.Webhook;
 import vn.payos.type.WebhookData;
 
 import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.time.LocalDateTime;
-import java.util.NoSuchElementException;
-import java.util.Random;
-import java.util.UUID;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PayOSEcomServiceImpl implements PayOSEcomService {
-
+    private static final DateTimeFormatter PAID_AT_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private final PayOS payOS;
     private final CustomerOrderRepository customerOrderRepository;
     private final SettlementService settlementService;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final EmailService emailService;
     private final PlatformTransactionRepository platformTransactionRepository;
 
     private long generateOrderCode() {
@@ -165,6 +172,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
             order.setCreatedAt(LocalDateTime.now());
             customerOrderRepository.save(order);
 
+            sendPaymentSuccessEmail(order, amount);
             log.info("[PayOS Webhook] SUCCESS processed orderId={} amountVnd={}", order.getId(), amountVnd);
             return;
         }
@@ -176,6 +184,73 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         log.warn("[PayOS Webhook] FAILED/HUMAN CANCEL orderId={}", order.getId());
     }
 
+    private void sendPaymentSuccessEmail(CustomerOrder order, BigDecimal amount) {
+        if (order.getCustomer() == null || !StringUtils.hasText(order.getCustomer().getEmail())) {
+            log.warn("[PayOS Webhook] Skip email - missing customer email for orderId={}", order.getId());
+            return;
+        }
+
+        NumberFormat currencyFormatter = NumberFormat.getCurrencyInstance(new Locale("vi", "VN"));
+        currencyFormatter.setMaximumFractionDigits(0);
+        currencyFormatter.setMinimumFractionDigits(0);
+        List<OrderItemEmailData> items = new ArrayList<>();
+        for (CustomerOrderItem item : order.getItems()) {
+            items.add(OrderItemEmailData.builder()
+                    .name(item.getName())
+                    .quantity(item.getQuantity())
+                    .unitPrice(currencyFormatter.format(item.getUnitPrice()))
+                    .lineTotal(currencyFormatter.format(item.getLineTotal()))
+                    .build());
+        }
+
+        String customerName = order.getCustomer() != null &&
+                StringUtils.hasText(order.getCustomer().getFullName())
+                ? order.getCustomer().getFullName()
+                : "Quý khách";
+
+        String paidAt = PAID_AT_FORMATTER.format(LocalDateTime.now());
+
+        OrderData emailData = OrderData.builder()
+                .email(order.getCustomer().getEmail())
+                .customerName(customerName)
+                .orderCode(order.getExternalOrderCode())
+                .totalAmount(currencyFormatter.format(amount))
+                .paidAt(paidAt)
+                .receiverName(order.getShipReceiverName())
+                .shippingAddress(buildShippingAddress(order))
+                .phoneNumber(order.getShipPhoneNumber())
+                .shippingNote(order.getShipNote())
+                .items(items)
+                .build();
+
+        try {
+            emailService.sendEmail(EmailTemplateType.ORDER_CONFIRMED, emailData);
+        } catch (MessagingException e) {
+            log.error("[PayOS Webhook] Failed to send payment success email for orderId={}", order.getId(), e);
+        }
+    }
+
+    private String buildShippingAddress(CustomerOrder order) {
+        List<String> parts = new ArrayList<>();
+        addIfHasText(parts, order.getShipAddressLine());
+        addIfHasText(parts, order.getShipStreet());
+        addIfHasText(parts, order.getShipWard());
+        addIfHasText(parts, order.getShipDistrict());
+        addIfHasText(parts, order.getShipProvince());
+        addIfHasText(parts, order.getShipPostalCode());
+        addIfHasText(parts, order.getShipCountry());
+        return parts.isEmpty() ? "" : String.join(", ", parts);
+    }
+
+    private void addIfHasText(List<String> parts, String value) {
+        if (!StringUtils.hasText(value)) {
+            return;
+        }
+        String sanitized = value.trim();
+        if (!parts.contains(sanitized)) {
+            parts.add(sanitized);
+        }
+    }
 
     private static String asciiNoMarks(String s) {
         if (s == null) return "";

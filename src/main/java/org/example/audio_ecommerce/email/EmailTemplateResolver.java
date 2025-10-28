@@ -124,12 +124,20 @@ public class EmailTemplateResolver {
     // ==================== ORDER CONFIRMED ====================
     private EmailTemplate orderConfirmed(OrderData data) {
         Context ctx = new Context();
+        ctx.setVariable("customerName", data.getCustomerName());
         ctx.setVariable("orderCode", data.getOrderCode());
         ctx.setVariable("total", data.getTotalAmount());
+        ctx.setVariable("paidAt", data.getPaidAt());
+        ctx.setVariable("receiverName", data.getReceiverName());
+        ctx.setVariable("shippingAddress", data.getShippingAddress());
+        ctx.setVariable("phoneNumber", data.getPhoneNumber());
+        ctx.setVariable("shippingNote", data.getShippingNote());
+        ctx.setVariable("items", data.getItems());
         String html = templateEngine.process("email/order_confirmed", ctx);
+        String orderCode = data.getOrderCode() != null ? data.getOrderCode() : "";
         return EmailTemplate.builder()
                 .to(data.getEmail())
-                .subject("🛒 Đơn hàng #" + data.getOrderCode() + " của bạn đã được xác nhận")
+                .subject("🛒 Đơn hàng #" + orderCode + " của bạn đã được xác nhận")
                 .content(html)
                 .build();
     }

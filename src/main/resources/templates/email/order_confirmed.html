@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <title>Thanh toán đơn hàng thành công</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f5f7fa; margin: 0; padding: 0; }
+        .container { max-width: 640px; margin: 0 auto; background: #ffffff; padding: 24px 32px; }
+        h2 { color: #1a237e; }
+        h3 { color: #0d47a1; margin-top: 32px; }
+        .summary, .shipping { background: #f1f5ff; padding: 16px; border-radius: 8px; margin: 16px 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { padding: 12px 8px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+        th { background-color: #e8f0fe; }
+        .total { font-weight: bold; text-align: right; }
+        .footer { margin-top: 32px; font-size: 13px; color: #616161; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Xin chào <span th:text="${customerName}">quý khách</span> </h2>
+    <p>AudioEcommerce đã nhận được thanh toán PayOS cho đơn hàng của bạn.</p>
+
+    <div class="summary">
+        <p><strong>Mã đơn hàng:</strong> <span th:text="${orderCode}">#000000</span></p>
+        <p><strong>Thời gian thanh toán:</strong> <span th:text="${paidAt}">01/01/2024 00:00</span></p>
+        <p><strong>Tổng thanh toán:</strong> <span th:text="${total}">0 ₫</span></p>
+    </div>
+
+    <h3>Chi tiết sản phẩm</h3>
+    <table>
+        <thead>
+        <tr>
+            <th>Sản phẩm</th>
+            <th>Số lượng</th>
+            <th>Đơn giá</th>
+            <th>Thành tiền</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="item : ${items}">
+            <td th:text="${item.name}">Tên sản phẩm</td>
+            <td th:text="${item.quantity}">1</td>
+            <td th:text="${item.unitPrice}">0 ₫</td>
+            <td th:text="${item.lineTotal}">0 ₫</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <div class="shipping">
+        <h3>Thông tin giao hàng</h3>
+        <p><strong>Người nhận:</strong>
+            <span th:text="${#strings.isEmpty(receiverName) ? customerName : receiverName}">Nguyễn Văn A</span></p>
+        <p><strong>Số điện thoại:</strong>
+            <span th:text="${#strings.isEmpty(phoneNumber) ? '—' : phoneNumber}">0123456789</span></p>
+        <p><strong>Địa chỉ:</strong>
+            <span th:text="${#strings.isEmpty(shippingAddress) ? '—' : shippingAddress}">123 Đường ABC, Quận 1, TP.HCM</span></p>
+        <p th:if="${shippingNote}"><strong>Ghi chú:</strong> <span th:text="${shippingNote}">Giao giờ hành chính</span></p>
+    </div>
+
+    <p>Nếu bạn có bất kỳ câu hỏi nào, hãy phản hồi email này hoặc liên hệ bộ phận hỗ trợ khách hàng của chúng tôi.</p>
+
+    <div class="footer">
+        <p>Trân trọng,<br/>Đội ngũ AudioEcommerce</p>
+    </div>
+</div>
+</body>
+</html>
