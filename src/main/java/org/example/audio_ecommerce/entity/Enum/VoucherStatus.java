@@ -4,5 +4,6 @@ public enum VoucherStatus {
     DRAFT,      // Mới tạo
     ACTIVE,     // Đang hoạt động
     EXPIRED,    // Hết hạn
-    DISABLED    // Tạm dừng
+    DISABLED,    // Tạm dừng
+    APPROVE
 }
