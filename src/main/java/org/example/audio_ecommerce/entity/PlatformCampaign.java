@@ -50,8 +50,8 @@ public class PlatformCampaign {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 
-    @Enumerated(EnumType.STRING)
-    private VoucherStatus status; // ACTIVE / CLOSED / DRAFT
+        @Enumerated(EnumType.STRING)
+        private VoucherStatus status; // ACTIVE / CLOSED / DRAFT DISABLED, APPROVE
 
     private Boolean allowRegistration = true;
 
