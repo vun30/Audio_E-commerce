@@ -1,6 +1,7 @@
 // org.example.audio_ecommerce.repository.PlatformCampaignProductRepository
 package org.example.audio_ecommerce.repository;
 
+import org.example.audio_ecommerce.entity.Enum.CampaignType;
 import org.example.audio_ecommerce.entity.PlatformCampaignProduct;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.springframework.data.jpa.repository.*;
@@ -71,6 +72,20 @@ List<PlatformCampaignProduct> findAllByCampaign_IdAndProduct_ProductIdIn(UUID ca
        "WHERE p.campaign.id = :campaignId AND p.product.productId IN :productIds")
 List<PlatformCampaignProduct> findByCampaignAndProducts(@Param("campaignId") UUID campaignId,
                                                         @Param("productIds") List<UUID> productIds);
+ // ✅ Lọc sản phẩm theo loại chiến dịch, trạng thái, cửa hàng, và campaignId cụ thể
+    @Query("""
+        SELECT p FROM PlatformCampaignProduct p
+        WHERE (:campaignType IS NULL OR p.campaign.campaignType = :campaignType)
+          AND (:status IS NULL OR p.status = :status)
+          AND (:storeId IS NULL OR p.store.storeId = :storeId)
+          AND (:campaignId IS NULL OR p.campaign.id = :campaignId)
+    """)
+    List<PlatformCampaignProduct> filterCampaignProducts(
+            @Param("campaignType") CampaignType campaignType,
+            @Param("status") VoucherStatus status,
+            @Param("storeId") UUID storeId,
+            @Param("campaignId") UUID campaignId
+    );
 
 
 }

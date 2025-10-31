@@ -49,6 +49,13 @@ ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID>
 
 ResponseEntity<BaseResponse> updateCampaignProductStatus(UUID campaignId, String newStatus, List<UUID> productIds);
 
-
+ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
+        String type,
+        String status,
+        UUID storeId,
+        UUID campaignId,   // ✅ thêm filter theo campaignId
+        int page,
+        int size
+);
 
 }

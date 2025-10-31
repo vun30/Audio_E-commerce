@@ -652,24 +652,23 @@ public ResponseEntity<BaseResponse> getCampaignProducts(
 
 @Override
 @Transactional
-public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> productIds) {
-    if (productIds == null || productIds.isEmpty()) {
-        throw new RuntimeException("❌ Danh sách productIds không được trống");
+public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> campaignProductIds) {
+    if (campaignProductIds == null || campaignProductIds.isEmpty()) {
+        throw new RuntimeException("❌ Danh sách campaignProductIds không được trống");
     }
 
-    // 🔍 1. Lấy thông tin campaign
+    // 1️⃣ Kiểm tra campaign tồn tại
     PlatformCampaign campaign = campaignRepository.findById(campaignId)
             .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
 
-    // 🔍 2. Lấy danh sách sản phẩm bằng query mới (an toàn, không lazy-filter)
-    List<PlatformCampaignProduct> products = campaignProductRepository
-            .findByCampaignAndProducts(campaignId, productIds);
+    // 2️⃣ Lấy danh sách bản ghi trung gian (PlatformCampaignProduct)
+    List<PlatformCampaignProduct> products = campaignProductRepository.findAllById(campaignProductIds);
 
     if (products.isEmpty()) {
-        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm phù hợp để duyệt");
+        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm tương ứng với campaignProductIds");
     }
 
-    // 🔍 3. Lọc sản phẩm đang ở trạng thái DRAFT
+    // 3️⃣ Lọc các sản phẩm có trạng thái DRAFT
     List<PlatformCampaignProduct> draftProducts = products.stream()
             .filter(p -> p.getStatus() == VoucherStatus.DRAFT)
             .toList();
@@ -680,7 +679,7 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
 
     LocalDateTime now = LocalDateTime.now();
 
-    // ✅ 4. Cập nhật DRAFT → ACTIVE
+    // 4️⃣ Cập nhật trạng thái: DRAFT → APPROVE
     draftProducts.forEach(p -> {
         p.setApproved(true);
         p.setApprovedAt(now);
@@ -690,12 +689,13 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
 
     campaignProductRepository.saveAll(draftProducts);
 
-    // ✅ 5. Build response trả về
+    // 5️⃣ Build response trả về
     List<Map<String, Object>> data = draftProducts.stream().map(p -> {
         Product prod = p.getProduct();
         Store store = p.getStore();
 
         return Map.<String, Object>of(
+                "campaignProductId", p.getId(),
                 "productId", prod != null ? prod.getProductId() : null,
                 "productName", prod != null ? prod.getName() : "(Unknown Product)",
                 "storeId", store != null ? store.getStoreId() : null,
@@ -709,7 +709,7 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
 
     return ResponseEntity.ok(new BaseResponse<>(
             200,
-            "✅ Đã duyệt " + draftProducts.size() + " sản phẩm (DRAFT → ACTIVE) trong campaign " + campaign.getName(),
+            "✅ Đã duyệt " + draftProducts.size() + " sản phẩm (DRAFT → APPROVE) trong campaign " + campaign.getName(),
             data
     ));
 }
@@ -904,6 +904,120 @@ public void tickAllCampaigns() {
 
     campaignProductRepository.saveAll(products);
 }
+
+@Override
+public ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
+        String type,
+        String status,
+        UUID storeId,
+        UUID campaignId,   // ✅ thêm tham số campaignId
+        int page,
+        int size
+) {
+    var typeEnum = (type != null) ? CampaignType.valueOf(type.toUpperCase()) : null;
+    var statusEnum = (status != null) ? VoucherStatus.valueOf(status.toUpperCase()) : null;
+
+    // ✅ Truyền thêm campaignId vào repo filter (nếu bạn đã update query)
+    List<PlatformCampaignProduct> all = campaignProductRepository
+            .filterCampaignProducts(typeEnum, statusEnum, storeId, campaignId);
+
+    // Nếu repository chưa có campaignId, có thể lọc thủ công như sau:
+    if (campaignId != null) {
+        all = all.stream()
+                .filter(p -> p.getCampaign() != null && campaignId.equals(p.getCampaign().getId()))
+                .toList();
+    }
+
+    // ✅ Nhóm theo campaignId
+    Map<UUID, List<PlatformCampaignProduct>> grouped =
+            all.stream().collect(Collectors.groupingBy(p -> p.getCampaign().getId()));
+
+    // ✅ Duyệt từng campaign để build JSON
+    List<CampaignProductOverviewResponse> campaigns = grouped.entrySet().stream().map(entry -> {
+        PlatformCampaign campaign = entry.getValue().get(0).getCampaign();
+
+        List<CampaignProductOverviewResponse.ProductDto> productDtos = entry.getValue().stream().map(p -> {
+            Product product = p.getProduct();
+            Store store = p.getStore();
+
+            var builder = CampaignProductOverviewResponse.ProductDto.builder()
+                    .campaignProductId(p.getId()) // id bảng trung gian
+                    .productId(product.getProductId())
+                    .productName(product.getName())
+                    .productImage(
+                            (product.getImages() != null && !product.getImages().isEmpty())
+                                    ? product.getImages().get(0)
+                                    : null
+                    )
+                    .originalPrice(product.getPrice())
+                    .storeId(store.getStoreId())
+                    .storeName(store.getStoreName());
+
+            // 🔹 MEGA_SALE → 1 voucher duy nhất
+            if (campaign.getCampaignType() == CampaignType.MEGA_SALE) {
+                builder.voucher(CampaignProductOverviewResponse.VoucherDto.builder()
+                        .type(p.getType().name())
+                        .discountValue(p.getDiscountValue())
+                        .discountPercent(p.getDiscountPercent())
+                        .maxDiscountValue(p.getMaxDiscountValue())
+                        .minOrderValue(p.getMinOrderValue())
+                        .status(p.getStatus().name())
+                        .startTime(p.getStartTime())
+                        .endTime(p.getEndTime())
+                        .build());
+            }
+
+            // 🔹 FAST_SALE → nhiều slot
+            else if (campaign.getCampaignType() == CampaignType.FAST_SALE) {
+                List<CampaignProductOverviewResponse.FlashSlotDto> slots =
+                        entry.getValue().stream()
+                                .filter(x -> x.getProduct().getProductId().equals(product.getProductId()))
+                                .filter(x -> x.getFlashSlot() != null)
+                                .map(x -> {
+                                    PlatformCampaignFlashSlot s = x.getFlashSlot();
+                                    return CampaignProductOverviewResponse.FlashSlotDto.builder()
+                                            .slotId(s.getId())
+                                            .openTime(s.getOpenTime())
+                                            .closeTime(s.getCloseTime())
+                                            .status(s.getStatus().name())
+                                            .voucher(CampaignProductOverviewResponse.VoucherDto.builder()
+                                                    .type(x.getType().name())
+                                                    .discountValue(x.getDiscountValue())
+                                                    .discountPercent(x.getDiscountPercent())
+                                                    .maxDiscountValue(x.getMaxDiscountValue())
+                                                    .minOrderValue(x.getMinOrderValue())
+                                                    .build())
+                                            .build();
+                                }).toList();
+                builder.flashSaleSlots(slots);
+            }
+
+            return builder.build();
+        }).toList();
+
+        return CampaignProductOverviewResponse.builder()
+                .campaignId(campaign.getId())
+                .campaignName(campaign.getName())
+                .campaignType(campaign.getCampaignType().name())
+                .products(productDtos)
+                .build();
+    }).toList();
+
+    // ✅ Phân trang
+    int from = page * size;
+    int to = Math.min(from + size, campaigns.size());
+    List<CampaignProductOverviewResponse> paged = campaigns.subList(Math.min(from, campaigns.size()), to);
+
+    Map<String, Object> result = Map.of(
+            "page", page,
+            "size", size,
+            "totalCampaigns", campaigns.size(),
+            "data", paged
+    );
+
+    return ResponseEntity.ok(BaseResponse.success("✅ Danh sách sản phẩm theo loại chiến dịch (filtered)", result));
+}
+
 
 
 
