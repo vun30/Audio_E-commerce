@@ -37,6 +37,12 @@ public class CustomerOrder {
     @OneToMany(mappedBy = "customerOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CustomerOrderItem> items = new ArrayList<>();
 
+    @Column(name = "discount_total", precision = 18, scale = 2)
+    private BigDecimal discountTotal = BigDecimal.ZERO;
+
+    @Column(name = "grand_total", precision = 18, scale = 2)
+    private BigDecimal grandTotal = BigDecimal.ZERO;
+
     @Column(name = "total_amount", precision = 18, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
@@ -79,11 +85,15 @@ public class CustomerOrder {
     public void calculateTotalAmount() {
         if (items == null || items.isEmpty()) {
             totalAmount = BigDecimal.ZERO;
+            grandTotal = BigDecimal.ZERO;
             return;
         }
         totalAmount = items.stream()
                 .map(CustomerOrderItem::getLineTotal)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (discountTotal == null) discountTotal = BigDecimal.ZERO;
+        grandTotal = totalAmount.subtract(discountTotal).max(BigDecimal.ZERO);
     }
 }

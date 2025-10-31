@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
+import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
@@ -85,23 +86,27 @@ public class CartController {
     })
     @PostMapping("/checkout-cod")
     @ResponseStatus(HttpStatus.OK)
-    public CustomerOrderResponse checkoutCod(
+    public BaseResponse<CustomerOrderResponse> checkoutCod(
             @Parameter(description = "ID khách hàng (UUID)", required = true)
             @PathVariable UUID customerId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = """
-                    Danh sách item cần checkout và addressId (tùy chọn).
-                    Ví dụ:
-                    {
-                      "items": [{"type":"PRODUCT","id":"...","quantity":2}],
-                      "addressId":"..."
-                    }
-                    """,
+    Danh sách item cần checkout, addressId (tùy chọn) và voucher theo shop.
+    Ví dụ:
+    {
+      "items": [{"type":"PRODUCT","id":"...","quantity":2}],
+      "addressId":"...",
+      "storeVouchers": [
+        { "storeId":"11111111-1111-1111-1111-111111111111", "codes":["SALE10K","P10"] }
+      ]
+    }
+    """,
                     required = true
             )
             @RequestBody CheckoutCODRequest request
     ) {
-        return cartService.checkoutCODWithResponse(customerId, request);
+        CustomerOrderResponse resp = cartService.checkoutCODWithResponse(customerId, request);
+        return BaseResponse.success("✅ Checkout COD thành công", resp);
     }
 
     @Operation(

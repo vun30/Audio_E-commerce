@@ -5,6 +5,7 @@ import org.example.audio_ecommerce.config.CodConfig;
 import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
+import org.example.audio_ecommerce.dto.request.StoreVoucherUse;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
@@ -12,6 +13,7 @@ import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.CartService;
+import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +36,7 @@ public class CartServiceImpl implements CartService {
     private final CustomerOrderRepository customerOrderRepository;
     private final StoreOrderRepository storeOrderRepository;
     private final StoreRepository storeRepo;
+    private final VoucherService voucherService;
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -221,25 +224,43 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional
     public CustomerOrderResponse checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request) {
+        // BỎ CHECK DEPOSIT CHO COD theo yêu cầu
         CustomerOrder customerOrder = createOrderInternal(
                 customerId,
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                true // enforceCodDeposit = true (COD phải check)
+                false,                        // enforceCodDeposit = false (COD bỏ qua)
+                request.getStoreVouchers()    // truyền voucher theo shop
         );
 
-        BigDecimal totalAmount = customerOrder.getItems().stream()
-                .map(CustomerOrderItem::getLineTotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Re-fetch để chắc chắn các @PreUpdate đã chạy và totals đã tính
+        customerOrder = customerOrderRepository.findById(customerOrder.getId()).orElse(customerOrder);
+
+        // (Tuỳ chọn) Breakdown giảm theo từng shop cho FE (storeId -> discountTotal)
+        var storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(customerOrder.getId());
+        Map<UUID, BigDecimal> storeDiscounts = storeOrders.stream()
+                .collect(Collectors.toMap(
+                        so -> so.getStore().getStoreId(),
+                        so -> Optional.ofNullable(so.getDiscountTotal()).orElse(BigDecimal.ZERO),
+                        BigDecimal::add // phòng trùng khóa (hiếm)
+                ));
 
         CustomerOrderResponse resp = new CustomerOrderResponse();
         resp.setId(customerOrder.getId());
         resp.setStatus(customerOrder.getStatus().name());
         resp.setMessage(customerOrder.getMessage());
         resp.setCreatedAt(customerOrder.getCreatedAt().toString());
-        resp.setTotalAmount(totalAmount);
 
+        // ✅ Trả đủ 3 con số quan trọng
+        resp.setTotalAmount(Optional.ofNullable(customerOrder.getTotalAmount()).orElse(BigDecimal.ZERO));
+        resp.setDiscountTotal(Optional.ofNullable(customerOrder.getDiscountTotal()).orElse(BigDecimal.ZERO));
+        resp.setGrandTotal(Optional.ofNullable(customerOrder.getGrandTotal()).orElse(BigDecimal.ZERO));
+
+        // (tuỳ chọn) gửi kèm breakdown theo shop
+        resp.setStoreDiscounts(storeDiscounts);
+
+        // Shipping snapshot
         resp.setReceiverName(customerOrder.getShipReceiverName());
         resp.setPhoneNumber(customerOrder.getShipPhoneNumber());
         resp.setCountry(customerOrder.getShipCountry());
@@ -250,8 +271,10 @@ public class CartServiceImpl implements CartService {
         resp.setAddressLine(customerOrder.getShipAddressLine());
         resp.setPostalCode(customerOrder.getShipPostalCode());
         resp.setNote(customerOrder.getShipNote());
+
         return resp;
     }
+
 
     @Override
     @Transactional
@@ -261,7 +284,8 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false // enforceCodDeposit = false (online không check)
+                false,                         // online không check deposit
+                request.getStoreVouchers()     // truyền voucher theo shop
         );
     }
 
@@ -316,7 +340,8 @@ public class CartServiceImpl implements CartService {
             List<CheckoutItemRequest> itemsReq,
             UUID addressId,
             String message,
-            boolean enforceCodDeposit
+            boolean enforceCodDeposit,          // tham số đúng thứ tự
+            List<StoreVoucherUse> storeVouchers // danh sách voucher theo shop
     ) {
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
@@ -350,7 +375,7 @@ public class CartServiceImpl implements CartService {
             itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
         }
 
-        // 2b) CHỈ COD mới check deposit
+        // 2b) CHỈ COD mới check deposit (nhưng hiện đang bỏ cho COD theo yêu cầu)
         if (enforceCodDeposit) {
             BigDecimal ratio = codConfig.getCodDepositRatio();
             for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
@@ -426,11 +451,15 @@ public class CartServiceImpl implements CartService {
         // 6) Lưu CustomerOrder
         customerOrder = customerOrderRepository.save(customerOrder);
 
-        // 7) Tạo StoreOrders
+        // 7) Tạo StoreOrders + chuẩn bị map items theo store để áp voucher
+        Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
+        List<StoreOrder> persistedStoreOrders = new ArrayList<>();
+
         for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
             UUID storeIdKey = entry.getKey();
             Store store = storeRepo.findById(storeIdKey)
                     .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
+
             StoreOrder storeOrder = StoreOrder.builder()
                     .store(store)
                     .createdAt(java.time.LocalDateTime.now())
@@ -448,20 +477,44 @@ public class CartServiceImpl implements CartService {
                     .shipNote(customerOrder.getShipNote())
                     .build();
 
-            List<StoreOrderItem> storeOrderItems = entry.getValue().stream().map(item ->
-                    StoreOrderItem.builder()
-                            .storeOrder(storeOrder)
-                            .type(item.getType().name())
-                            .refId(item.getReferenceId())
-                            .name(item.getNameSnapshot())
-                            .quantity(item.getQuantity())
-                            .unitPrice(item.getUnitPrice())
-                            .lineTotal(item.getLineTotal())
-                            .build()
-            ).collect(Collectors.toList());
+            List<StoreOrderItem> storeOrderItems = new ArrayList<>();
+            for (CartItem ci : entry.getValue()) {
+                storeOrderItems.add(StoreOrderItem.builder()
+                        .storeOrder(storeOrder)
+                        .type(ci.getType().name())
+                        .refId(ci.getReferenceId())
+                        .name(ci.getNameSnapshot())
+                        .quantity(ci.getQuantity())
+                        .unitPrice(ci.getUnitPrice())
+                        .lineTotal(ci.getLineTotal())
+                        .build());
+            }
 
             storeOrder.setItems(storeOrderItems);
-            storeOrderRepository.save(storeOrder);
+            storeOrder = storeOrderRepository.save(storeOrder);
+            persistedStoreOrders.add(storeOrder);
+
+            storeItemsMap.put(storeOrder.getStore().getStoreId(), storeOrderItems);
+        }
+
+        // 7b) ÁP VOUCHER THEO SHOP
+        Map<UUID, BigDecimal> discountByStore =
+                voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
+
+        BigDecimal totalStoreDiscount = BigDecimal.ZERO;
+        for (StoreOrder so : persistedStoreOrders) {
+            BigDecimal d = discountByStore.getOrDefault(so.getStore().getStoreId(), BigDecimal.ZERO);
+            if (d != null && d.signum() > 0) {
+                so.setDiscountTotal(d);
+                storeOrderRepository.save(so); // @PreUpdate sẽ tính grandTotal
+                totalStoreDiscount = totalStoreDiscount.add(d);
+            }
+        }
+
+        // 7c) Cập nhật tổng giảm cho CustomerOrder (trigger @PreUpdate => grandTotal)
+        if (totalStoreDiscount.signum() > 0) {
+            customerOrder.setDiscountTotal(totalStoreDiscount);
+            customerOrderRepository.save(customerOrder);
         }
 
         // 8) Xoá item khỏi cart
