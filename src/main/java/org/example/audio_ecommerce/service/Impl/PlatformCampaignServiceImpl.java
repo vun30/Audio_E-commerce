@@ -652,24 +652,23 @@ public ResponseEntity<BaseResponse> getCampaignProducts(
 
 @Override
 @Transactional
-public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> productIds) {
-    if (productIds == null || productIds.isEmpty()) {
-        throw new RuntimeException("❌ Danh sách productIds không được trống");
+public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> campaignProductIds) {
+    if (campaignProductIds == null || campaignProductIds.isEmpty()) {
+        throw new RuntimeException("❌ Danh sách campaignProductIds không được trống");
     }
 
-    // 🔍 1. Lấy thông tin campaign
+    // 1️⃣ Kiểm tra campaign tồn tại
     PlatformCampaign campaign = campaignRepository.findById(campaignId)
             .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
 
-    // 🔍 2. Lấy danh sách sản phẩm bằng query mới (an toàn, không lazy-filter)
-    List<PlatformCampaignProduct> products = campaignProductRepository
-            .findByCampaignAndProducts(campaignId, productIds);
+    // 2️⃣ Lấy danh sách bản ghi trung gian (PlatformCampaignProduct)
+    List<PlatformCampaignProduct> products = campaignProductRepository.findAllById(campaignProductIds);
 
     if (products.isEmpty()) {
-        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm phù hợp để duyệt");
+        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm tương ứng với campaignProductIds");
     }
 
-    // 🔍 3. Lọc sản phẩm đang ở trạng thái DRAFT
+    // 3️⃣ Lọc các sản phẩm có trạng thái DRAFT
     List<PlatformCampaignProduct> draftProducts = products.stream()
             .filter(p -> p.getStatus() == VoucherStatus.DRAFT)
             .toList();
@@ -680,7 +679,7 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
 
     LocalDateTime now = LocalDateTime.now();
 
-    // ✅ 4. Cập nhật DRAFT → ACTIVE
+    // 4️⃣ Cập nhật trạng thái: DRAFT → APPROVE
     draftProducts.forEach(p -> {
         p.setApproved(true);
         p.setApprovedAt(now);
@@ -690,12 +689,13 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
 
     campaignProductRepository.saveAll(draftProducts);
 
-    // ✅ 5. Build response trả về
+    // 5️⃣ Build response trả về
     List<Map<String, Object>> data = draftProducts.stream().map(p -> {
         Product prod = p.getProduct();
         Store store = p.getStore();
 
         return Map.<String, Object>of(
+                "campaignProductId", p.getId(),
                 "productId", prod != null ? prod.getProductId() : null,
                 "productName", prod != null ? prod.getName() : "(Unknown Product)",
                 "storeId", store != null ? store.getStoreId() : null,
@@ -709,7 +709,7 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
 
     return ResponseEntity.ok(new BaseResponse<>(
             200,
-            "✅ Đã duyệt " + draftProducts.size() + " sản phẩm (DRAFT → ACTIVE) trong campaign " + campaign.getName(),
+            "✅ Đã duyệt " + draftProducts.size() + " sản phẩm (DRAFT → APPROVE) trong campaign " + campaign.getName(),
             data
     ));
 }
