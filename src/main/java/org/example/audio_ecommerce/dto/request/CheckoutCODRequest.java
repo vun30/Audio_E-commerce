@@ -13,4 +13,5 @@ public class CheckoutCODRequest {
     private List<CheckoutItemRequest> items;
     private UUID addressId;
     private  String message; // optional; nếu null thì lấy default address
+    private List<StoreVoucherUse> storeVouchers;
 }

@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutOnlineRequest;
+import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
 import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.example.audio_ecommerce.service.CartService;
@@ -30,24 +31,26 @@ public class PayOSEcomController {
      * Tạo CustomerOrder + StoreOrders (như COD) rồi tạo PayOS link cho tổng số tiền.
      */
     @PostMapping("/checkout")
-    public ResponseEntity<CheckoutOnlineResponse> checkoutOnline(@RequestParam UUID customerId,
+    public ResponseEntity<BaseResponse<CheckoutOnlineResponse>> checkoutOnline(@RequestParam UUID customerId,
                                                                  @RequestBody CheckoutOnlineRequest req) {
         // 1) Tạo CustomerOrder (y hệt COD) nhưng giữ status AWAITING_PAYMENT
         var codReq = new CheckoutCODRequest();
         codReq.setAddressId(req.getAddressId());
         codReq.setMessage(req.getMessage());
         codReq.setItems(req.getItems());
+        codReq.setStoreVouchers(req.getStoreVouchers());
+
         var codResp = cartService.createOrderForOnline(customerId, codReq); // đã tạo orders + tính total
 
         // 2) Gọi PayOS tạo link
         CheckoutOnlineResponse pay = payOSEcomService.createPaymentForCustomerOrder(
                 codResp.getId(),
-                codResp.getTotalAmount(),
+                codResp.getGrandTotal(),
                 "Thanh toán đơn hàng " + codResp.getId(),
                 req.getReturnUrl(),
                 req.getCancelUrl()
         );
-        return ResponseEntity.ok(pay);
+        return ResponseEntity.ok(BaseResponse.success("✅ Tạo link PayOS thành công", pay));
     }
 
     /**

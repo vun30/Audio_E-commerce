@@ -34,6 +34,12 @@ public class StoreOrder {
     @OneToMany(mappedBy = "storeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<StoreOrderItem> items = new ArrayList<>();
 
+    @Column(name = "discount_total", precision = 18, scale = 2)
+    private BigDecimal discountTotal = BigDecimal.ZERO;
+
+    @Column(name = "grand_total", precision = 18, scale = 2)
+    private BigDecimal grandTotal = BigDecimal.ZERO;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_order_id", nullable = false)
     private CustomerOrder customerOrder;
@@ -79,11 +85,15 @@ public class StoreOrder {
     public void calculateTotalAmount() {
         if (items == null || items.isEmpty()) {
             totalAmount = BigDecimal.ZERO;
+            grandTotal = BigDecimal.ZERO;
             return;
         }
         totalAmount = items.stream()
                 .map(StoreOrderItem::getLineTotal)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (discountTotal == null) discountTotal = BigDecimal.ZERO;
+        grandTotal = totalAmount.subtract(discountTotal).max(BigDecimal.ZERO);
     }
 }

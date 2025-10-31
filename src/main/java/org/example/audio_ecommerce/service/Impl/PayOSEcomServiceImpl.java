@@ -59,6 +59,11 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         CustomerOrder order = customerOrderRepository.findById(customerOrderId)
                 .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
 
+        // ✅ LẤY SỐ TIỀN THANH TOÁN CHUẨN: GRAND TOTAL (đã trừ voucher)
+        BigDecimal payAmount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
+        payAmount = payAmount.setScale(0, java.math.RoundingMode.DOWN);
+        int amountVnd = payAmount.intValueExact(); // PayOS cần int VND
+
         long orderCode = generateOrderCode();
 
         try {
@@ -68,13 +73,13 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
 
             ItemData item = ItemData.builder()
                     .name(itemName)
-                    .price(amount.intValueExact())
+                    .price(amountVnd)
                     .quantity(1)
                     .build();
 
             PaymentData paymentData = PaymentData.builder()
                     .orderCode(orderCode)
-                    .amount(amount.intValueExact())
+                    .amount(amountVnd)
                     .description(desc)
                     .returnUrl(returnUrl)
                     .cancelUrl(cancelUrl)
@@ -90,7 +95,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
 
             CheckoutOnlineResponse out = new CheckoutOnlineResponse();
             out.setCustomerOrderId(order.getId());
-            out.setAmount(amount);
+            out.setAmount(payAmount);
             out.setPayOSOrderCode(orderCode);
             out.setCheckoutUrl(res.getCheckoutUrl());
             out.setQrCode(res.getQrCode());
@@ -138,23 +143,23 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         }
 
         if (Boolean.TRUE.equals(success) && "00".equals(resultCode)) {
-            // Tính amount an toàn int VND
-            BigDecimal amount = order.getItems().stream()
-                    .map(i -> i.getLineTotal().setScale(0, java.math.RoundingMode.DOWN))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            int amountVnd;
+            // ✅ Lấy đúng số tiền đã TRỪ VOUCHER
+            BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
+            if (amount == null) amount = BigDecimal.ZERO;
+            amount = amount.setScale(0, java.math.RoundingMode.DOWN);
+
+            final int amountVnd;
             try {
-                amountVnd = amount.intValueExact();
+                amountVnd = amount.intValueExact(); // PayOS dùng int VND
             } catch (ArithmeticException ex) {
                 log.error("Amount invalid (must be integer VND <= Integer.MAX_VALUE): {}", amount, ex);
                 throw ex;
             }
 
-            // 1) WalletTransaction QR (idempotency)
-            // (tùy bạn: check tồn tại theo (orderId, QR))
+            // 1) Ghi nhận giao dịch ví khách (idempotent theo logic của bạn)
             settlementService.recordCustomerQrPayment(order.getCustomer().getId(), order.getId(), amount);
 
-            // 2) Platform hold (idempotency)
+            // 2) Platform HOLD (idempotent)
             boolean existsHolding = !platformTransactionRepository
                     .findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
                     .isEmpty();
@@ -164,11 +169,11 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
                 log.info("Platform HOLDING already exists for orderId={} -> skip create", order.getId());
             }
 
-            // 3) Allocate pending to stores
+            // 3) Phân bổ pending cho từng store
             settlementService.allocateToStoresPending(order);
 
-            // 4) Update order
-            order.setStatus(OrderStatus.PENDING);
+            // 4) Cập nhật trạng thái đơn
+            order.setStatus(OrderStatus.PENDING); // hoặc CONFIRMED nếu bạn muốn sau khi đã thanh toán
             order.setCreatedAt(LocalDateTime.now());
             customerOrderRepository.save(order);
 
@@ -183,6 +188,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         customerOrderRepository.save(order);
         log.warn("[PayOS Webhook] FAILED/HUMAN CANCEL orderId={}", order.getId());
     }
+
 
     private void sendPaymentSuccessEmail(CustomerOrder order, BigDecimal amount) {
         if (order.getCustomer() == null || !StringUtils.hasText(order.getCustomer().getEmail())) {
