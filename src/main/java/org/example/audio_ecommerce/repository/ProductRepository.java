@@ -58,4 +58,42 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
                                    Pageable pageable);
 
     long countByStore_StoreIdAndStatus(UUID storeId, ProductStatus status);
+
+
+     @Query("""
+        SELECT p FROM Product p
+        WHERE (:status IS NULL OR p.status = :status)
+          AND (:categoryId IS NULL OR p.category.categoryId = :categoryId)
+          AND (:storeId IS NULL OR p.store.storeId = :storeId)
+          AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+    """)
+    Page<Product> findAllWithFilters(
+            @Param("status") String status,
+            @Param("categoryId") UUID categoryId,
+            @Param("storeId") UUID storeId,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
+     @Query("""
+SELECT DISTINCT p FROM Product p
+JOIN p.store s
+LEFT JOIN s.storeAddresses addr
+WHERE (:status IS NULL OR p.status = :status)
+  AND (:categoryId IS NULL OR p.category.id = :categoryId)
+  AND (:storeId IS NULL OR s.storeId = :storeId)
+  AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+  AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
+  AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
+  AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
+""")
+Page<Product> findAllWithAdvancedFilters(
+        @Param("status") String status,
+        @Param("categoryId") UUID categoryId,
+        @Param("storeId") UUID storeId,
+        @Param("keyword") String keyword,
+        @Param("provinceCode") String provinceCode,
+        @Param("districtCode") String districtCode,
+        @Param("wardCode") String wardCode,
+        Pageable pageable
+);
 }

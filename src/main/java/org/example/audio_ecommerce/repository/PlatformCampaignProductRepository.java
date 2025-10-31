@@ -4,10 +4,12 @@ package org.example.audio_ecommerce.repository;
 import org.example.audio_ecommerce.entity.PlatformCampaignProduct;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -32,4 +34,43 @@ public interface PlatformCampaignProductRepository extends JpaRepository<Platfor
     @Query("update PlatformCampaignProduct p set p.status = :status " +
            "where p.flashSlot.id in :slotIds")
     int bulkUpdateStatusBySlot(List<UUID> slotIds, VoucherStatus status);
+
+    @Query("""
+        SELECT pcp
+        FROM PlatformCampaignProduct pcp
+        WHERE pcp.product.productId = :productId
+          AND pcp.status = 'ACTIVE'
+          AND :now BETWEEN pcp.startTime AND pcp.endTime
+    """)
+    Optional<PlatformCampaignProduct> findActiveCampaignVoucherByProduct(
+            @Param("productId") UUID productId,
+            @Param("now") LocalDateTime now);
+
+    @Query("""
+SELECT p
+FROM PlatformCampaignProduct p
+WHERE p.campaign.id = :campaignId
+  AND (:storeId IS NULL OR p.store.storeId = :storeId)
+  AND (:status IS NULL OR p.status = :status)
+  AND (:from IS NULL OR p.createdAt >= :from)
+  AND (:to IS NULL OR p.createdAt <= :to)
+ORDER BY p.createdAt DESC
+""")
+List<PlatformCampaignProduct> filterProducts(
+        UUID campaignId,
+        UUID storeId,
+        VoucherStatus status,
+        LocalDateTime from,
+        LocalDateTime to
+);
+
+List<PlatformCampaignProduct> findAllByCampaign_IdAndProduct_ProductIdIn(UUID campaignId, List<UUID> productIds);
+
+// Nếu chưa có, thêm:
+@Query("SELECT p FROM PlatformCampaignProduct p " +
+       "WHERE p.campaign.id = :campaignId AND p.product.productId IN :productIds")
+List<PlatformCampaignProduct> findByCampaignAndProducts(@Param("campaignId") UUID campaignId,
+                                                        @Param("productIds") List<UUID> productIds);
+
+
 }
