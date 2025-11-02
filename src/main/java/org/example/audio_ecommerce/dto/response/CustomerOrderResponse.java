@@ -20,6 +20,7 @@ public class CustomerOrderResponse {
     // ✅ Số tiền phải trả sau giảm
     private BigDecimal grandTotal;
 
+
     // (tuỳ chọn) breakdown giảm theo từng shop: storeId -> discount
     private Map<UUID, BigDecimal> storeDiscounts;
 

@@ -70,6 +70,14 @@ public class CustomerAddress extends BaseEntity {
     @Builder.Default
     private boolean isDefault = false;
 
+    @Column(name = "province_code", length = 10)  // ví dụ GHN: "202" (Tỉnh/TP id)
+    private String provinceCode;
+
+    @Column(name = "district_id")                // GHN dùng số nguyên cho district_id
+    private Integer districtId;
+
+    @Column(name = "ward_code", length = 10)     // GHN ward_code là String
+    private String wardCode;
     // Gợi ý: nếu cần toạ độ
     // @Column(name = "lat") private Double lat;
     // @Column(name = "lng") private Double lng;

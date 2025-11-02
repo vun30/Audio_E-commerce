@@ -39,7 +39,7 @@ public class PayOSEcomController {
         codReq.setMessage(req.getMessage());
         codReq.setItems(req.getItems());
         codReq.setStoreVouchers(req.getStoreVouchers());
-
+        codReq.setServiceTypeId(req.getServiceTypeId());
         var codResp = cartService.createOrderForOnline(customerId, codReq); // đã tạo orders + tính total
 
         // 2) Gọi PayOS tạo link

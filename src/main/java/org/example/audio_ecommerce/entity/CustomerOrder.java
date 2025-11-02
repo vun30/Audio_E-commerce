@@ -46,6 +46,11 @@ public class CustomerOrder {
     @Column(name = "total_amount", precision = 18, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
+    // entity/CustomerOrder.java
+    @Column(name = "shipping_fee_total")
+    private BigDecimal shippingFeeTotal; // tổng phí ship tất cả store
+
+
     @Column(name = "external_order_code")
     private String externalOrderCode;
 
@@ -83,17 +88,27 @@ public class CustomerOrder {
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {
+        // Tính items subtotal (totalAmount) dựa vào CustomerOrderItem
         if (items == null || items.isEmpty()) {
             totalAmount = BigDecimal.ZERO;
-            grandTotal = BigDecimal.ZERO;
-            return;
+        } else {
+            totalAmount = items.stream()
+                    .map(CustomerOrderItem::getLineTotal)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
-        totalAmount = items.stream()
-                .map(CustomerOrderItem::getLineTotal)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        if (discountTotal == null) discountTotal = BigDecimal.ZERO;
-        grandTotal = totalAmount.subtract(discountTotal).max(BigDecimal.ZERO);
+        if (discountTotal == null)   discountTotal   = BigDecimal.ZERO;
+        if (shippingFeeTotal == null) shippingFeeTotal = BigDecimal.ZERO;
+
+        // grandTotal = itemsSubtotal - discountTotal + shippingFeeTotal
+        grandTotal = totalAmount
+                .subtract(discountTotal)
+                .add(shippingFeeTotal);
+
+        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) {
+            grandTotal = BigDecimal.ZERO;
+        }
     }
+
 }
