@@ -6,6 +6,8 @@ import org.example.audio_ecommerce.dto.response.StoreOrderResponse;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.example.audio_ecommerce.service.StoreOrderService;
+import org.example.audio_ecommerce.dto.response.PagedResult;
+import org.example.audio_ecommerce.dto.response.StoreOrderDetailResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +19,15 @@ import java.util.UUID;
 public class StoreOrderController {
 
     private final StoreOrderService storeOrderService;
+
+    @GetMapping
+    public PagedResult<StoreOrderDetailResponse> listStoreOrders(
+            @PathVariable UUID storeId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return storeOrderService.getOrdersForStore(storeId, page, size);
+    }
 
     @PatchMapping("/{orderId}/status")
     @ResponseStatus(HttpStatus.OK)
