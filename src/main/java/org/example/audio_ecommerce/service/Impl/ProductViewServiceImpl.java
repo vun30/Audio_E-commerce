@@ -182,4 +182,85 @@ public class ProductViewServiceImpl implements ProductViewService {
 
         return ResponseEntity.ok(BaseResponse.success("✅ Lấy danh sách thumbnail thành công", result));
     }
+
+    @Override
+public ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType) {
+
+    LocalDateTime now = LocalDateTime.now();
+
+    // product info
+    Product p = productRepo.findById(productId)
+            .orElseThrow(() -> new RuntimeException("Product not found"));
+
+    Map<String,Object> productMap = new LinkedHashMap<>();
+    productMap.put("productId", p.getProductId());
+    productMap.put("name", p.getName());
+    productMap.put("price", p.getPrice());
+    productMap.put("discountPrice", p.getDiscountPrice());
+    productMap.put("finalPrice", p.getFinalPrice());
+
+
+    Map<String,Object> vouchers = new LinkedHashMap<>();
+
+    // =============== SHOP voucher ==================
+    if(type.equals("ALL") || type.equals("SHOP")){
+        shopVoucherProductRepo.findActiveVoucherByProduct(productId, now).ifPresent(v -> {
+            Map<String,Object> m = new LinkedHashMap<>();
+            m.put("source","SHOP");
+            m.put("code", v.getCode());
+            m.put("title", v.getTitle());
+            m.put("type", v.getType());
+            m.put("discountValue", v.getDiscountValue());
+            m.put("discountPercent", v.getDiscountPercent());
+            m.put("maxDiscountValue", v.getMaxDiscountValue());
+            vouchers.put("shop", List.of(m));
+        });
+    }
+
+
+    // =============== PLATFORM voucher ==================
+    if(type.equals("ALL") || type.equals("PLATFORM")){
+        platformCampaignProductRepo.findActiveCampaignVoucherByProduct(productId, now).ifPresent(cp -> {
+
+            var c = cp.getCampaign();
+
+            // filter theo campaignType nếu FE truyền
+            if(campaignType!=null && !c.getCampaignType().name().equals(campaignType)) return;
+
+            Map<String,Object> map = new LinkedHashMap<>();
+            map.put("campaignId", c.getId());
+            map.put("campaignType", c.getCampaignType());
+            map.put("code", c.getCode());
+            map.put("discountValue", cp.getDiscountValue());
+            map.put("discountPercent", cp.getDiscountPercent());
+            map.put("maxDiscountValue", cp.getMaxDiscountValue());
+
+            // nếu FAST SALE thì trả slot
+            if(c.getFlashSlots()!=null && !c.getFlashSlots().isEmpty()){
+                List<Map<String,Object>> slots = c.getFlashSlots().stream()
+                        .sorted(Comparator.comparing(s->s.getOpenTime()))
+                        .map(s->{
+                            Map<String,Object> sm = new LinkedHashMap<>();
+                            sm.put("slotId", s.getId());
+                            sm.put("openTime", s.getOpenTime());
+                            sm.put("closeTime", s.getCloseTime());
+                            sm.put("discountValue", cp.getDiscountValue());
+                            sm.put("discountPercent", cp.getDiscountPercent());
+                            return sm;
+                        }).toList();
+                map.put("slots", slots);
+            }
+
+            vouchers.put("platform", List.of(map));
+        });
+    }
+
+
+    Map<String,Object> result = new LinkedHashMap<>();
+    result.put("product", productMap);
+    result.put("vouchers", vouchers);
+
+    return ResponseEntity.ok(BaseResponse.success("✅ Active vouchers fetched", result));
+}
+
 }

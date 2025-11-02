@@ -5,5 +5,6 @@ public enum VoucherStatus {
     ACTIVE,     // Đang hoạt động
     EXPIRED,    // Hết hạn
     DISABLED,    // Tạm dừng
-    APPROVE
+    APPROVE,
+    ONOPEN // Mở đăng ký
 }
