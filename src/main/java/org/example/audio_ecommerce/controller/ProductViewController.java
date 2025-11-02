@@ -35,4 +35,14 @@ public class ProductViewController {
                 provinceCode, districtCode, wardCode, pageable
         );
     }
+
+    @GetMapping("/{productId}/vouchers")
+public ResponseEntity<BaseResponse> getProductVouchers(
+        @PathVariable UUID productId,
+        @RequestParam(required = false, defaultValue = "ALL") String type,
+        @RequestParam(required = false) String campaignType
+){
+    return productViewService.getActiveVouchersOfProduct(productId, type, campaignType);
+}
+
 }
