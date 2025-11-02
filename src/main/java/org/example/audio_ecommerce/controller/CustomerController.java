@@ -6,6 +6,7 @@ import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.Enum.CustomerStatus;
 import org.example.audio_ecommerce.service.CustomerService;
+import org.example.audio_ecommerce.service.CustomerOrderService;
 import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -19,7 +20,7 @@ import java.util.UUID;
 public class CustomerController {
 
     private final CustomerService customerService;
-
+    private final CustomerOrderService customerOrderService;
     // ===== Customers =====
 
 //    @PostMapping
@@ -46,6 +47,15 @@ public class CustomerController {
                 : Sort.by(sort.split(",")[0]).descending();
         Pageable pageable = PageRequest.of(page, size, s);
         return customerService.search(keyword, status, pageable);
+    }
+
+    @GetMapping("/{customerId}/orders")
+    public PagedResult<CustomerOrderDetailResponse> getCustomerOrders(
+            @PathVariable UUID customerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return customerOrderService.getCustomerOrders(customerId, page, size);
     }
 
     @PutMapping("/{id}")
