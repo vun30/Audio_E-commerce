@@ -47,6 +47,8 @@ public class StoreOrder {
     @Column(name = "total_amount", precision = 18, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
+    @Column(name = "shipping_fee")
+    private BigDecimal shippingFee; // phí ship GHN cho đơn của từng store
     // =========================
     // 🏠 Shipping snapshot từ Customer
     // =========================
@@ -83,17 +85,29 @@ public class StoreOrder {
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {
+        // Tính items subtotal (totalAmount)
         if (items == null || items.isEmpty()) {
             totalAmount = BigDecimal.ZERO;
-            grandTotal = BigDecimal.ZERO;
-            return;
+        } else {
+            totalAmount = items.stream()
+                    .map(StoreOrderItem::getLineTotal)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
-        totalAmount = items.stream()
-                .map(StoreOrderItem::getLineTotal)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // Chuẩn hoá các số
         if (discountTotal == null) discountTotal = BigDecimal.ZERO;
-        grandTotal = totalAmount.subtract(discountTotal).max(BigDecimal.ZERO);
+        if (shippingFee == null)   shippingFee   = BigDecimal.ZERO;
+
+        // grandTotal = itemsSubtotal - discountTotal + shippingFee
+        grandTotal = totalAmount
+                .subtract(discountTotal)
+                .add(shippingFee);
+
+        // Không để âm (nếu bạn muốn chặn âm)
+        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) {
+            grandTotal = BigDecimal.ZERO;
+        }
     }
+
 }

@@ -13,6 +13,8 @@ import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.CartService;
+import org.example.audio_ecommerce.service.GhnFeeService;
+import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
+
+
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +41,7 @@ public class CartServiceImpl implements CartService {
     private final StoreOrderRepository storeOrderRepository;
     private final StoreRepository storeRepo;
     private final VoucherService voucherService;
+    private final GhnFeeService ghnFeeService;
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -224,14 +229,14 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional
     public CustomerOrderResponse checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request) {
-        // BỎ CHECK DEPOSIT CHO COD theo yêu cầu
         CustomerOrder customerOrder = createOrderInternal(
                 customerId,
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
                 false,                        // enforceCodDeposit = false (COD bỏ qua)
-                request.getStoreVouchers()    // truyền voucher theo shop
+                request.getStoreVouchers(),    // truyền voucher theo shop
+                request.getServiceTypeId()
         );
 
         // Re-fetch để chắc chắn các @PreUpdate đã chạy và totals đã tính
@@ -252,7 +257,7 @@ public class CartServiceImpl implements CartService {
         resp.setMessage(customerOrder.getMessage());
         resp.setCreatedAt(customerOrder.getCreatedAt().toString());
 
-        // ✅ Trả đủ 3 con số quan trọng
+        // Trả đủ 3 con số quan trọng
         resp.setTotalAmount(Optional.ofNullable(customerOrder.getTotalAmount()).orElse(BigDecimal.ZERO));
         resp.setDiscountTotal(Optional.ofNullable(customerOrder.getDiscountTotal()).orElse(BigDecimal.ZERO));
         resp.setGrandTotal(Optional.ofNullable(customerOrder.getGrandTotal()).orElse(BigDecimal.ZERO));
@@ -275,7 +280,6 @@ public class CartServiceImpl implements CartService {
         return resp;
     }
 
-
     @Override
     @Transactional
     public CustomerOrder createOrderForOnline(UUID customerId, CheckoutCODRequest request) {
@@ -285,10 +289,10 @@ public class CartServiceImpl implements CartService {
                 request.getAddressId(),
                 request.getMessage(),
                 false,                         // online không check deposit
-                request.getStoreVouchers()     // truyền voucher theo shop
+                request.getStoreVouchers(),
+                request.getServiceTypeId()// truyền voucher theo shop
         );
     }
-
 
     /* ================= helpers ================= */
 
@@ -340,8 +344,9 @@ public class CartServiceImpl implements CartService {
             List<CheckoutItemRequest> itemsReq,
             UUID addressId,
             String message,
-            boolean enforceCodDeposit,          // tham số đúng thứ tự
-            List<StoreVoucherUse> storeVouchers // danh sách voucher theo shop
+            boolean enforceCodDeposit,
+            List<StoreVoucherUse> storeVouchers,
+            Integer serviceTypeId
     ) {
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
@@ -412,12 +417,15 @@ public class CartServiceImpl implements CartService {
                     .orElseThrow(() -> new IllegalStateException("No default address found for checkout"));
         }
 
+        Integer toDistrictId = chosenAddr.getDistrictId();
+        String toWardCode = chosenAddr.getWardCode();
+
         // 4) Tạo CustomerOrder + snapshot địa chỉ
         CustomerOrder customerOrder = CustomerOrder.builder()
                 .customer(customer)
                 .createdAt(java.time.LocalDateTime.now())
                 .message(message)
-                .status(OrderStatus.PENDING) // hoặc AWAITING_PAYMENT nếu bạn có enum này
+                .status(OrderStatus.PENDING)
                 .shipReceiverName(chosenAddr.getReceiverName())
                 .shipPhoneNumber(chosenAddr.getPhoneNumber())
                 .shipCountry(chosenAddr.getCountry())
@@ -451,6 +459,8 @@ public class CartServiceImpl implements CartService {
         // 6) Lưu CustomerOrder
         customerOrder = customerOrderRepository.save(customerOrder);
 
+        BigDecimal totalShipping = BigDecimal.ZERO;
+
         // 7) Tạo StoreOrders + chuẩn bị map items theo store để áp voucher
         Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
         List<StoreOrder> persistedStoreOrders = new ArrayList<>();
@@ -459,12 +469,23 @@ public class CartServiceImpl implements CartService {
             UUID storeIdKey = entry.getKey();
             Store store = storeRepo.findById(storeIdKey)
                     .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
+            // ====== NEW: Tính phí ship GHN cho store này ======
+            var reqGHN = buildForStoreShipment(
+                    entry.getValue(),
+                    toDistrictId,
+                    toWardCode,
+                    serviceTypeId // mặc định hàng nặng; FE có thể cho chọn 2/5 và truyền vào request checkout nếu muốn
+            );
+            String feeJson = ghnFeeService.calculateFeeRaw(reqGHN);
+            BigDecimal shippingFee = extractTotalFee(feeJson); // xem hàm bên dưới
+            totalShipping = totalShipping.add(shippingFee);
 
             StoreOrder storeOrder = StoreOrder.builder()
                     .store(store)
                     .createdAt(java.time.LocalDateTime.now())
                     .status(OrderStatus.PENDING)
                     .customerOrder(customerOrder)
+                    // snapshot địa chỉ:
                     .shipReceiverName(customerOrder.getShipReceiverName())
                     .shipPhoneNumber(customerOrder.getShipPhoneNumber())
                     .shipCountry(customerOrder.getShipCountry())
@@ -475,6 +496,8 @@ public class CartServiceImpl implements CartService {
                     .shipAddressLine(customerOrder.getShipAddressLine())
                     .shipPostalCode(customerOrder.getShipPostalCode())
                     .shipNote(customerOrder.getShipNote())
+                    // gán phí ship
+                    .shippingFee(shippingFee)
                     .build();
 
             List<StoreOrderItem> storeOrderItems = new ArrayList<>();
@@ -493,11 +516,14 @@ public class CartServiceImpl implements CartService {
             storeOrder.setItems(storeOrderItems);
             storeOrder = storeOrderRepository.save(storeOrder);
             persistedStoreOrders.add(storeOrder);
-
             storeItemsMap.put(storeOrder.getStore().getStoreId(), storeOrderItems);
         }
 
-        // 7b) ÁP VOUCHER THEO SHOP
+        // Lưu tổng phí ship ở CustomerOrder
+        customerOrder.setShippingFeeTotal(totalShipping);
+        customerOrder = customerOrderRepository.save(customerOrder);
+
+        // 7b) Áp voucher theo shop
         Map<UUID, BigDecimal> discountByStore =
                 voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
 
@@ -525,6 +551,17 @@ public class CartServiceImpl implements CartService {
         return customerOrder;
     }
 
+    // Tối giản: trích "data.total" từ JSON GHN
+    private static BigDecimal extractTotalFee(String feeJson) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(feeJson);
+            var total = node.path("data").path("total").asLong(0L);
+            return BigDecimal.valueOf(total);
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
+    }
 
     // ===== helper class cho tính tổng theo store (chỉ dùng nội bộ) =====
     private static class StoreSubtotal {
