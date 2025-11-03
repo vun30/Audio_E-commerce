@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.dto.request;
 
+import jakarta.persistence.Column;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.AddressLabel;
@@ -21,4 +22,7 @@ public class AddressCreateRequest {
     private String postalCode;
     private String note;
     private Boolean isDefault;        // nếu true -> đặt mặc định
+    private String provinceCode;
+    private Integer districtId;
+    private String wardCode;
 }

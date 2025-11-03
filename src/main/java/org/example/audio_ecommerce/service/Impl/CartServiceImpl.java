@@ -597,6 +597,150 @@ public class CartServiceImpl implements CartService {
         return customerOrder;
     }
 
+    @Override
+    @Transactional
+    public CartResponse updateItemQuantity(UUID customerId, UpdateCartItemQtyRequest request) {
+        if (request.getCartItemId() == null || request.getQuantity() == null || request.getQuantity() < 1) {
+            throw new IllegalArgumentException("cartItemId & quantity >= 1 are required");
+        }
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        CartItem item = cart.getItems().stream()
+                .filter(ci -> ci.getCartItemId().equals(request.getCartItemId()))
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("Cart item not found"));
+
+        // kiểm tồn tùy theo type
+        if (item.getType() == CartItemType.PRODUCT && item.getProduct() != null) {
+            Integer stock = item.getProduct().getStockQuantity();
+            if (stock != null && stock < request.getQuantity()) {
+                throw new IllegalStateException("Product out of stock: " + item.getProduct().getName());
+            }
+            item.setQuantity(request.getQuantity());
+            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+        } else {
+            // COMBO
+            ProductCombo combo = item.getCombo();
+            Integer stock = combo != null ? combo.getStockQuantity() : null;
+            if (stock != null && stock < request.getQuantity()) {
+                throw new IllegalStateException("Combo out of stock: " + (combo != null ? combo.getName() : ""));
+            }
+            item.setQuantity(request.getQuantity());
+            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+        }
+
+        recalcTotals(cart);
+        cartRepo.save(cart);
+        cartItemRepo.save(item);
+        return toResponse(cart);
+    }
+
+    @Override
+    @Transactional
+    public CartResponse removeItems(UUID customerId, RemoveCartItemRequest request) {
+        if (request.getCartItemIds() == null || request.getCartItemIds().isEmpty()) {
+            throw new IllegalArgumentException("cartItemIds is required");
+        }
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        // lọc items cần xóa
+        List<CartItem> toRemove = cart.getItems().stream()
+                .filter(ci -> request.getCartItemIds().contains(ci.getCartItemId()))
+                .toList();
+
+        if (toRemove.isEmpty()) {
+            // không tìm thấy, có thể trả luôn cart hiện tại
+            return toResponse(cart);
+        }
+
+        cart.getItems().removeAll(toRemove);
+        recalcTotals(cart);
+        cartRepo.save(cart);
+        cartItemRepo.deleteAll(toRemove);
+        return toResponse(cart);
+    }
+
+    @Override
+    @Transactional
+    public CartResponse clearCart(UUID customerId) {
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        if (cart.getItems() != null && !cart.getItems().isEmpty()) {
+            List<CartItem> copy = new ArrayList<>(cart.getItems());
+            cart.getItems().clear();
+            recalcTotals(cart);
+            cartRepo.save(cart);
+            cartItemRepo.deleteAll(copy);
+        } else {
+            recalcTotals(cart);
+            cartRepo.save(cart);
+        }
+        return toResponse(cart);
+    }
+
+    @Override
+    @Transactional
+    public CartResponse bulkUpdateQuantities(UUID customerId, BulkUpdateCartQtyRequest request) {
+        if (request.getLines() == null || request.getLines().isEmpty()) {
+            throw new IllegalArgumentException("lines is required");
+        }
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        Map<String, CartItem> map = new HashMap<>();
+        for (CartItem it : Optional.ofNullable(cart.getItems()).orElseGet(ArrayList::new)) {
+            map.put(it.getType().name() + ":" + it.getReferenceId(), it);
+        }
+
+        for (var line : request.getLines()) {
+            if (line.getQuantity() == null || line.getQuantity() < 1) continue;
+
+            CartItemType type = CartItemType.valueOf(line.getType().toUpperCase(Locale.ROOT));
+            UUID refId = UUID.fromString(line.getRefId());
+            String k = type.name() + ":" + refId;
+
+            CartItem item = map.get(k);
+            if (item == null) continue;
+
+            // kiểm tồn
+            if (type == CartItemType.PRODUCT && item.getProduct() != null) {
+                Integer stock = item.getProduct().getStockQuantity();
+                if (stock != null && stock < line.getQuantity()) {
+                    throw new IllegalStateException("Product out of stock: " + item.getProduct().getName());
+                }
+            } else {
+                ProductCombo combo = item.getCombo();
+                Integer stock = combo != null ? combo.getStockQuantity() : null;
+                if (stock != null && stock < line.getQuantity()) {
+                    throw new IllegalStateException("Combo out of stock: " + (combo != null ? combo.getName() : ""));
+                }
+            }
+
+            item.setQuantity(line.getQuantity());
+            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+            cartItemRepo.save(item);
+        }
+
+        recalcTotals(cart);
+        cartRepo.save(cart);
+        return toResponse(cart);
+    }
+
+
     // Tối giản: trích "data.total" từ JSON GHN
     private static BigDecimal extractTotalFee(String feeJson) {
         try {

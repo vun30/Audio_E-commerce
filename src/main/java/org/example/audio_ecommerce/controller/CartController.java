@@ -3,9 +3,7 @@ package org.example.audio_ecommerce.controller;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
-import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
-import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
@@ -130,5 +128,56 @@ public class CartController {
     ) {
         CodEligibilityResponse res = cartService.checkCodEligibility(customerId, items);
         return ResponseEntity.ok(res);
+    }
+
+    @Operation(summary = "Cập nhật số lượng của một item trong giỏ hàng",
+            description = "Chỉ cập nhật 1 item cụ thể theo type + id.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Cập nhật thành công", content = @Content(schema = @Schema(implementation = CartResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy item")
+    })
+    @PatchMapping("/item/quantity")
+    public CartResponse updateItemQuantity(
+            @Parameter(description = "ID khách hàng (UUID)", required = true) @PathVariable UUID customerId,
+            @Valid @RequestBody UpdateCartItemQtyRequest req) {
+        return cartService.updateItemQuantity(customerId, req);
+    }
+
+    @Operation(summary = "Xóa nhiều item khỏi giỏ hàng",
+            description = "Nhận danh sách item cần xóa (type + id).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Xóa thành công", content = @Content(schema = @Schema(implementation = CartResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ")
+    })
+    @DeleteMapping("/items")
+    public CartResponse removeItems(
+            @Parameter(description = "ID khách hàng (UUID)", required = true) @PathVariable UUID customerId,
+            @Valid @RequestBody RemoveCartItemRequest req) {
+        return cartService.removeItems(customerId, req);
+    }
+
+    @Operation(summary = "Xóa toàn bộ giỏ hàng của khách hàng",
+            description = "Xóa tất cả item trong giỏ hàng ACTIVE.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Xóa thành công", content = @Content(schema = @Schema(implementation = CartResponse.class)))
+    })
+    @DeleteMapping
+    public CartResponse clearCart(
+            @Parameter(description = "ID khách hàng (UUID)", required = true) @PathVariable UUID customerId) {
+        return cartService.clearCart(customerId);
+    }
+
+    @Operation(summary = "Cập nhật số lượng nhiều item cùng lúc",
+            description = "Dùng để đồng bộ giỏ hàng từ frontend (ví dụ: sau khi người dùng chỉnh sửa nhiều item).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Cập nhật thành công", content = @Content(schema = @Schema(implementation = CartResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ")
+    })
+    @PatchMapping("/items/bulk-quantity")
+    public CartResponse bulkUpdateQuantities(
+            @Parameter(description = "ID khách hàng (UUID)", required = true) @PathVariable UUID customerId,
+            @Valid @RequestBody BulkUpdateCartQtyRequest req) {
+        return cartService.bulkUpdateQuantities(customerId, req);
     }
 }

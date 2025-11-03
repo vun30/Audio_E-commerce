@@ -79,9 +79,10 @@ public class CustomerController {
 
     @PostMapping("/{customerId}/addresses")
     @ResponseStatus(HttpStatus.CREATED)
-    public AddressResponse addAddress(@PathVariable UUID customerId,
-                                      @Valid @RequestBody AddressCreateRequest req) {
-        return customerService.addAddress(customerId, req);
+    public BaseResponse<AddressResponse> addAddress(@PathVariable UUID customerId,
+                                                    @Valid @RequestBody AddressCreateRequest req) {
+        AddressResponse resq = customerService.addAddress(customerId, req);
+        return BaseResponse.success("Địa chỉ đã được thêm thành công.", resq);
     }
 
     @PutMapping("/{customerId}/addresses/{addressId}")

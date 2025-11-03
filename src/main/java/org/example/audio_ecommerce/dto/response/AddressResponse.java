@@ -24,4 +24,7 @@ public class AddressResponse {
     private String postalCode;
     private String note;
     private boolean isDefault;
+    private String provinceCode;
+    private Integer districtId;
+    private String wardCode;
 }
