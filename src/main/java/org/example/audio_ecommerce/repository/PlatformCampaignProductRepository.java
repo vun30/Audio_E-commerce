@@ -87,5 +87,9 @@ List<PlatformCampaignProduct> findByCampaignAndProducts(@Param("campaignId") UUI
             @Param("campaignId") UUID campaignId
     );
 
+    @Query("select p from PlatformCampaignProduct p " +
+            "where p.id = :id and p.status in (org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE, org.example.audio_ecommerce.entity.Enum.VoucherStatus.APPROVE)")
+    Optional<PlatformCampaignProduct> findUsableById(UUID id);
+
 
 }

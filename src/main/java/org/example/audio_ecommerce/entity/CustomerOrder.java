@@ -50,6 +50,21 @@ public class CustomerOrder {
     @Column(name = "shipping_fee_total")
     private BigDecimal shippingFeeTotal; // tổng phí ship tất cả store
 
+    @Column(name = "store_discount_total", precision = 18, scale = 2)
+    private BigDecimal storeDiscountTotal = BigDecimal.ZERO; // tổng giảm từ voucher shop
+
+    @Column(name = "platform_discount_total", precision = 18, scale = 2)
+    private BigDecimal platformDiscountTotal = BigDecimal.ZERO; // tổng giảm từ voucher toàn sàn
+
+    // JSON/text lưu mapping <voucherCodeOrId, amount>
+    // Nếu dùng PostgreSQL có thể đổi sang @JdbcType(JSON) hoặc @Type(JsonType.class)
+    @Lob
+    @Column(name = "store_voucher_detail_json")
+    private String storeVoucherDetailJson;   // {"storeId1":{"CODE1":10000,"CODE2":20000}, ...}
+
+    @Lob
+    @Column(name = "platform_voucher_detail_json")
+    private String platformVoucherDetailJson; // {"PLAT_CODE_1":50000,"PLAT_CODE_2":30000}
 
     @Column(name = "external_order_code")
     private String externalOrderCode;
@@ -88,7 +103,7 @@ public class CustomerOrder {
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {
-        // Tính items subtotal (totalAmount) dựa vào CustomerOrderItem
+        // subtotal
         if (items == null || items.isEmpty()) {
             totalAmount = BigDecimal.ZERO;
         } else {
@@ -98,17 +113,18 @@ public class CustomerOrder {
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
 
-        if (discountTotal == null)   discountTotal   = BigDecimal.ZERO;
+        if (discountTotal == null) discountTotal = BigDecimal.ZERO;
+        if (storeDiscountTotal == null) storeDiscountTotal = BigDecimal.ZERO;
+        if (platformDiscountTotal == null) platformDiscountTotal = BigDecimal.ZERO;
         if (shippingFeeTotal == null) shippingFeeTotal = BigDecimal.ZERO;
 
-        // grandTotal = itemsSubtotal - discountTotal + shippingFeeTotal
+        // đảm bảo discountTotal = store + platform
+        discountTotal = storeDiscountTotal.add(platformDiscountTotal);
+
         grandTotal = totalAmount
                 .subtract(discountTotal)
                 .add(shippingFeeTotal);
 
-        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) {
-            grandTotal = BigDecimal.ZERO;
-        }
+        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) grandTotal = BigDecimal.ZERO;
     }
-
 }

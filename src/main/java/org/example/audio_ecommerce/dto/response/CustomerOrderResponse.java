@@ -23,7 +23,8 @@ public class CustomerOrderResponse {
 
     // (tuỳ chọn) breakdown giảm theo từng shop: storeId -> discount
     private Map<UUID, BigDecimal> storeDiscounts;
-
+    // ✅ breakdown giảm theo voucher toàn sàn: mã voucher -> số tiền giảm
+    private Map<String, BigDecimal> platformDiscount;
     private String receiverName;
     private String phoneNumber;
     private String country;
