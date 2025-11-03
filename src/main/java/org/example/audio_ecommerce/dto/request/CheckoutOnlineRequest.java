@@ -12,6 +12,7 @@ public class CheckoutOnlineRequest {
     private String description;           // mô tả đơn hàng
     private List<CheckoutItemRequest> items; // danh sách item được chọn trong giỏ
     private List<StoreVoucherUse> storeVouchers;
+    private List<PlatformVoucherUse> platformVouchers;
     private Integer serviceTypeId;
     private String returnUrl;             // FE gửi vào (ví dụ https://dats.vn/checkout/success)
     private String cancelUrl;             // FE gửi vào (ví dụ https://dats.vn/checkout/cancel)

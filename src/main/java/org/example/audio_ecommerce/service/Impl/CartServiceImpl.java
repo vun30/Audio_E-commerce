@@ -2,10 +2,7 @@ package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.config.CodConfig;
-import org.example.audio_ecommerce.dto.request.AddCartItemsRequest;
-import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
-import org.example.audio_ecommerce.dto.request.CheckoutItemRequest;
-import org.example.audio_ecommerce.dto.request.StoreVoucherUse;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
@@ -235,7 +232,8 @@ public class CartServiceImpl implements CartService {
                 request.getAddressId(),
                 request.getMessage(),
                 false,                        // enforceCodDeposit = false (COD bỏ qua)
-                request.getStoreVouchers(),    // truyền voucher theo shop
+                request.getStoreVouchers(),
+                request.getPlatformVouchers(),// truyền voucher theo shop
                 request.getServiceTypeId()
         );
 
@@ -247,9 +245,20 @@ public class CartServiceImpl implements CartService {
         Map<UUID, BigDecimal> storeDiscounts = storeOrders.stream()
                 .collect(Collectors.toMap(
                         so -> so.getStore().getStoreId(),
-                        so -> Optional.ofNullable(so.getDiscountTotal()).orElse(BigDecimal.ZERO),
+                        so -> Optional.ofNullable(so.getStoreVoucherDiscount()).orElse(BigDecimal.ZERO),
                         BigDecimal::add // phòng trùng khóa (hiếm)
                 ));
+
+        Map<String, BigDecimal> platformDiscountMap = new LinkedHashMap<>();
+        try {
+            if (customerOrder.getPlatformVoucherDetailJson() != null) {
+                var node = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(customerOrder.getPlatformVoucherDetailJson());
+                node.fields().forEachRemaining(e -> {
+                    platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText()));
+                });
+            }
+        } catch (Exception ignored) {}
 
         CustomerOrderResponse resp = new CustomerOrderResponse();
         resp.setId(customerOrder.getId());
@@ -264,7 +273,7 @@ public class CartServiceImpl implements CartService {
 
         // (tuỳ chọn) gửi kèm breakdown theo shop
         resp.setStoreDiscounts(storeDiscounts);
-
+        resp.setPlatformDiscount(platformDiscountMap);
         // Shipping snapshot
         resp.setReceiverName(customerOrder.getShipReceiverName());
         resp.setPhoneNumber(customerOrder.getShipPhoneNumber());
@@ -290,6 +299,7 @@ public class CartServiceImpl implements CartService {
                 request.getMessage(),
                 false,                         // online không check deposit
                 request.getStoreVouchers(),
+                request.getPlatformVouchers(),
                 request.getServiceTypeId()// truyền voucher theo shop
         );
     }
@@ -346,6 +356,7 @@ public class CartServiceImpl implements CartService {
             String message,
             boolean enforceCodDeposit,
             List<StoreVoucherUse> storeVouchers,
+            List<PlatformVoucherUse> platformVouchers,
             Integer serviceTypeId
     ) {
         Customer customer = customerRepo.findById(customerId)
@@ -523,24 +534,59 @@ public class CartServiceImpl implements CartService {
         customerOrder.setShippingFeeTotal(totalShipping);
         customerOrder = customerOrderRepository.save(customerOrder);
 
-        // 7b) Áp voucher theo shop
-        Map<UUID, BigDecimal> discountByStore =
+        // 7b) Áp voucher theo shop (giữ nguyên)
+        Map<UUID, BigDecimal> storeDiscountByStore =
                 voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
 
         BigDecimal totalStoreDiscount = BigDecimal.ZERO;
+        Map<UUID, String> storeVoucherDetailJsonMap = new HashMap<>();
+        // nếu computeDiscountByStore của bạn đã có detail map, set vào; nếu chưa, bạn có thể generate theo input
+        // ví dụ tạm: {"CODE":amount} từ storeDiscountByStore; tuỳ bạn đã có detail hơn trong service:
+        for (StoreVoucherUse su : Optional.ofNullable(storeVouchers).orElse(List.of())) {
+            // key theo store
+            // ở đây giả sử StoreVoucherUse có storeId & code
+            // tạo map json cho từng store dạng {"CODE":amount} — amount tạm thời set null, nếu cần chính xác thì bạn bổ sung service trả chi tiết
+        }
+
+        // set vào order theo storeDiscountByStore
         for (StoreOrder so : persistedStoreOrders) {
-            BigDecimal d = discountByStore.getOrDefault(so.getStore().getStoreId(), BigDecimal.ZERO);
+            BigDecimal d = storeDiscountByStore.getOrDefault(so.getStore().getStoreId(), BigDecimal.ZERO);
             if (d != null && d.signum() > 0) {
-                so.setDiscountTotal(d);
-                storeOrderRepository.save(so); // @PreUpdate sẽ tính grandTotal
+                so.setStoreVoucherDiscount(d);
+                // optional: so.setStoreVoucherDetailJson(storeVoucherDetailJsonMap.get(so.getStore().getStoreId()));
                 totalStoreDiscount = totalStoreDiscount.add(d);
+                storeOrderRepository.save(so);
             }
         }
 
-        // 7c) Cập nhật tổng giảm cho CustomerOrder (trigger @PreUpdate => grandTotal)
-        if (totalStoreDiscount.signum() > 0) {
-            customerOrder.setDiscountTotal(totalStoreDiscount);
-            customerOrderRepository.save(customerOrder);
+        // 7c) Áp voucher toàn sàn (mới)
+        var platformResult = voucherService.computePlatformDiscounts(
+                platformVouchers, storeItemsMap);
+
+        BigDecimal totalPlatformDiscount = BigDecimal.ZERO;
+        for (StoreOrder so : persistedStoreOrders) {
+            BigDecimal d = platformResult.discountByStore
+                    .getOrDefault(so.getStore().getStoreId(), BigDecimal.ZERO);
+            if (d != null && d.signum() > 0) {
+                so.setPlatformVoucherDiscount(d);
+                so.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson()); // lưu chung map vào từng store
+                storeOrderRepository.save(so);
+                totalPlatformDiscount = totalPlatformDiscount.add(d);
+            }
+        }
+
+        // 7d) Cập nhật tổng discount + JSON lên CustomerOrder (trigger @PreUpdate => grandTotal)
+        customerOrder.setStoreDiscountTotal(totalStoreDiscount);
+        customerOrder.setPlatformDiscountTotal(totalPlatformDiscount);
+        customerOrder.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
+
+        // Nếu bạn có JSON chi tiết cho store voucher toàn đơn:
+        if (!storeVoucherDetailJsonMap.isEmpty()) {
+            try {
+                String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .writeValueAsString(storeVoucherDetailJsonMap);
+                customerOrder.setStoreVoucherDetailJson(json);
+            } catch (Exception ignored) {}
         }
 
         // 8) Xoá item khỏi cart

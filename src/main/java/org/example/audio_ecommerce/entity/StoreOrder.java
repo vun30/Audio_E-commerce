@@ -49,6 +49,20 @@ public class StoreOrder {
 
     @Column(name = "shipping_fee")
     private BigDecimal shippingFee; // phí ship GHN cho đơn của từng store
+
+    @Column(name = "store_voucher_discount", precision = 18, scale = 2)
+    private BigDecimal storeVoucherDiscount = BigDecimal.ZERO; // giảm do voucher shop của chính store này
+
+    @Column(name = "platform_voucher_discount", precision = 18, scale = 2)
+    private BigDecimal platformVoucherDiscount = BigDecimal.ZERO; // phần giảm platform phân bổ vào store này
+
+    @Lob
+    @Column(name = "store_voucher_detail_json")
+    private String storeVoucherDetailJson; // {"CODE1":10000,"CODE2":15000}
+
+    @Lob
+    @Column(name = "platform_voucher_detail_json")
+    private String platformVoucherDetailJson; // {"PLAT_CODE_1":20000}
     // =========================
     // 🏠 Shipping snapshot từ Customer
     // =========================
@@ -85,7 +99,6 @@ public class StoreOrder {
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {
-        // Tính items subtotal (totalAmount)
         if (items == null || items.isEmpty()) {
             totalAmount = BigDecimal.ZERO;
         } else {
@@ -94,20 +107,18 @@ public class StoreOrder {
                     .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
-
-        // Chuẩn hoá các số
         if (discountTotal == null) discountTotal = BigDecimal.ZERO;
-        if (shippingFee == null)   shippingFee   = BigDecimal.ZERO;
+        if (storeVoucherDiscount == null) storeVoucherDiscount = BigDecimal.ZERO;
+        if (platformVoucherDiscount == null) platformVoucherDiscount = BigDecimal.ZERO;
+        if (shippingFee == null) shippingFee = BigDecimal.ZERO;
 
-        // grandTotal = itemsSubtotal - discountTotal + shippingFee
+        // đảm bảo discountTotal = store + platform
+        discountTotal = storeVoucherDiscount.add(platformVoucherDiscount);
+
         grandTotal = totalAmount
                 .subtract(discountTotal)
                 .add(shippingFee);
 
-        // Không để âm (nếu bạn muốn chặn âm)
-        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) {
-            grandTotal = BigDecimal.ZERO;
-        }
+        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) grandTotal = BigDecimal.ZERO;
     }
-
 }
