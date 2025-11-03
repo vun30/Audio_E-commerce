@@ -20,20 +20,20 @@ import java.util.UUID;
 /**
  * 🎯 Controller quản lý chương trình khuyến mãi trên toàn hệ thống.
  * Hỗ trợ 2 loại chiến dịch:
- *  - MEGA_SALE → Giảm giá toàn sàn, áp dụng cùng lúc.
- *  - FAST_SALE → Flash Sale nhiều khung giờ (slot).
- *
+ * - MEGA_SALE → Giảm giá toàn sàn, áp dụng cùng lúc.
+ * - FAST_SALE → Flash Sale nhiều khung giờ (slot).
+ * <p>
  * Các trạng thái (VoucherStatus):
- *  • DRAFT → Mới tạo, chờ duyệt hoặc chưa kích hoạt.
- *  • APPROVE → Đã được admin duyệt, chờ đến thời gian để bật.
- *  • ACTIVE → Đang hoạt động trong khung giờ hoặc thời gian diễn ra.
- *  • EXPIRED → Đã hết hạn.
- *  • DISABLED → Đã bị vô hiệu hóa tạm thời.
- *
+ * • DRAFT → Mới tạo, chờ duyệt hoặc chưa kích hoạt.
+ * • APPROVE → Đã được admin duyệt, chờ đến thời gian để bật.
+ * • ACTIVE → Đang hoạt động trong khung giờ hoặc thời gian diễn ra.
+ * • EXPIRED → Đã hết hạn.
+ * • DISABLED → Đã bị vô hiệu hóa tạm thời.
+ * <p>
  * Các loại giảm giá (VoucherType):
- *  • FIXED → Giảm theo số tiền cố định.
- *  • PERCENT → Giảm theo phần trăm (%).
- *  • SHIPPING → Miễn phí vận chuyển.
+ * • FIXED → Giảm theo số tiền cố định.
+ * • PERCENT → Giảm theo phần trăm (%).
+ * • SHIPPING → Miễn phí vận chuyển.
  */
 @RestController
 @RequestMapping("/api/campaigns")
@@ -42,6 +42,7 @@ import java.util.UUID;
 public class PlatformCampaignController {
 
     private final PlatformCampaignService service;
+    private final PlatformCampaignService platformCampaignService;
 
     // =============================================================
     // ✅ 1) ADMIN TẠO CHIẾN DỊCH (MEGA_SALE / FAST_SALE)
@@ -233,25 +234,52 @@ public class PlatformCampaignController {
     // ✅ 10) OVERVIEW — TỔNG HỢP SẢN PHẨM + CHIẾN DỊCH (CHO FE)
     // =============================================================
     @GetMapping("/overview")
-@Operation(summary = "📊 Lấy tổng quan sản phẩm theo chiến dịch (Mega + Flash)",
-    description = """
-        - Dành cho FE hiển thị danh sách sản phẩm khuyến mãi.
-        - Có thể lọc theo:
-            • type = MEGA_SALE / FAST_SALE
-            • status = DRAFT / APPROVE / ACTIVE / EXPIRED / DISABLED
-            • storeId = lọc theo cửa hàng
-            • campaignId = lọc theo chiến dịch cụ thể
-        - Hỗ trợ phân trang (page, size).
-    """)
-public ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
-        @RequestParam(required = false) String type,
-        @RequestParam(required = false) String status,
-        @RequestParam(required = false) UUID storeId,
-        @RequestParam(required = false) UUID campaignId, // ✅ thêm campaignId
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "10") int size
-) {
-    return service.getCampaignProductOverviewFiltered(type, status, storeId, campaignId, page, size);
-}
+    @Operation(summary = "📊 Lấy tổng quan sản phẩm theo chiến dịch (Mega + Flash)",
+            description = """
+                        - Dành cho FE hiển thị danh sách sản phẩm khuyến mãi.
+                        - Có thể lọc theo:
+                            • type = MEGA_SALE / FAST_SALE
+                            • status = DRAFT / APPROVE / ACTIVE / EXPIRED / DISABLED
+                            • storeId = lọc theo cửa hàng
+                            • campaignId = lọc theo chiến dịch cụ thể
+                        - Hỗ trợ phân trang (page, size).
+                    """)
+    public ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) UUID storeId,
+            @RequestParam(required = false) UUID campaignId, // ✅ thêm campaignId
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return service.getCampaignProductOverviewFiltered(type, status, storeId, campaignId, page, size);
+    }
+
+
+    @PatchMapping("/{campaignId}/status")
+    @Operation(
+            summary = "🔄 Admin thay đổi trạng thái Campaign",
+            description = """
+                        Trạng thái campaign flow chuẩn:
+                    
+                        • DRAFT → ONOPEN   (Admin mở đăng ký store join)
+                        • ONOPEN → ACTIVE  (Scheduler tự bật khi tới startTime)
+                        • ACTIVE → EXPIRED (Scheduler tự tắt khi qua endTime)
+                        • DISABLED         (Admin khoá campaign bất cứ lúc nào)
+                    
+                        ❗ FE cần nhớ:
+                        - FE chỉ gọi API để chuyển: DRAFT → ONOPEN hoặc DISABLED
+                        - FE KHÔNG được chuyển → ACTIVE thủ công (bị chặn BE)
+                        - FE KHÔNG được set EXPIRED (scheduler tự set)
+                    
+                        Đây là chuẩn marketplace real (Shopee / TTS / Lazada)
+                    """
+    )
+    public ResponseEntity<BaseResponse> updateCampaignStatus(
+            @PathVariable UUID campaignId,
+            @RequestParam String status
+    ) {
+        return platformCampaignService.updateCampaignStatus(campaignId, status);
+    }
 
 }
