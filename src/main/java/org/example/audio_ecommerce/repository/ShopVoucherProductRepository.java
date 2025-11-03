@@ -29,4 +29,17 @@ public interface ShopVoucherProductRepository extends JpaRepository<ShopVoucherP
     Optional<ShopVoucher> findActiveVoucherByProduct(
             @Param("productId") UUID productId,
             @Param("now") LocalDateTime now);
+
+     @Query("""
+        SELECT svp
+        FROM ShopVoucherProduct svp
+        WHERE svp.product.productId = :productId
+          AND svp.voucher.status = 'ACTIVE'
+          AND :now BETWEEN svp.voucher.startTime AND svp.voucher.endTime
+    """)
+    Optional<ShopVoucherProduct> findActiveShopVoucherProduct(
+            @Param("productId") UUID productId,
+            @Param("now") LocalDateTime now);
+
+
 }

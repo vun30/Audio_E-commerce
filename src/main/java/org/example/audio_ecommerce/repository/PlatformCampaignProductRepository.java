@@ -92,4 +92,20 @@ List<PlatformCampaignProduct> findByCampaignAndProducts(@Param("campaignId") UUI
     Optional<PlatformCampaignProduct> findUsableById(UUID id);
 
 
+@Query("""
+    SELECT cp
+    FROM PlatformCampaignProduct cp
+    WHERE cp.product.productId = :productId
+      AND cp.status = 'ACTIVE'
+      AND cp.campaign.status = 'ACTIVE'
+      AND (:now BETWEEN cp.startTime AND cp.endTime)
+      AND (
+            cp.flashSlot IS NULL 
+            OR (:now BETWEEN cp.flashSlot.openTime AND cp.flashSlot.closeTime)
+          )
+""")
+List<PlatformCampaignProduct> findAllActiveByProduct(
+        @Param("productId") UUID productId,
+        @Param("now") LocalDateTime now
+);
 }

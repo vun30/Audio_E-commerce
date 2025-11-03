@@ -141,6 +141,10 @@ public ResponseEntity<BaseResponse<CampaignResponse>> updateCampaign(UUID campai
         try {
             newStatus = VoucherStatus.valueOf(req.getStatus().trim().toUpperCase());
             campaign.setStatus(newStatus);
+            // ❌ Admin không được ACTIVE thủ công trước giờ start, chỉ scheduler được phép
+if (newStatus == VoucherStatus.ACTIVE && campaign.getStartTime().isAfter(LocalDateTime.now())) {
+    throw new RuntimeException("❌ ACTIVE chỉ scheduler tự bật khi tới startTime");
+}
         } catch (IllegalArgumentException e) {
             throw new RuntimeException("❌ Trạng thái không hợp lệ (DRAFT / ACTIVE / DISABLED / EXPIRED / APPROVE / CLOSED)");
         }
@@ -294,9 +298,9 @@ public ResponseEntity<BaseResponse> joinCampaign(UUID campaignId, CampaignProduc
 
     LocalDateTime now = LocalDateTime.now();
 
-    // 🚫 Chỉ cho phép join khi campaign ở trạng thái DRAFT và chưa diễn ra
-    if (campaign.getStatus() != VoucherStatus.DRAFT)
-        throw new RuntimeException("🚫 Campaign must be in DRAFT status to allow registration");
+    // 🚫 Chỉ cho phép join khi campaign ở trạng thái ONOPEN và chưa diễn ra
+    if (campaign.getStatus() != VoucherStatus.ONOPEN)
+        throw new RuntimeException("🚫 Campaign must be in ONOPEN status to allow registration");
 
     if (campaign.getStartTime() != null && !now.isBefore(campaign.getStartTime()))
         throw new RuntimeException("🚫 Campaign has already started or expired — cannot join");
@@ -730,7 +734,7 @@ public ResponseEntity<BaseResponse> updateCampaignProductStatus(UUID campaignId,
     try {
         targetStatus = VoucherStatus.valueOf(newStatus.toUpperCase());
     } catch (IllegalArgumentException e) {
-        throw new RuntimeException("❌ Trạng thái không hợp lệ (chỉ cho phép: DRAFT, ACTIVE, EXPIRED, DISABLED)");
+        throw new RuntimeException("❌ Trạng thái không hợp lệ (chỉ cho phép: DRAFT, ACTIVE, EXPIRED, DISABLED,ONOPEN)");
     }
 
     // 🧩 Lấy danh sách sản phẩm bằng query mới
@@ -869,6 +873,7 @@ public void tickAllCampaigns() {
 
             if (campaign.getStatus() == VoucherStatus.ACTIVE &&
                     !now.isBefore(slot.getOpenTime()) &&
+                     p.getStatus() == VoucherStatus.APPROVE && // ADD LINE
                     !now.isAfter(slot.getCloseTime())) {
                 p.setStatus(VoucherStatus.ACTIVE);
             }
