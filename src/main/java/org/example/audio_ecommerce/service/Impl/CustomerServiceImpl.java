@@ -139,6 +139,9 @@ public class CustomerServiceImpl implements CustomerService {
                 .postalCode(req.getPostalCode())
                 .note(req.getNote())
                 .isDefault(Boolean.TRUE.equals(req.getIsDefault()))
+                .districtId(req.getDistrictId())
+                .provinceCode(req.getProvinceCode())
+                .wardCode(req.getWardCode())
                 .build();
 
         addressRepo.save(a);
