@@ -21,4 +21,7 @@ public interface ProductViewService {
             String wardCode,
             Pageable pageable
     );
+
+    ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType);
+
 }
