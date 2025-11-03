@@ -28,7 +28,6 @@ public class ShopVoucherRequest {
 
     // ========== 🔹 Hạn mức ==========
     private Integer totalVoucherIssued;
-    private Integer totalUsageLimit;
     private Integer usagePerUser;
     private LocalDateTime startTime;
     private LocalDateTime endTime;

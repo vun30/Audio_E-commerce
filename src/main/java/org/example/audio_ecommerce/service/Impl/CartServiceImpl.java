@@ -100,7 +100,17 @@ public class CartServiceImpl implements CartService {
                     throw new IllegalStateException("Combo out of stock: " + c.getName());
                 }
 
-                BigDecimal unit = c.getComboPrice() != null ? c.getComboPrice() : BigDecimal.ZERO;
+// ---- NEW: tính giá combo từ products ----
+                BigDecimal comboUnitPrice = c.getItems().stream()
+                        .map(ci -> {
+                            Product p = ci.getProduct();
+                            BigDecimal base = (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
+                                    ? p.getDiscountPrice()
+                                    : p.getPrice();
+                            return base.multiply(BigDecimal.valueOf(ci.getQuantity())); // quantity trong combo item
+                        })
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
 
                 String k = key(type, c.getComboId());
                 CartItem it = existingMap.get(k);
@@ -110,8 +120,8 @@ public class CartServiceImpl implements CartService {
                             .type(type)
                             .combo(c)
                             .quantity(qty)
-                            .unitPrice(unit)
-                            .lineTotal(unit.multiply(BigDecimal.valueOf(qty)))
+                            .unitPrice(comboUnitPrice)
+                            .lineTotal(comboUnitPrice.multiply(BigDecimal.valueOf(qty)))
                             .nameSnapshot(c.getName())
                             .imageSnapshot(firstImage(c.getImages()))
                             .build();
@@ -119,8 +129,8 @@ public class CartServiceImpl implements CartService {
                     existingMap.put(k, it);
                 } else {
                     it.setQuantity(it.getQuantity() + qty);
-                    it.setUnitPrice(unit);
-                    it.setLineTotal(unit.multiply(BigDecimal.valueOf(it.getQuantity())));
+                    it.setUnitPrice(comboUnitPrice);
+                    it.setLineTotal(comboUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
                 }
             }
         }

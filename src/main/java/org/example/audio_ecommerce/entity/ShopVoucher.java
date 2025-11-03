@@ -61,7 +61,6 @@ public class ShopVoucher {
 
     // 🔹 Hạn mức phát hành
     private Integer totalVoucherIssued;   // Số lượng phát hành
-    private Integer totalUsageLimit;      // Tổng lượt dùng toàn hệ thống
     private Integer usagePerUser;         // Mỗi user dùng tối đa
     private Integer remainingUsage;       // Số lượt còn lại
 

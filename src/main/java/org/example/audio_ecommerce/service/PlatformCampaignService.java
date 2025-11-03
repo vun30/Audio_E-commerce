@@ -58,4 +58,7 @@ ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
         int size
 );
 
+// 7) Admin đổi trạng thái campaign (DRAFT -> ONOPEN , DISABLED)
+ResponseEntity<BaseResponse> updateCampaignStatus(UUID campaignId, String newStatus);
+
 }

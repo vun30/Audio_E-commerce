@@ -30,7 +30,6 @@ public class ShopVoucherResponse {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Integer totalVoucherIssued;
-    private Integer totalUsageLimit;
     private Integer usagePerUser;
     private Integer remainingUsage;
 
@@ -51,14 +50,14 @@ public class ShopVoucherResponse {
                 .startTime(v.getStartTime())
                 .endTime(v.getEndTime())
                 .totalVoucherIssued(v.getTotalVoucherIssued())
-                .totalUsageLimit(v.getTotalUsageLimit())
                 .usagePerUser(v.getUsagePerUser())
                 .remainingUsage(v.getRemainingUsage())
-                .products(v.getVoucherProducts() != null
-                        ? v.getVoucherProducts().stream()
-                            .map(ShopVoucherResponse.ProductInfo::fromEntity)
-                            .collect(Collectors.toList())
-                        : null)
+                .products(
+                        v.getVoucherProducts() != null
+                                ? v.getVoucherProducts().stream()
+                                .map(ShopVoucherResponse.ProductInfo::fromEntity)
+                                .collect(Collectors.toList())
+                                : null)
                 .build();
     }
 

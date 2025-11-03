@@ -794,7 +794,7 @@ public void tickAllCampaigns() {
     System.out.println("🕒 [Scheduler] tickAllCampaigns() chạy lúc: " + now);
 
     // ==========================================================
-    // 🟩 1️⃣ CẬP NHẬT TRẠNG THÁI CHIẾN DỊCH (PlatformCampaign)
+    // 1) CẬP NHẬT TRẠNG THÁI CHIẾN DỊCH
     // ==========================================================
     List<PlatformCampaign> campaigns = campaignRepository.findAll();
 
@@ -802,15 +802,19 @@ public void tickAllCampaigns() {
         VoucherStatus oldStatus = c.getStatus();
 
         if (c.getStartTime() != null && now.isBefore(c.getStartTime())) {
-            continue; // chưa đến giờ, bỏ qua
+            continue;
         }
 
+        // ACTIVE chỉ khi trước đó là ON_OPEN
         if (!now.isBefore(c.getStartTime()) && !now.isAfter(c.getEndTime())) {
-            if (c.getStatus() != VoucherStatus.ACTIVE) {
+            if (oldStatus == VoucherStatus.ONOPEN) {
                 c.setStatus(VoucherStatus.ACTIVE);
                 System.out.printf("📢 Campaign '%s' chuyển từ %s → ACTIVE%n", c.getName(), oldStatus);
             }
-        } else if (c.getEndTime() != null && now.isAfter(c.getEndTime())) {
+        }
+
+        // EXPIRED
+        if (c.getEndTime() != null && now.isAfter(c.getEndTime())) {
             if (c.getStatus() != VoucherStatus.EXPIRED) {
                 c.setStatus(VoucherStatus.EXPIRED);
                 System.out.printf("📢 Campaign '%s' chuyển từ %s → EXPIRED%n", c.getName(), oldStatus);
@@ -819,8 +823,9 @@ public void tickAllCampaigns() {
     }
     campaignRepository.saveAll(campaigns);
 
+
     // ==========================================================
-    // 🟦 2️⃣ CẬP NHẬT SLOT (PlatformCampaignFlashSlot)
+    // 2) SLOT lấy theo campaign active
     // ==========================================================
     List<PlatformCampaignFlashSlot> slots = flashSlotRepository.findAll();
 
@@ -831,7 +836,7 @@ public void tickAllCampaigns() {
         SlotStatus oldStatus = s.getStatus();
 
         if (!now.isBefore(s.getOpenTime()) && !now.isAfter(s.getCloseTime())) {
-            if (s.getStatus() != SlotStatus.ACTIVE) {
+            if (s.getStatus() == SlotStatus.PENDING) { // chỉ từ on_open
                 s.setStatus(SlotStatus.ACTIVE);
                 System.out.printf("🟢 Slot [%s] của Campaign '%s' chuyển từ %s → ACTIVE%n",
                         s.getId(), campaign.getName(), oldStatus);
@@ -839,41 +844,34 @@ public void tickAllCampaigns() {
         } else if (now.isAfter(s.getCloseTime())) {
             if (s.getStatus() != SlotStatus.CLOSED) {
                 s.setStatus(SlotStatus.CLOSED);
-                System.out.printf("🔴 Slot [%s] của Campaign '%s' chuyển từ %s → CLOSED%n",
-                        s.getId(), campaign.getName(), oldStatus);
             }
         } else if (now.isBefore(s.getOpenTime())) {
             if (s.getStatus() != SlotStatus.PENDING) {
                 s.setStatus(SlotStatus.PENDING);
-                System.out.printf("🕓 Slot [%s] của Campaign '%s' chuyển từ %s → PENDING%n",
-                        s.getId(), campaign.getName(), oldStatus);
             }
         }
     }
     flashSlotRepository.saveAll(slots);
 
+
     // ==========================================================
-    // 🟨 3️⃣ CẬP NHẬT SẢN PHẨM TRONG CAMPAIGN
+    // 3) PRODUCT TRONG CAMPAIGN
     // ==========================================================
     List<PlatformCampaignProduct> products = campaignProductRepository.findAll();
 
     for (PlatformCampaignProduct p : products) {
+
         PlatformCampaign campaign = p.getCampaign();
         PlatformCampaignFlashSlot slot = p.getFlashSlot();
-
         if (campaign == null) continue;
 
-        // =========================
-        // 🔹 CASE 1: FAST_SALE (có slot)
-        // =========================
+        // FAST SALE
         if (slot != null) {
-            if (p.getStatus() == VoucherStatus.APPROVE && now.isBefore(slot.getOpenTime())) {
-                p.setStatus(VoucherStatus.DRAFT);
-            }
 
+            // ACTIVE chỉ khi trước đó là ON_OPEN
             if (campaign.getStatus() == VoucherStatus.ACTIVE &&
                     !now.isBefore(slot.getOpenTime()) &&
-                     p.getStatus() == VoucherStatus.APPROVE && // ADD LINE
+                    p.getStatus() == VoucherStatus.ONOPEN &&
                     !now.isAfter(slot.getCloseTime())) {
                 p.setStatus(VoucherStatus.ACTIVE);
             }
@@ -885,24 +883,18 @@ public void tickAllCampaigns() {
             }
         }
 
-        // =========================
-        // 🔹 CASE 2: MEGA_SALE (slot == null)
-        // =========================
+        // MEGA_SALE
         else {
             if (campaign.getStatus() == VoucherStatus.ACTIVE &&
                     now.isAfter(campaign.getStartTime()) &&
                     now.isBefore(campaign.getEndTime()) &&
-                    p.getStatus() == VoucherStatus.APPROVE) {
+                    p.getStatus() == VoucherStatus.ONOPEN) {
                 p.setStatus(VoucherStatus.ACTIVE);
-                System.out.printf("🔥 Product [%s] thuộc campaign '%s' chuyển sang ACTIVE (MEGA_SALE)%n",
-                        p.getProduct().getName(), campaign.getName());
             }
 
             if (campaign.getStatus() == VoucherStatus.EXPIRED ||
                     (p.getEndTime() != null && now.isAfter(p.getEndTime()))) {
                 p.setStatus(VoucherStatus.EXPIRED);
-                System.out.printf("⚫ Product [%s] thuộc campaign '%s' chuyển sang EXPIRED (MEGA_SALE)%n",
-                        p.getProduct().getName(), campaign.getName());
             }
         }
     }
@@ -1024,6 +1016,53 @@ public ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
 }
 
 
+@Override
+@Transactional
+public ResponseEntity<BaseResponse> updateCampaignStatus(UUID campaignId, String newStatus) {
+
+    PlatformCampaign campaign = campaignRepository.findById(campaignId)
+            .orElseThrow(() -> new RuntimeException("❌ Campaign not found"));
+
+    VoucherStatus target;
+    try {
+        target = VoucherStatus.valueOf(newStatus.toUpperCase());
+    } catch (Exception e) {
+        throw new RuntimeException("❌ Invalid status: {DRAFT,ONOPEN,DISABLED}");
+    }
+
+    VoucherStatus old = campaign.getStatus();
+
+    // RULE
+    // 1) ADMIN ko được chuyển sang ACTIVE
+    if (target == VoucherStatus.ACTIVE) {
+        throw new RuntimeException("❌ ACTIVE chỉ scheduler tự bật đúng giờ startTime");
+    }
+
+    // 2) Không cho EXPIRED thủ công
+    if (target == VoucherStatus.EXPIRED) {
+        throw new RuntimeException("❌ EXPIRED chỉ scheduler tự đóng khi qua endTime");
+    }
+
+    // 3) Chuyển từ DRAFT → ONOPEN (mở đăng ký store join)
+    if (old == VoucherStatus.DRAFT && target == VoucherStatus.ONOPEN) {
+        campaign.setStatus(VoucherStatus.ONOPEN);
+    }
+    // 4) Cho phép admin disable campaign bất cứ lúc nào
+    else if (target == VoucherStatus.DISABLED) {
+        campaign.setStatus(VoucherStatus.DISABLED);
+    }
+    else {
+        throw new RuntimeException("⚠️ Transition not allowed: " + old + " → " + target);
+    }
+
+    campaignRepository.save(campaign);
+
+    return ResponseEntity.ok(
+            new BaseResponse<>(200,
+                    "✅ Campaign status updated: " + old + " → " + target,
+                    campaign.getStatus())
+    );
+}
 
 
 

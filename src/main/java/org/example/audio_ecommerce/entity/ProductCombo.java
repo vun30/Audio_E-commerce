@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.ComboCreatorType;
 import org.hibernate.annotations.GenericGenerator;
 
 import java.math.BigDecimal;
@@ -26,23 +27,17 @@ public class ProductCombo {
     @Column(name = "combo_id", columnDefinition = "CHAR(36)")
     private UUID comboId;
 
-    // 🔗 Cửa hàng tạo combo
+    // 🔗 Nếu là shop tạo combo -> có storeId, cus tạo combo -> null
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "store_id", nullable = false)
+    @JoinColumn(name = "store_id")
     private Store store;
 
-    // 📂 Danh mục
-    @Column(name = "category_id", columnDefinition = "CHAR(36)")
-    private UUID categoryId;
+    // 💡 Category mặc định COMBO -> không cần lưu UUID category
+    // FE BE trả response gửi text "COMBO" cố định.
 
-    // 📦 Danh sách sản phẩm trong combo
-    @ManyToMany
-    @JoinTable(
-            name = "combo_items",
-            joinColumns = @JoinColumn(name = "combo_id"),
-            inverseJoinColumns = @JoinColumn(name = "product_id")
-    )
-    private List<Product> includedProducts;
+    // 📦 các product con trong combo
+    @OneToMany(mappedBy = "combo", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<ComboItem> items;
 
     // 🏷️ Thông tin cơ bản
     @Column(nullable = false)
@@ -62,19 +57,19 @@ public class ProductCombo {
 
     private String videoUrl;
 
-    // ⚖️ Thông số kỹ thuật / giao hàng
+    // ⚖️ logistics info
     private BigDecimal weight;
     private Integer stockQuantity;
     private String shippingAddress;
     private String warehouseLocation;
 
-    // 💰 Giá combo
-    @Column(nullable = false)
-    private BigDecimal comboPrice;
+    private String provinceCode;
+    private String districtCode;
+    private String wardCode;
 
-    private BigDecimal originalTotalPrice;
+    private ComboCreatorType creatorType; // SHOP_CREATE or CUSTOMER_CREATE
+    private UUID creatorId; // id của shop or customer
 
-    // 📊 Trạng thái
     private Boolean isActive;
 
     private LocalDateTime createdAt;
