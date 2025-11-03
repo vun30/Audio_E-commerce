@@ -36,4 +36,6 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
     Page<Customer> search(@Param("kw") String keyword,
                           @Param("status") CustomerStatus status,
                           Pageable pageable);
+
+     Optional<Customer> findByAccount_Email(String email);
 }

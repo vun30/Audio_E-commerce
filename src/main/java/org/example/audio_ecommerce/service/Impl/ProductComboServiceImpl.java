@@ -1,25 +1,24 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.request.CreateComboRequest;
-import org.example.audio_ecommerce.dto.request.UpdateComboRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
-import org.example.audio_ecommerce.dto.response.ComboResponse;
+import org.example.audio_ecommerce.dto.response.ProductComboResponse;
 import org.example.audio_ecommerce.entity.*;
+import org.example.audio_ecommerce.entity.Enum.ComboCreatorType;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
-import org.example.audio_ecommerce.repository.CategoryRepository;
+import org.example.audio_ecommerce.repository.CustomerRepository;
 import org.example.audio_ecommerce.repository.ProductComboRepository;
 import org.example.audio_ecommerce.repository.ProductRepository;
 import org.example.audio_ecommerce.repository.StoreRepository;
 import org.example.audio_ecommerce.service.ProductComboService;
 import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,242 +28,290 @@ public class ProductComboServiceImpl implements ProductComboService {
     private final ProductComboRepository comboRepository;
     private final ProductRepository productRepository;
     private final StoreRepository storeRepository;
-    private final CategoryRepository categoryRepository;
+    private final CustomerRepository customerRepository;
 
-    /**
-     * ✅ Tạo combo mới (category = "Combo", storeId đã được gán từ token)
-     */
-    @Override
-    public ResponseEntity<BaseResponse> createCombo(CreateComboRequest request) {
-        // 🔹 1️⃣ Lấy danh mục "Combo"
-        Category category = categoryRepository.findByNameIgnoreCase("Combo")
-                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy danh mục 'Combo' trong hệ thống"));
+    // ================= COMMON ================
+    private String getLoginEmail() {
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        return principal.contains(":") ? principal.split(":")[0] : principal;
+    }
 
-        // 🔹 2️⃣ Lấy danh sách sản phẩm
-        List<Product> includedProducts = productRepository.findAllById(request.getIncludedProductIds());
-        if (includedProducts.isEmpty()) {
-            throw new RuntimeException("❌ Không tìm thấy sản phẩm trong danh sách đã chọn");
-        }
+    private void validateProductsInSameStore(List<Product> products, UUID storeId) {
+        boolean ok = products.stream().allMatch(p -> p.getStore().getStoreId().equals(storeId));
+        if (!ok) throw new RuntimeException("❌ tất cả sản phẩm phải thuộc 1 store");
+    }
 
-        // 🔹 3️⃣ Kiểm tra store tồn tại
-        Store store = storeRepository.findById(request.getStoreId())
-                .orElseThrow(() -> new RuntimeException("❌ Store không tồn tại"));
-
-        // 🔹 4️⃣ Kiểm tra tất cả sản phẩm cùng store
-        boolean sameStore = includedProducts.stream()
-                .allMatch(p -> p.getStore().getStoreId().equals(store.getStoreId()));
-        if (!sameStore) {
-            throw new RuntimeException("❌ Tất cả sản phẩm trong combo phải thuộc cùng một cửa hàng");
-        }
-
-        // 🔹 5️⃣ Kiểm tra tất cả sản phẩm ACTIVE
-        List<Product> inactiveProducts = includedProducts.stream()
+    private void validateActive(List<Product> products) {
+        List<String> notActive = products.stream()
                 .filter(p -> p.getStatus() != ProductStatus.ACTIVE)
-                .collect(Collectors.toList());
-        if (!inactiveProducts.isEmpty()) {
-            String productNames = inactiveProducts.stream()
-                    .map(Product::getName)
-                    .collect(Collectors.joining(", "));
-            throw new RuntimeException("❌ Không thể tạo combo. Các sản phẩm sau không ACTIVE: " + productNames);
+                .map(Product::getName).toList();
+        if (!notActive.isEmpty()) throw new RuntimeException("❌ sp không ACTIVE: " + String.join(", ", notActive));
+    }
+
+    private Map<UUID, Integer> buildQtyMap(List<ComboItemRequest> items) {
+        if (items == null || items.isEmpty()) throw new RuntimeException("❌ items trống");
+        Map<UUID, Integer> map = new HashMap<>();
+        for (var i : items) {
+            int q = i.getQuantity() == null ? 1 : i.getQuantity();
+            if (q < 1) throw new RuntimeException("❌ quantity >=1");
+            map.put(i.getProductId(), q);
         }
+        return map;
+    }
 
-        // 🔹 6️⃣ Tính tổng giá gốc
-        BigDecimal totalPrice = includedProducts.stream()
-                .map(Product::getPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    @Override
+    public ResponseEntity<BaseResponse> viewShopCombos(int page, int size, String keyword, Boolean isActive) {
+        String email = getLoginEmail();
+        Store store = storeRepository.findByAccount_Email(email).orElseThrow();
 
-        // 🔹 7️⃣ Tạo combo
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<ProductCombo> pageData =
+                comboRepository.findByCreatorTypeAndCreatorId(ComboCreatorType.SHOP_CREATE, store.getStoreId(), pageable);
+
+        List<ProductComboResponse> data = pageData.stream()
+                .filter(c -> keyword == null || c.getName().toLowerCase().contains(keyword.toLowerCase()))
+                .filter(c -> isActive == null || Objects.equals(c.getIsActive(), isActive))
+                .map(this::toResponse)
+                .toList();
+
+        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Combo shop của bạn", data));
+    }
+
+    @Override
+    public ResponseEntity<BaseResponse> viewCustomerCombos(int page, int size, String keyword, Boolean isActive) {
+        String email = getLoginEmail();
+        Customer cus = customerRepository.findByAccount_Email(email).orElseThrow();
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<ProductCombo> pageData =
+                comboRepository.findByCreatorTypeAndCreatorId(ComboCreatorType.CUSTOMER_CREATE, cus.getId(), pageable);
+
+        List<ProductComboResponse> data = pageData.stream()
+                .filter(c -> keyword == null || c.getName().toLowerCase().contains(keyword.toLowerCase()))
+                .filter(c -> isActive == null || Objects.equals(c.getIsActive(), isActive))
+                .map(this::toResponse)
+                .toList();
+
+        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Combo customer của bạn", data));
+    }
+
+
+    // =================== SHOP ===================
+
+    @Override
+    public ResponseEntity<BaseResponse> createShopCombo(CreateShopComboRequest req) {
+        String email = getLoginEmail();
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ store not found"));
+
+        Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
+        List<Product> products = productRepository.findAllById(qtyMap.keySet());
+        if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+
+        validateProductsInSameStore(products, store.getStoreId());
+        validateActive(products);
+
         ProductCombo combo = ProductCombo.builder()
                 .store(store)
-                .categoryId(category.getCategoryId()) // ✅ tự động gắn cate Combo
-                .name(request.getName())
-                .shortDescription(request.getShortDescription())
-                .description(request.getDescription())
-                .images(request.getImages())
-                .videoUrl(request.getVideoUrl())
-                .weight(request.getWeight())
-                .stockQuantity(request.getStockQuantity())
-                .shippingAddress(request.getShippingAddress())
-                .warehouseLocation(request.getWarehouseLocation())
-                .comboPrice(request.getComboPrice())
-                .originalTotalPrice(totalPrice)
-                .includedProducts(includedProducts)
+                .name(req.getName())
+                .shortDescription(req.getShortDescription())
+                .description(req.getDescription())
+                .images(req.getImages())
+                .videoUrl(req.getVideoUrl())
+                .weight(req.getWeight())
+                .stockQuantity(req.getStockQuantity())
+                .shippingAddress(req.getShippingAddress())
+                .warehouseLocation(req.getWarehouseLocation())
+                .provinceCode(req.getProvinceCode())
+                .districtCode(req.getDistrictCode())
+                .wardCode(req.getWardCode())
+                .creatorType(ComboCreatorType.SHOP_CREATE)
+                .creatorId(store.getStoreId())
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
+                .createdBy(store.getAccount().getId())
                 .build();
 
-        comboRepository.save(combo);
+        combo.setItems(products.stream()
+                .map(p -> ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build())
+                .toList());
 
-        return ResponseEntity.ok(new BaseResponse<>(201, "✅ Combo tạo thành công", buildResponse(combo, category)));
+        return ResponseEntity.ok(new BaseResponse<>(201, "✅ tạo combo shop", toResponse(comboRepository.save(combo))));
     }
 
-    /**
-     * 🔎 Lấy chi tiết combo
-     */
+
     @Override
-    public ResponseEntity<BaseResponse> getComboById(UUID comboId) {
-        ProductCombo combo = comboRepository.findById(comboId)
-                .orElseThrow(() -> new RuntimeException("❌ Combo không tồn tại"));
-        Category category = categoryRepository.findById(combo.getCategoryId()).orElse(null);
-        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Chi tiết combo", buildResponse(combo, category)));
-    }
+    public ResponseEntity<BaseResponse> updateShopCombo(UUID comboId, UpdateShopComboRequest req) {
+        String email = getLoginEmail();
+        Store store = storeRepository.findByAccount_Email(email).orElseThrow();
 
-    /**
-     * 📜 Lấy tất cả combo
-     */
-    @Override
-    public ResponseEntity<BaseResponse> getAllCombos(int page, int size, String keyword,
-                                                     String sortDir, BigDecimal minPrice, BigDecimal maxPrice, Boolean isActive) {
-        Sort sort = (sortDir != null && sortDir.equalsIgnoreCase("desc"))
-                ? Sort.by("comboPrice").descending()
-                : Sort.by("comboPrice").ascending();
+        ProductCombo combo = comboRepository.findById(comboId).orElseThrow();
 
-        Pageable pageable = PageRequest.of(page, size, sort);
-        Page<ProductCombo> combos = comboRepository.findAll(pageable);
+        if (combo.getCreatorType() != ComboCreatorType.SHOP_CREATE || !combo.getCreatorId().equals(store.getStoreId()))
+            throw new RuntimeException("❌ không có quyền update");
 
-        List<ComboResponse> filtered = combos.stream()
-                .filter(c -> keyword == null || c.getName().toLowerCase().contains(keyword.toLowerCase()))
-                .filter(c -> minPrice == null || c.getComboPrice().compareTo(minPrice) >= 0)
-                .filter(c -> maxPrice == null || c.getComboPrice().compareTo(maxPrice) <= 0)
-                .filter(c -> isActive == null || c.getIsActive().equals(isActive))
-                .map(c -> buildResponse(c, categoryRepository.findById(c.getCategoryId()).orElse(null)))
-                .collect(Collectors.toList());
+        applyCommonUpdate(combo, req);
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Danh sách combo", filtered));
-    }
-
-    /**
-     * 🏪 Lấy combo theo store
-     */
-    @Override
-    public ResponseEntity<BaseResponse> getCombosByStoreId(UUID storeId, int page, int size,
-                                                           String keyword, String sortDir,
-                                                           BigDecimal minPrice, BigDecimal maxPrice) {
-        Sort sort = (sortDir != null && sortDir.equalsIgnoreCase("desc"))
-                ? Sort.by("comboPrice").descending()
-                : Sort.by("comboPrice").ascending();
-
-        Pageable pageable = PageRequest.of(page, size, sort);
-        Page<ProductCombo> combos = comboRepository.findAll(pageable);
-
-        List<ComboResponse> filtered = combos.stream()
-                .filter(c -> c.getStore().getStoreId().equals(storeId))
-                .filter(c -> keyword == null || c.getName().toLowerCase().contains(keyword.toLowerCase()))
-                .filter(c -> minPrice == null || c.getComboPrice().compareTo(minPrice) >= 0)
-                .filter(c -> maxPrice == null || c.getComboPrice().compareTo(maxPrice) <= 0)
-                .map(c -> buildResponse(c, categoryRepository.findById(c.getCategoryId()).orElse(null)))
-                .collect(Collectors.toList());
-
-        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Combo của cửa hàng " + storeId, filtered));
-    }
-
-    /**
-     * ✏️ Cập nhật combo
-     */
-    @Override
-    public ResponseEntity<BaseResponse> updateCombo(UUID comboId, UpdateComboRequest request) {
-        ProductCombo combo = comboRepository.findById(comboId)
-                .orElseThrow(() -> new RuntimeException("❌ Combo không tồn tại"));
-
-        Category category = categoryRepository.findByNameIgnoreCase("Combo")
-                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy danh mục 'Combo'"));
-
-        combo.setCategoryId(category.getCategoryId()); // ✅ luôn là Combo
-
-        if (request.getName() != null) combo.setName(request.getName());
-        if (request.getShortDescription() != null) combo.setShortDescription(request.getShortDescription());
-        if (request.getDescription() != null) combo.setDescription(request.getDescription());
-        if (request.getImages() != null) combo.setImages(request.getImages());
-        if (request.getVideoUrl() != null) combo.setVideoUrl(request.getVideoUrl());
-        if (request.getWeight() != null) combo.setWeight(request.getWeight());
-        if (request.getStockQuantity() != null) combo.setStockQuantity(request.getStockQuantity());
-        if (request.getShippingAddress() != null) combo.setShippingAddress(request.getShippingAddress());
-        if (request.getWarehouseLocation() != null) combo.setWarehouseLocation(request.getWarehouseLocation());
-        if (request.getComboPrice() != null) combo.setComboPrice(request.getComboPrice());
-        if (request.getIsActive() != null) combo.setIsActive(request.getIsActive());
-
-        if (request.getIncludedProductIds() != null) {
-            List<Product> products = productRepository.findAllById(request.getIncludedProductIds());
-
-            List<Product> inactiveProducts = products.stream()
-                    .filter(p -> p.getStatus() != ProductStatus.ACTIVE)
-                    .toList();
-
-            if (!inactiveProducts.isEmpty()) {
-                String productNames = inactiveProducts.stream()
-                        .map(Product::getName)
-                        .collect(Collectors.joining(", "));
-                throw new RuntimeException("❌ Không thể cập nhật combo. Các sản phẩm không ACTIVE: " + productNames);
-            }
-
-            combo.setIncludedProducts(products);
-            combo.setOriginalTotalPrice(products.stream()
-                    .map(Product::getPrice)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add));
+        if (req.getItems() != null) {
+            Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
+            List<Product> products = productRepository.findAllById(qtyMap.keySet());
+            if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+            validateProductsInSameStore(products, store.getStoreId());
+            validateActive(products);
+            combo.getItems().clear();
+            products.forEach(p -> combo.getItems().add(
+                    ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build()
+            ));
         }
 
         combo.setUpdatedAt(LocalDateTime.now());
-        comboRepository.save(combo);
-
-        return ResponseEntity.ok(new BaseResponse<>(200, "✏️ Combo cập nhật thành công", buildResponse(combo, category)));
+        combo.setUpdatedBy(store.getAccount().getId());
+        return ResponseEntity.ok(new BaseResponse<>(200, "✏️ update combo shop", toResponse(comboRepository.save(combo))));
     }
 
-    /**
-     * 🛑 Disable combo
-     */
-    @Override
-    public ResponseEntity<BaseResponse> disableCombo(UUID comboId) {
-        ProductCombo combo = comboRepository.findById(comboId)
-                .orElseThrow(() -> new RuntimeException("❌ Combo không tồn tại"));
+    // =================== CUSTOMER ===================
 
-        combo.setIsActive(false);
+    @Override
+    public ResponseEntity<BaseResponse> createCustomerCombo(CreateCustomerComboRequest req) {
+        String email = getLoginEmail();
+        Customer cus = customerRepository.findByAccount_Email(email).orElseThrow();
+        Store store = storeRepository.findById(req.getStoreId()).orElseThrow();
+
+        Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
+        List<Product> products = productRepository.findAllById(qtyMap.keySet());
+        if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+
+        validateProductsInSameStore(products, store.getStoreId());
+        validateActive(products);
+
+        ProductCombo combo = ProductCombo.builder()
+                .store(store)
+                .name(req.getName())
+                .shortDescription(req.getShortDescription())
+                .description(req.getDescription())
+                .images(req.getImages())
+                .videoUrl(req.getVideoUrl())
+                .weight(req.getWeight())
+                .stockQuantity(req.getStockQuantity())
+                .shippingAddress(req.getShippingAddress())
+                .warehouseLocation(req.getWarehouseLocation())
+                .provinceCode(req.getProvinceCode())
+                .districtCode(req.getDistrictCode())
+                .wardCode(req.getWardCode())
+                .creatorType(ComboCreatorType.CUSTOMER_CREATE)
+                .creatorId(cus.getId())
+                .isActive(true)
+                .createdAt(LocalDateTime.now())
+                .createdBy(cus.getAccount().getId())
+                .build();
+
+        combo.setItems(products.stream()
+                .map(p -> ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build())
+                .toList());
+
+        return ResponseEntity.ok(new BaseResponse<>(201, "✅ tạo combo customer", toResponse(comboRepository.save(combo))));
+    }
+
+
+    @Override
+    public ResponseEntity<BaseResponse> updateCustomerCombo(UUID comboId, UpdateCustomerComboRequest req) {
+        String email = getLoginEmail();
+        Customer cus = customerRepository.findByAccount_Email(email).orElseThrow();
+
+        ProductCombo combo = comboRepository.findById(comboId).orElseThrow();
+        if (combo.getCreatorType() != ComboCreatorType.CUSTOMER_CREATE || !combo.getCreatorId().equals(cus.getId()))
+            throw new RuntimeException("❌ không có quyền update");
+
+        applyCommonUpdate(combo, req);
+
+        if (req.getItems() != null) {
+            Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
+            List<Product> products = productRepository.findAllById(qtyMap.keySet());
+            if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+            validateProductsInSameStore(products, combo.getStore().getStoreId());
+            validateActive(products);
+
+            combo.getItems().clear();
+            products.forEach(p -> combo.getItems().add(
+                    ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build()
+            ));
+        }
+
         combo.setUpdatedAt(LocalDateTime.now());
-        comboRepository.save(combo);
-
-        Category category = categoryRepository.findById(combo.getCategoryId()).orElse(null);
-        return ResponseEntity.ok(new BaseResponse<>(200, "🛑 Combo đã bị vô hiệu hóa", buildResponse(combo, category)));
+        combo.setUpdatedBy(cus.getAccount().getId());
+        return ResponseEntity.ok(new BaseResponse<>(200, "✏️ update combo customer", toResponse(comboRepository.save(combo))));
     }
 
-    /**
-     * 📦 Lấy sản phẩm con trong combo
-     */
-    @Override
-    public ResponseEntity<BaseResponse> getProductsInCombo(UUID comboId) {
-        ProductCombo combo = comboRepository.findById(comboId)
-                .orElseThrow(() -> new RuntimeException("❌ Combo không tồn tại"));
-        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Danh sách sản phẩm trong combo", combo.getIncludedProducts()));
+    // ================== UPDATE HELPER SHOP ==================
+    private void applyCommonUpdate(ProductCombo combo, UpdateShopComboRequest req) {
+        if (req.getName() != null) combo.setName(req.getName());
+        if (req.getShortDescription() != null) combo.setShortDescription(req.getShortDescription());
+        if (req.getDescription() != null) combo.setDescription(req.getDescription());
+        if (req.getImages() != null) combo.setImages(req.getImages());
+        if (req.getVideoUrl() != null) combo.setVideoUrl(req.getVideoUrl());
+        if (req.getWeight() != null) combo.setWeight(req.getWeight());
+        if (req.getStockQuantity() != null) combo.setStockQuantity(req.getStockQuantity());
+        if (req.getShippingAddress() != null) combo.setShippingAddress(req.getShippingAddress());
+        if (req.getWarehouseLocation() != null) combo.setWarehouseLocation(req.getWarehouseLocation());
+
+        if (req.getProvinceCode() != null) combo.setProvinceCode(req.getProvinceCode());
+        if (req.getDistrictCode() != null) combo.setDistrictCode(req.getDistrictCode());
+        if (req.getWardCode() != null) combo.setWardCode(req.getWardCode());
+
+        if (req.getIsActive() != null) combo.setIsActive(req.getIsActive());
     }
 
-    /**
-     * 🧱 Build DTO
-     */
-    private ComboResponse buildResponse(ProductCombo combo, Category category) {
-        return ComboResponse.builder()
-                .comboId(combo.getComboId())
-                .storeId(combo.getStore().getStoreId())
-                .storeName(combo.getStore().getStoreName())
-                .categoryId(combo.getCategoryId())
-                .categoryName(category != null ? category.getName() : null)
-                .name(combo.getName())
-                .shortDescription(combo.getShortDescription())
-                .description(combo.getDescription())
-                .images(combo.getImages())
-                .videoUrl(combo.getVideoUrl())
-                .weight(combo.getWeight())
-                .stockQuantity(combo.getStockQuantity())
-                .shippingAddress(combo.getShippingAddress())
-                .warehouseLocation(combo.getWarehouseLocation())
-                .comboPrice(combo.getComboPrice())
-                .originalTotalPrice(combo.getOriginalTotalPrice())
-                .isActive(combo.getIsActive())
-                .createdAt(combo.getCreatedAt())
-                .updatedAt(combo.getUpdatedAt())
-                .includedProductIds(combo.getIncludedProducts().stream()
-                        .map(Product::getProductId)
-                        .toList())
-                .includedProductNames(combo.getIncludedProducts().stream()
-                        .map(Product::getName)
-                        .toList())
+
+    // ================== UPDATE HELPER CUSTOMER ==================
+    private void applyCommonUpdate(ProductCombo combo, UpdateCustomerComboRequest req) {
+        if (req.getName() != null) combo.setName(req.getName());
+        if (req.getShortDescription() != null) combo.setShortDescription(req.getShortDescription());
+        if (req.getDescription() != null) combo.setDescription(req.getDescription());
+        if (req.getImages() != null) combo.setImages(req.getImages());
+        if (req.getVideoUrl() != null) combo.setVideoUrl(req.getVideoUrl());
+        if (req.getWeight() != null) combo.setWeight(req.getWeight());
+        if (req.getStockQuantity() != null) combo.setStockQuantity(req.getStockQuantity());
+        if (req.getShippingAddress() != null) combo.setShippingAddress(req.getShippingAddress());
+        if (req.getWarehouseLocation() != null) combo.setWarehouseLocation(req.getWarehouseLocation());
+
+        if (req.getProvinceCode() != null) combo.setProvinceCode(req.getProvinceCode());
+        if (req.getDistrictCode() != null) combo.setDistrictCode(req.getDistrictCode());
+        if (req.getWardCode() != null) combo.setWardCode(req.getWardCode());
+
+        if (req.getIsActive() != null) combo.setIsActive(req.getIsActive());
+    }
+
+    private ProductComboResponse toResponse(ProductCombo c) {
+        return ProductComboResponse.builder()
+                .comboId(c.getComboId())
+                .categoryName("COMBO")
+                .name(c.getName())
+                .shortDescription(c.getShortDescription())
+                .description(c.getDescription())
+                .images(c.getImages())
+                .videoUrl(c.getVideoUrl())
+                .provinceCode(c.getProvinceCode())
+                .districtCode(c.getDistrictCode())
+                .wardCode(c.getWardCode())
+                .shippingAddress(c.getShippingAddress())
+                .warehouseLocation(c.getWarehouseLocation())
+                .stockQuantity(c.getStockQuantity())
+                .storeId(c.getStore().getStoreId())        // <<<< ADD
+                .storeName(c.getStore().getStoreName())
+                .creatorType(c.getCreatorType().name())
+                .creatorId(c.getCreatorId())
+                .isActive(c.getIsActive())
+                .createdAt(c.getCreatedAt())
+                .updatedAt(c.getUpdatedAt())
+                .items(c.getItems().stream().map(ci ->
+                        ProductComboResponse.Item.builder()
+                                .productId(ci.getProduct().getProductId())
+                                .productName(ci.getProduct().getName())
+                                .quantity(ci.getQuantity())
+                                .build()
+                ).toList())
                 .build();
     }
+
+
 }

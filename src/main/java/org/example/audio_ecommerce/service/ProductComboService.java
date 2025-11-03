@@ -1,22 +1,21 @@
 package org.example.audio_ecommerce.service;
 
-import org.example.audio_ecommerce.dto.request.CreateComboRequest;
-import org.example.audio_ecommerce.dto.request.UpdateComboRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.springframework.http.ResponseEntity;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
 public interface ProductComboService {
 
-    ResponseEntity<BaseResponse> createCombo(CreateComboRequest request);
-    ResponseEntity<BaseResponse> getComboById(UUID comboId);
-    ResponseEntity<BaseResponse> getAllCombos(int page, int size, String keyword,
-                                              String sortDir, BigDecimal minPrice, BigDecimal maxPrice,  Boolean isActive);
-    ResponseEntity<BaseResponse> getCombosByStoreId(UUID storeId, int page, int size,
-                                                    String keyword, String sortDir, BigDecimal minPrice, BigDecimal maxPrice);
-    ResponseEntity<BaseResponse> updateCombo(UUID comboId, UpdateComboRequest request);
-    ResponseEntity<BaseResponse> disableCombo(UUID comboId);
-    ResponseEntity<BaseResponse> getProductsInCombo(UUID comboId);
+    // SHOP
+    ResponseEntity<BaseResponse> createShopCombo(CreateShopComboRequest request);
+    ResponseEntity<BaseResponse> updateShopCombo(UUID comboId, UpdateShopComboRequest request);
+    ResponseEntity<BaseResponse> viewShopCombos(int page, int size, String keyword, Boolean isActive);
+
+    // CUSTOMER
+    ResponseEntity<BaseResponse> createCustomerCombo(CreateCustomerComboRequest request);
+    ResponseEntity<BaseResponse> updateCustomerCombo(UUID comboId, UpdateCustomerComboRequest request);
+    ResponseEntity<BaseResponse> viewCustomerCombos(int page, int size, String keyword, Boolean isActive);
+
 }
