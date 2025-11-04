@@ -180,4 +180,15 @@ public class CartController {
             @Valid @RequestBody BulkUpdateCartQtyRequest req) {
         return cartService.bulkUpdateQuantities(customerId, req);
     }
+
+    // ví dụ trong CartController (tùy bạn đặt)
+    @PostMapping("/checkout/store-ship")
+    public ResponseEntity<List<CustomerOrderResponse>> checkoutStoreShip(
+            @RequestParam UUID customerId,
+            @RequestBody CheckoutCODRequest request // tái dùng request hiện có: items, addressId, message, vouchers
+    ) {
+        List<CustomerOrderResponse> resp = cartService.checkoutStoreShip(customerId, request);
+        return ResponseEntity.ok(resp);
+    }
+
 }

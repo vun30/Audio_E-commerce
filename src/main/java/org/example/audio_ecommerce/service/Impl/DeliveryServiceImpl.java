@@ -1,0 +1,164 @@
+package org.example.audio_ecommerce.service.Impl;
+
+import jakarta.transaction.Transactional;
+import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.entity.*;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.service.DeliveryService;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class DeliveryServiceImpl implements DeliveryService {
+
+    private final StoreOrderRepository storeOrderRepo;
+    private final StoreRepository storeRepo;
+    private final StaffRepository staffRepo; // nếu chưa có, tạo nhanh JpaRepository<Staff, UUID>
+    private final DeliveryAssignmentRepository assignmentRepo;
+    private final DeliveryLocationLogRepository locationRepo;
+    private final DeliveryProofRepository proofRepo;
+
+    private StoreOrder mustGetStoreOrderOfStore(UUID storeId, UUID storeOrderId) {
+        StoreOrder so = storeOrderRepo.findById(storeOrderId)
+                .orElseThrow(() -> new NoSuchElementException("StoreOrder not found"));
+        if (!so.getStore().getStoreId().equals(storeId)) {
+            throw new SecurityException("StoreOrder not belong to this store");
+        }
+        return so;
+    }
+
+    @Override
+    @Transactional
+    public void assignDeliveryStaff(UUID storeId, UUID storeOrderId, UUID deliveryStaffId, UUID preparedByStaffId, String note) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+        Staff deliver = staffRepo.findById(deliveryStaffId)
+                .orElseThrow(() -> new NoSuchElementException("Delivery staff not found"));
+        if (!deliver.getStore().getStoreId().equals(storeId)) {
+            throw new IllegalArgumentException("Staff not in this store");
+        }
+        Staff prepared = null;
+        if (preparedByStaffId != null) {
+            prepared = staffRepo.findById(preparedByStaffId)
+                    .orElseThrow(() -> new NoSuchElementException("PreparedBy staff not found"));
+            if (!prepared.getStore().getStoreId().equals(storeId)) {
+                throw new IllegalArgumentException("Prepared staff not in this store");
+            }
+        }
+
+        DeliveryAssignment assignment = assignmentRepo.findByStoreOrder_Id(storeOrderId)
+                .orElse(DeliveryAssignment.builder().storeOrder(so).build());
+
+        assignment.setDeliveryStaff(deliver);
+        assignment.setPreparedBy(prepared);
+        assignment.setAssignedAt(LocalDateTime.now());
+        assignment.setNote(note);
+        assignmentRepo.save(assignment);
+
+        // chuyển trạng thái sang READY_FOR_PICKUP
+        so.setStatus(OrderStatus.READY_FOR_PICKUP);
+        storeOrderRepo.save(so);
+    }
+
+    @Override
+    @Transactional
+    public void markReadyForPickup(UUID storeId, UUID storeOrderId) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+        so.setStatus(OrderStatus.READY_FOR_PICKUP);
+        storeOrderRepo.save(so);
+    }
+
+    @Override
+    @Transactional
+    public void markOutForDelivery(UUID storeId, UUID storeOrderId) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+        DeliveryAssignment asg = assignmentRepo.findByStoreOrder_Id(storeOrderId)
+                .orElseThrow(() -> new IllegalStateException("Assignment not found"));
+        asg.setPickUpAt(LocalDateTime.now());
+        assignmentRepo.save(asg);
+
+        so.setStatus(OrderStatus.OUT_FOR_DELIVERY);
+        storeOrderRepo.save(so);
+    }
+
+    @Override
+    @Transactional
+    public void markDeliveredWaitingConfirm(UUID storeId, UUID storeOrderId) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+        DeliveryAssignment asg = assignmentRepo.findByStoreOrder_Id(storeOrderId)
+                .orElseThrow(() -> new IllegalStateException("Assignment not found"));
+        asg.setDeliveredAt(LocalDateTime.now());
+        assignmentRepo.save(asg);
+
+        so.setStatus(OrderStatus.DELIVERED_WAITING_CONFIRM);
+        storeOrderRepo.save(so);
+    }
+
+    @Override
+    @Transactional
+    public void confirmDeliverySuccess(UUID storeId, UUID storeOrderId, String photoUrl, boolean installed, String note) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+
+        // Lưu proof
+        Staff deliver = assignmentRepo.findByStoreOrder_Id(storeOrderId)
+                .map(DeliveryAssignment::getDeliveryStaff)
+                .orElse(null);
+
+        DeliveryProof p = DeliveryProof.builder()
+                .storeOrder(so)
+                .deliveryStaff(deliver)
+                .photoUrl(photoUrl)
+                .installed(installed)
+                .note(note)
+                .createdAt(LocalDateTime.now())
+                .build();
+        proofRepo.save(p);
+
+        // Hoàn tất đơn
+        so.setStatus(OrderStatus.DELIVERY_SUCCESS);
+        storeOrderRepo.save(so);
+    }
+
+    @Override
+    @Transactional
+    public void markDeliveryDenied(UUID storeId, UUID storeOrderId, String reason) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+        // Có thể ghi chú vào shipNote
+        String note = Optional.ofNullable(so.getShipNote()).orElse("");
+        note = (note.isBlank() ? "" : note + " | ") + "[DENY_RECEIVE] " + reason;
+        so.setShipNote(note);
+        so.setStatus(OrderStatus.DELIVERY_DENIED);
+        storeOrderRepo.save(so);
+    }
+
+    @Override
+    @Transactional
+    public void pushLocation(UUID storeId, UUID storeOrderId, Double lat, Double lng, Double speed, String addressText) {
+        StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
+        DeliveryAssignment asg = assignmentRepo.findByStoreOrder_Id(storeOrderId)
+                .orElseThrow(() -> new IllegalStateException("Assignment not found"));
+
+        DeliveryLocationLog log = DeliveryLocationLog.builder()
+                .storeOrder(so)
+                .assignment(asg)
+                .latitude(lat)
+                .longitude(lng)
+                .speedKmh(speed)
+                .addressText(addressText)
+                .loggedAt(LocalDateTime.now())
+                .build();
+        locationRepo.save(log);
+
+        // Nếu cần: tự chuyển sang OUT_FOR_DELIVERY nếu chưa kịp bấm
+        if (so.getStatus() == OrderStatus.READY_FOR_PICKUP) {
+            so.setStatus(OrderStatus.OUT_FOR_DELIVERY);
+            storeOrderRepo.save(so);
+        }
+    }
+}
+

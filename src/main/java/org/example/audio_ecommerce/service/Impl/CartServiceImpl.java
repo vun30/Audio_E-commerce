@@ -239,7 +239,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false,                        // enforceCodDeposit = false (COD bỏ qua)
+                true,                        // enforceCodDeposit = false (COD bỏ qua)
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),// truyền voucher theo shop
                 request.getServiceTypeIds()
@@ -430,6 +430,12 @@ public class CartServiceImpl implements CartService {
                     .shipNote(addr.getNote())
                     .build();
 
+            if (enforceCodDeposit) {
+                co.setPaymentMethod(PaymentMethod.COD);
+            } else {
+                co.setPaymentMethod(PaymentMethod.ONLINE);
+            }
+
             // 4c) Items của riêng shop này
             List<CustomerOrderItem> coItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
@@ -479,6 +485,8 @@ public class CartServiceImpl implements CartService {
                     .shippingFee(shippingFee)
                     .shippingServiceTypeId(serviceTypeIdForStore)
                     .build();
+            so.setPaymentMethod(co.getPaymentMethod());
+
 
             List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
@@ -684,6 +692,29 @@ public class CartServiceImpl implements CartService {
         return toResponse(cart);
     }
 
+    @Override
+    @Transactional
+    public List<CustomerOrderResponse> checkoutStoreShip(UUID customerId, CheckoutCODRequest request) {
+        // Giống online/COD nhưng:
+        // - KHÔNG gọi GHN
+        // - phí ship = 0 cho từng store
+        // - shippingServiceTypeId = null
+        // - có thể đặt PaymentMethod tùy: COD hay ONLINE (ở đây mình để theo request.paymentMethod nếu bạn có,
+        //   còn nếu chưa có trong request thì mặc định COD cho store-ship)
+        List<CustomerOrder> orders = createOrdersSplitByStore_StoreShipNoFee(
+                customerId,
+                request.getItems(),
+                request.getAddressId(),
+                request.getMessage(),
+                // store-ship không check deposit COD (thường không cần),
+                // nếu bạn muốn vẫn check thì set true
+                false,
+                request.getStoreVouchers(),
+                request.getPlatformVouchers()
+        );
+        return orders.stream().map(this::toOrderResponse).toList();
+    }
+
 
     // Tối giản: trích "data.total" từ JSON GHN
     private static BigDecimal extractTotalFee(String feeJson) {
@@ -776,6 +807,225 @@ public class CartServiceImpl implements CartService {
         resp.setNote(order.getShipNote());
 
         return resp;
+    }
+
+    @Transactional
+    protected List<CustomerOrder> createOrdersSplitByStore_StoreShipNoFee(
+            UUID customerId,
+            List<CheckoutItemRequest> itemsReq,
+            UUID addressId,
+            String message,
+            boolean enforceCodDeposit,
+            List<StoreVoucherUse> storeVouchers,
+            List<PlatformVoucherUse> platformVouchers
+    ) {
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            throw new IllegalStateException("Cart is empty");
+        }
+
+        // 1) Map request -> CartItem
+        List<CartItem> itemsToCheckout = new ArrayList<>();
+        for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
+            CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
+            UUID refId = req.getId();
+            cart.getItems().stream()
+                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
+                    .findFirst()
+                    .ifPresent(itemsToCheckout::add);
+        }
+        if (itemsToCheckout.isEmpty()) {
+            throw new IllegalStateException("No matching items in cart for checkout");
+        }
+
+        // 2) Group theo store
+        Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
+        for (CartItem item : itemsToCheckout) {
+            UUID storeId = (item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
+                    ? item.getProduct().getStore().getStoreId()
+                    : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null);
+            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
+            itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
+        }
+
+        // 2b) (tùy chọn) enforce COD deposit theo shop
+        if (enforceCodDeposit) {
+            BigDecimal ratio = codConfig.getCodDepositRatio();
+            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+                UUID storeIdKey = entry.getKey();
+                BigDecimal storeSubtotal = entry.getValue().stream()
+                        .map(CartItem::getLineTotal)
+                        .filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
+                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
+                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
+                        .orElse(BigDecimal.ZERO);
+
+                if (deposit.compareTo(required) < 0) {
+                    throw new IllegalStateException(
+                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
+                                    + " required=" + required + " deposit=" + deposit);
+                }
+            }
+        }
+
+        // 3) Lấy địa chỉ
+        CustomerAddress addr;
+        if (addressId != null) {
+            addr = customer.getAddresses().stream()
+                    .filter(a -> a.getId().equals(addressId))
+                    .findFirst()
+                    .orElseThrow(() -> new NoSuchElementException("Address not found"));
+        } else {
+            addr = customer.getAddresses().stream()
+                    .filter(CustomerAddress::isDefault)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("No default address found for checkout"));
+        }
+
+        // Dùng cho voucher services
+        Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
+
+        // Kết quả
+        List<CustomerOrder> createdOrders = new ArrayList<>();
+
+        // 4) Loop từng shop → tạo 1 CustomerOrder riêng
+        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+            UUID storeIdKey = entry.getKey();
+            Store store = storeRepo.findById(storeIdKey)
+                    .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
+
+            // === KHÁC BIỆT: phí ship = 0, không gọi GHN
+            BigDecimal shippingFee = BigDecimal.ZERO;
+            Integer serviceTypeIdForStore = null; // không dùng
+
+            CustomerOrder co = CustomerOrder.builder()
+                    .customer(customer)
+                    .createdAt(java.time.LocalDateTime.now())
+                    .message(message)
+                    .status(OrderStatus.PENDING)
+                    // snapshot địa chỉ
+                    .shipReceiverName(addr.getReceiverName())
+                    .shipPhoneNumber(addr.getPhoneNumber())
+                    .shipCountry(addr.getCountry())
+                    .shipProvince(addr.getProvince())
+                    .shipDistrict(addr.getDistrict())
+                    .shipWard(addr.getWard())
+                    .shipStreet(addr.getStreet())
+                    .shipAddressLine(addr.getAddressLine())
+                    .shipPostalCode(addr.getPostalCode())
+                    .shipNote(addr.getNote())
+                    .build();
+
+            // Bạn muốn mặc định COD cho store-ship? (đổi nếu cần)
+            co.setPaymentMethod(PaymentMethod.COD);
+
+            // Items
+            List<CustomerOrderItem> coItems = new ArrayList<>();
+            for (CartItem ci : entry.getValue()) {
+                coItems.add(CustomerOrderItem.builder()
+                        .customerOrder(co)
+                        .type(ci.getType().name())
+                        .refId(ci.getReferenceId())
+                        .name(ci.getNameSnapshot())
+                        .quantity(ci.getQuantity())
+                        .unitPrice(ci.getUnitPrice())
+                        .lineTotal(ci.getLineTotal())
+                        .storeId(storeIdKey)
+                        .build());
+            }
+            co.setItems(coItems);
+
+            BigDecimal subtotal = coItems.stream()
+                    .map(CustomerOrderItem::getLineTotal)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            co.setTotalAmount(subtotal);
+            co.setShippingFeeTotal(shippingFee);
+
+            co = customerOrderRepository.save(co);
+
+            // StoreOrder
+            StoreOrder so = StoreOrder.builder()
+                    .store(store)
+                    .createdAt(java.time.LocalDateTime.now())
+                    .status(OrderStatus.PENDING)
+                    .customerOrder(co)
+                    .shipReceiverName(co.getShipReceiverName())
+                    .shipPhoneNumber(co.getShipPhoneNumber())
+                    .shipCountry(co.getShipCountry())
+                    .shipProvince(co.getShipProvince())
+                    .shipDistrict(co.getShipDistrict())
+                    .shipWard(co.getShipWard())
+                    .shipStreet(co.getShipStreet())
+                    .shipAddressLine(co.getShipAddressLine())
+                    .shipPostalCode(co.getShipPostalCode())
+                    // ghi chú rõ để FE phân biệt
+                    .shipNote( (co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]" )
+                    .shippingFee(shippingFee)
+                    .shippingServiceTypeId(serviceTypeIdForStore) // null
+                    .build();
+            so.setPaymentMethod(co.getPaymentMethod());
+
+            List<StoreOrderItem> soItems = new ArrayList<>();
+            for (CartItem ci : entry.getValue()) {
+                soItems.add(StoreOrderItem.builder()
+                        .storeOrder(so)
+                        .type(ci.getType().name())
+                        .refId(ci.getReferenceId())
+                        .name(ci.getNameSnapshot())
+                        .quantity(ci.getQuantity())
+                        .unitPrice(ci.getUnitPrice())
+                        .lineTotal(ci.getLineTotal())
+                        .build());
+            }
+            so.setItems(soItems);
+            storeOrderRepository.save(so);
+
+            storeItemsMap.put(storeIdKey, soItems);
+            createdOrders.add(co);
+        }
+
+        // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
+        Map<UUID, BigDecimal> storeDiscountByStore =
+                voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
+        var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+
+        // 6) Cập nhật discount + grand
+        for (CustomerOrder co : createdOrders) {
+            UUID storeIdOfOrder = co.getItems().stream()
+                    .map(CustomerOrderItem::getStoreId)
+                    .findFirst().orElse(null);
+
+            BigDecimal storeDiscount = storeDiscountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal platformDiscount = platformResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal discountTotal = storeDiscount.add(platformDiscount);
+
+            BigDecimal grand = co.getTotalAmount()
+                    .add(co.getShippingFeeTotal()) // = 0
+                    .subtract(discountTotal);
+
+            co.setStoreDiscountTotal(storeDiscount);
+            co.setPlatformDiscountTotal(platformDiscount);
+            co.setDiscountTotal(discountTotal);
+            co.setGrandTotal(grand);
+            co.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
+
+            customerOrderRepository.save(co);
+        }
+
+        // 7) Xóa items khỏi cart
+        cart.getItems().removeAll(itemsToCheckout);
+        cartRepo.save(cart);
+        cartItemRepo.deleteAll(itemsToCheckout);
+
+        return createdOrders;
     }
 
 }
