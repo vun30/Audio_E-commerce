@@ -142,6 +142,8 @@ public class CustomerServiceImpl implements CustomerService {
                 .districtId(req.getDistrictId())
                 .provinceCode(req.getProvinceCode())
                 .wardCode(req.getWardCode())
+                .lat(req.getLat())
+                .lng(req.getLng())
                 .build();
 
         addressRepo.save(a);
@@ -172,6 +174,11 @@ public class CustomerServiceImpl implements CustomerService {
         if (req.getAddressLine() != null) a.setAddressLine(req.getAddressLine());
         if (req.getPostalCode() != null) a.setPostalCode(req.getPostalCode());
         if (req.getNote() != null) a.setNote(req.getNote());
+        if (req.getDistrictId() != null) a.setDistrictId(req.getDistrictId());
+        if (req.getProvinceCode() != null) a.setProvinceCode(req.getProvinceCode());
+        if (req.getWardCode() != null) a.setWardCode(req.getWardCode());
+        if (req.getLat() != null) a.setLat(req.getLat());
+        if (req.getLng() != null) a.setLng(req.getLng());
 
         if (req.getIsDefault() != null && req.getIsDefault()) {
             setDefaultInternal(c, a);

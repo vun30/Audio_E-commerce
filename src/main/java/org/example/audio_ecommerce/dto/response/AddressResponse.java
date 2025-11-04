@@ -27,4 +27,6 @@ public class AddressResponse {
     private String provinceCode;
     private Integer districtId;
     private String wardCode;
+    private String lat;
+    private String lng;
 }
