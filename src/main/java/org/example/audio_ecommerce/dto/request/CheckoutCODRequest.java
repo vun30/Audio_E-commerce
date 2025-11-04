@@ -6,14 +6,15 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Getter @Setter
 public class CheckoutCODRequest {
     private List<CheckoutItemRequest> items;
     private UUID addressId;
-    private  String message; // optional; nếu null thì lấy default address
+    private String message; // optional; nếu null thì lấy default address
     private List<StoreVoucherUse> storeVouchers;
     private List<PlatformVoucherUse> platformVouchers;
-    private Integer serviceTypeId;
+    private Map<UUID, Integer> serviceTypeIds;
 }

@@ -12,8 +12,8 @@ import java.util.UUID;
 public interface CartService {
     CartResponse addItems(UUID customerId, AddCartItemsRequest request);
     CartResponse getActiveCart(UUID customerId);
-    CustomerOrderResponse checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request);
-    CustomerOrder createOrderForOnline(UUID customerId, CheckoutCODRequest request);
+    List<CustomerOrderResponse> checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request);
+    List<CustomerOrderResponse> createOrderForOnline(UUID customerId, CheckoutCODRequest request);
     CodEligibilityResponse checkCodEligibility(UUID customerId, List<CheckoutItemRequest> items);
     CartResponse updateItemQuantity(UUID customerId, UpdateCartItemQtyRequest request);
     CartResponse removeItems(UUID customerId, RemoveCartItemRequest request);

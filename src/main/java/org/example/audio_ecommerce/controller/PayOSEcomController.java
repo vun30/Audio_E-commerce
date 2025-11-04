@@ -31,27 +31,44 @@ public class PayOSEcomController {
      * Tạo CustomerOrder + StoreOrders (như COD) rồi tạo PayOS link cho tổng số tiền.
      */
     @PostMapping("/checkout")
-    public ResponseEntity<BaseResponse<CheckoutOnlineResponse>> checkoutOnline(@RequestParam UUID customerId,
-                                                                 @RequestBody CheckoutOnlineRequest req) {
-        // 1) Tạo CustomerOrder (y hệt COD) nhưng giữ status AWAITING_PAYMENT
+    public ResponseEntity<BaseResponse<CheckoutOnlineResponse>> checkoutOnline(
+            @RequestParam UUID customerId,
+            @RequestBody CheckoutOnlineRequest req
+    ) {
+        // 1) Tạo các CustomerOrder theo shop
         var codReq = new CheckoutCODRequest();
         codReq.setAddressId(req.getAddressId());
         codReq.setMessage(req.getMessage());
         codReq.setItems(req.getItems());
         codReq.setStoreVouchers(req.getStoreVouchers());
-        codReq.setServiceTypeId(req.getServiceTypeId());
-        var codResp = cartService.createOrderForOnline(customerId, codReq); // đã tạo orders + tính total
+        codReq.setPlatformVouchers(req.getPlatformVouchers());
+        codReq.setServiceTypeIds(req.getServiceTypeIds());
 
-        // 2) Gọi PayOS tạo link
-        CheckoutOnlineResponse pay = payOSEcomService.createPaymentForCustomerOrder(
-                codResp.getId(),
-                codResp.getGrandTotal(),
-                "Thanh toán đơn hàng " + codResp.getId(),
+        var orders = cartService.createOrderForOnline(customerId, codReq); // List<CustomerOrderResponse>
+
+        // 2) Tổng tiền = sum(grandTotal)
+        java.math.BigDecimal total = orders.stream()
+                .map(o -> o.getGrandTotal() == null ? java.math.BigDecimal.ZERO : o.getGrandTotal())
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add)
+                .setScale(0, java.math.RoundingMode.DOWN);
+
+        // 3) Mã nhóm (1 link PayOS)
+        long batchCode = System.currentTimeMillis() + new java.util.Random().nextInt(999);
+
+        // 4) Tạo link PayOS cho NHÓM, đồng thời nhúng batchCode vào từng order (JSON key __payos_batch_code)
+        var pay = payOSEcomService.createPaymentForMultipleCustomerOrders(
+                orders.stream().map(org.example.audio_ecommerce.dto.response.CustomerOrderResponse::getId).toList(),
+                total,
+                "Thanh toán " + orders.size() + " đơn",
                 req.getReturnUrl(),
-                req.getCancelUrl()
+                req.getCancelUrl(),
+                batchCode // orderCode của PayOS
         );
-        return ResponseEntity.ok(BaseResponse.success("✅ Tạo link PayOS thành công", pay));
+
+        return ResponseEntity.ok(BaseResponse.success("✅ Tạo link PayOS cho " + orders.size() + " đơn", pay));
     }
+
+
 
     /**
      * Webhook PayOS: xác nhận thanh toán và cập nhật CustomerOrder/StoreOrders.

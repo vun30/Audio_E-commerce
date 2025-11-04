@@ -51,26 +51,32 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
 
     @Override
     @Transactional
-    public CheckoutOnlineResponse createPaymentForCustomerOrder(UUID customerOrderId,
-                                                                BigDecimal amount,
-                                                                String description,
-                                                                String returnUrl,
-                                                                String cancelUrl) {
-        CustomerOrder order = customerOrderRepository.findById(customerOrderId)
-                .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
+    public CheckoutOnlineResponse createPaymentForMultipleCustomerOrders(
+            List<UUID> orderIds,
+            BigDecimal totalAmount,
+            String description,
+            String returnUrl,
+            String cancelUrl,
+            long batchOrderCode
+    ) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            throw new IllegalArgumentException("orderIds is empty");
+        }
+        List<CustomerOrder> orders = customerOrderRepository.findAllById(orderIds);
+        if (orders.size() != orderIds.size()) {
+            throw new NoSuchElementException("Some CustomerOrder not found");
+        }
 
-        // ✅ LẤY SỐ TIỀN THANH TOÁN CHUẨN: GRAND TOTAL (đã trừ voucher)
-        BigDecimal payAmount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
-        payAmount = payAmount.setScale(0, java.math.RoundingMode.DOWN);
-        int amountVnd = payAmount.intValueExact(); // PayOS cần int VND
+        BigDecimal payAmount = (totalAmount != null ? totalAmount : orders.stream()
+                .map(o -> o.getGrandTotal() == null ? BigDecimal.ZERO : o.getGrandTotal())
+                .reduce(BigDecimal.ZERO, BigDecimal::add))
+                .setScale(0, java.math.RoundingMode.DOWN);
+        int amountVnd = payAmount.intValueExact();
 
-        long orderCode = generateOrderCode();
+        String desc = cutUtf8Bytes(asciiNoMarks(description != null ? description : "Group orders"), 20);
+        String itemName = cutUtf8Bytes(asciiNoMarks("Group#" + batchOrderCode), 20);
 
         try {
-            String descRaw = "Order " + customerOrderId.toString().substring(0, 8);
-            String desc = cutUtf8Bytes(asciiNoMarks(descRaw), 20);
-            String itemName = cutUtf8Bytes(asciiNoMarks("Order#" + customerOrderId.toString().substring(0, 8)), 20);
-
             ItemData item = ItemData.builder()
                     .name(itemName)
                     .price(amountVnd)
@@ -78,7 +84,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
                     .build();
 
             PaymentData paymentData = PaymentData.builder()
-                    .orderCode(orderCode)
+                    .orderCode(batchOrderCode)  // <- 1 code cho cả nhóm
                     .amount(amountVnd)
                     .description(desc)
                     .returnUrl(returnUrl)
@@ -88,106 +94,127 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
 
             CheckoutResponseData res = payOS.createPaymentLink(paymentData);
 
-            order.setStatus(OrderStatus.PENDING);
-            order.setCreatedAt(LocalDateTime.now());
-            order.setExternalOrderCode(String.valueOf(orderCode));
-            customerOrderRepository.save(order);
+            // GẮN batchCode vào JSON của từng order, nhưng KHÔNG đụng externalOrderCode Eᵢ
+            for (CustomerOrder order : orders) {
+                // Optional: nếu order CHƯA có externalOrderCode riêng thì sinh luôn ở đây:
+                if (order.getExternalOrderCode() == null || order.getExternalOrderCode().isBlank()) {
+                    long perOrderCode = System.currentTimeMillis() + new java.util.Random().nextInt(999);
+                    order.setExternalOrderCode(String.valueOf(perOrderCode)); // Eᵢ riêng
+                }
+
+                // Nhúng batch vào platformVoucherDetailJson
+                String json = order.getPlatformVoucherDetailJson();
+                com.fasterxml.jackson.databind.node.ObjectNode node;
+                if (json != null && !json.isBlank()) {
+                    node = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(json);
+                } else {
+                    node = mapper.createObjectNode();
+                }
+                node.put("__payos_batch_code", String.valueOf(batchOrderCode));
+                order.setPlatformVoucherDetailJson(mapper.writeValueAsString(node));
+
+                // Đánh dấu chờ thanh toán (tuỳ flow)
+                order.setStatus(OrderStatus.PENDING);
+                order.setCreatedAt(LocalDateTime.now());
+                customerOrderRepository.save(order);
+            }
 
             CheckoutOnlineResponse out = new CheckoutOnlineResponse();
-            out.setCustomerOrderId(order.getId());
+            out.setCustomerOrderId(orders.get(0).getId()); // tuỳ bạn, có thể null
             out.setAmount(payAmount);
-            out.setPayOSOrderCode(orderCode);
+            out.setPayOSOrderCode(batchOrderCode);
             out.setCheckoutUrl(res.getCheckoutUrl());
             out.setQrCode(res.getQrCode());
             out.setStatus(OrderStatus.PENDING.name());
             return out;
 
         } catch (Exception e) {
-            throw new RuntimeException("Tạo link PayOS thất bại: " + e.getMessage(), e);
+            throw new RuntimeException("Tạo link PayOS (group) thất bại: " + e.getMessage(), e);
         }
     }
+
 
     @Override
     @Transactional
     public void confirmWebhook(Webhook webhook) {
-        try {
-            log.info("[PayOS Webhook] raw={}", mapper.writeValueAsString(webhook));
-        } catch (Exception ignore) {}
+        try { log.info("[PayOS Webhook] raw={}", mapper.writeValueAsString(webhook)); } catch (Exception ignore) {}
 
         WebhookData data = webhook.getData();
         if (data == null || data.getOrderCode() == null) {
             log.error("[PayOS Webhook] data/orderCode null. webhook={}", webhook);
             return;
         }
-        Long code = data.getOrderCode();
+        Long batchCode = data.getOrderCode();
         String resultCode = webhook.getCode();
         Boolean success = webhook.getSuccess();
         String desc = webhook.getDesc();
 
-        CustomerOrder order = customerOrderRepository.findByExternalOrderCode(String.valueOf(code)).orElse(null);
-        if (order == null) {
-            log.error("[PayOS Webhook] order not found by externalOrderCode={}", code);
+        // Tìm tất cả order có JSON chứa __payos_batch_code = batchCode
+        // Nếu bạn chưa có repo method, dùng findAll rồi filter bằng code dưới (đơn giản, nhưng tốt nhất là thêm method custom query JSON).
+        List<CustomerOrder> all = customerOrderRepository.findAll(); // hoặc custom query tốt hơn
+        List<CustomerOrder> orders = new ArrayList<>();
+        for (CustomerOrder o : all) {
+            String json = o.getPlatformVoucherDetailJson();
+            if (json == null || json.isBlank()) continue;
+            try {
+                var node = mapper.readTree(json);
+                if (node.has("__payos_batch_code") &&
+                        String.valueOf(batchCode).equals(node.get("__payos_batch_code").asText())) {
+                    orders.add(o);
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (orders.isEmpty()) {
+            log.error("[PayOS Webhook] no orders found for batch={}", batchCode);
             return;
         }
 
-        log.info("[PayOS Webhook] orderId={} code={} resultCode={} success={} desc={}",
-                order.getId(), code, resultCode, success, desc);
+        log.info("[PayOS Webhook] batch={} size={} resultCode={} success={} desc={}",
+                batchCode, orders.size(), resultCode, success, desc);
 
-        // Hết hạn
         if (desc != null && desc.toLowerCase().contains("hết hạn")) {
-            order.setStatus(OrderStatus.CANCELLED);
-            order.setCreatedAt(LocalDateTime.now());
-            customerOrderRepository.save(order);
-            log.warn("[PayOS Webhook] Order expired. Mark CANCELLED orderId={}", order.getId());
+            for (CustomerOrder order : orders) {
+                order.setStatus(OrderStatus.CANCELLED);
+                order.setCreatedAt(LocalDateTime.now());
+                customerOrderRepository.save(order);
+            }
             return;
         }
 
         if (Boolean.TRUE.equals(success) && "00".equals(resultCode)) {
-            // ✅ Lấy đúng số tiền đã TRỪ VOUCHER
-            BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
-            if (amount == null) amount = BigDecimal.ZERO;
-            amount = amount.setScale(0, java.math.RoundingMode.DOWN);
+            for (CustomerOrder order : orders) {
+                BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
+                if (amount == null) amount = BigDecimal.ZERO;
+                amount = amount.setScale(0, java.math.RoundingMode.DOWN);
 
-            final int amountVnd;
-            try {
-                amountVnd = amount.intValueExact(); // PayOS dùng int VND
-            } catch (ArithmeticException ex) {
-                log.error("Amount invalid (must be integer VND <= Integer.MAX_VALUE): {}", amount, ex);
-                throw ex;
+                settlementService.recordCustomerQrPayment(order.getCustomer().getId(), order.getId(), amount);
+                boolean existsHolding = !platformTransactionRepository
+                        .findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
+                        .isEmpty();
+                if (!existsHolding) {
+                    settlementService.moveToPlatformHold(order.getId(), amount);
+                }
+                settlementService.allocateToStoresPending(order);
+
+                order.setStatus(OrderStatus.PENDING); // hoặc CONFIRMED
+                order.setCreatedAt(LocalDateTime.now());
+                customerOrderRepository.save(order);
+
+                sendPaymentSuccessEmail(order, amount);
             }
-
-            // 1) Ghi nhận giao dịch ví khách (idempotent theo logic của bạn)
-            settlementService.recordCustomerQrPayment(order.getCustomer().getId(), order.getId(), amount);
-
-            // 2) Platform HOLD (idempotent)
-            boolean existsHolding = !platformTransactionRepository
-                    .findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
-                    .isEmpty();
-            if (!existsHolding) {
-                settlementService.moveToPlatformHold(order.getId(), amount);
-            } else {
-                log.info("Platform HOLDING already exists for orderId={} -> skip create", order.getId());
-            }
-
-            // 3) Phân bổ pending cho từng store
-            settlementService.allocateToStoresPending(order);
-
-            // 4) Cập nhật trạng thái đơn
-            order.setStatus(OrderStatus.PENDING); // hoặc CONFIRMED nếu bạn muốn sau khi đã thanh toán
-            order.setCreatedAt(LocalDateTime.now());
-            customerOrderRepository.save(order);
-
-            sendPaymentSuccessEmail(order, amount);
-            log.info("[PayOS Webhook] SUCCESS processed orderId={} amountVnd={}", order.getId(), amountVnd);
+            log.info("[PayOS Webhook] SUCCESS processed batch={} orders={}", batchCode, orders.size());
             return;
         }
 
-        // thất bại/hủy
-        order.setStatus(OrderStatus.UNPAID);
-        order.setCreatedAt(LocalDateTime.now());
-        customerOrderRepository.save(order);
-        log.warn("[PayOS Webhook] FAILED/HUMAN CANCEL orderId={}", order.getId());
+        // failed/cancel
+        for (CustomerOrder order : orders) {
+            order.setStatus(OrderStatus.UNPAID);
+            order.setCreatedAt(LocalDateTime.now());
+            customerOrderRepository.save(order);
+        }
     }
+
 
 
     private void sendPaymentSuccessEmail(CustomerOrder order, BigDecimal amount) {
