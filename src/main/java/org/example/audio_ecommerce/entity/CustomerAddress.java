@@ -63,6 +63,12 @@ public class CustomerAddress extends BaseEntity {
     @Column(name = "postal_code", length = 20)
     private String postalCode;
 
+    @Column(name = "longitude")
+    private String lng;
+
+    @Column(name = "latitude")
+    private String lat;
+
     @Column(name = "note", length = 512)
     private String note;
 

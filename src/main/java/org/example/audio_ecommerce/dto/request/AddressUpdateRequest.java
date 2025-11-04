@@ -20,4 +20,9 @@ public class AddressUpdateRequest {
     private String postalCode;
     private String note;
     private Boolean isDefault;
+    private String provinceCode;
+    private Integer districtId;
+    private String wardCode;
+    private String lat;
+    private String lng;
 }
