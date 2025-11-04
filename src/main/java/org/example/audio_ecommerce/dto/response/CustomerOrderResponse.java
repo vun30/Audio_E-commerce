@@ -12,19 +12,30 @@ public class CustomerOrderResponse {
     private String status;
     private String message;
     private String createdAt;
+
+    // ===== NEW: định danh shop của đơn này =====
+    private UUID storeId;
+    private String storeName;
+
+    // ===== Tổng tiền của RIÊNG shop này =====
     private BigDecimal totalAmount;
 
-    // ✅ Tổng giảm (voucher các shop)
+    // ===== NEW: phí ship của RIÊNG shop này =====
+    private BigDecimal shippingFeeTotal;
+
+    // Tổng giảm (shop-voucher + platform-voucher) của RIÊNG shop này
     private BigDecimal discountTotal;
 
-    // ✅ Số tiền phải trả sau giảm
+    // Số tiền phải trả sau giảm cho RIÊNG shop này
     private BigDecimal grandTotal;
 
+    // (tuỳ chọn) breakdown giảm theo shop-voucher: code -> amount (nếu muốn giữ chi tiết theo từng mã)
+    private Map<String, BigDecimal> storeVoucherDiscount;
 
-    // (tuỳ chọn) breakdown giảm theo từng shop: storeId -> discount
-    private Map<UUID, BigDecimal> storeDiscounts;
-    // ✅ breakdown giảm theo voucher toàn sàn: mã voucher -> số tiền giảm
+    // breakdown giảm theo voucher toàn sàn: mã voucher -> số tiền giảm (của RIÊNG shop này)
     private Map<String, BigDecimal> platformDiscount;
+
+    // Shipping snapshot (địa chỉ nhận)
     private String receiverName;
     private String phoneNumber;
     private String country;
@@ -35,6 +46,7 @@ public class CustomerOrderResponse {
     private String addressLine;
     private String postalCode;
     private String note;
-    // Thêm các trường khác nếu cần
-}
 
+    // ===== NEW: service type GHN đã chọn cho shop này (2 | 5), tiện hiển thị/trace =====
+    private Integer shippingServiceTypeId;
+}

@@ -84,7 +84,7 @@ public class CartController {
     })
     @PostMapping("/checkout-cod")
     @ResponseStatus(HttpStatus.OK)
-    public BaseResponse<CustomerOrderResponse> checkoutCod(
+    public BaseResponse<List<CustomerOrderResponse>> checkoutCod(
             @Parameter(description = "ID khách hàng (UUID)", required = true)
             @PathVariable UUID customerId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -103,7 +103,7 @@ public class CartController {
             )
             @RequestBody CheckoutCODRequest request
     ) {
-        CustomerOrderResponse resp = cartService.checkoutCODWithResponse(customerId, request);
+        List<CustomerOrderResponse> resp = cartService.checkoutCODWithResponse(customerId, request);
         return BaseResponse.success("✅ Checkout COD thành công", resp);
     }
 

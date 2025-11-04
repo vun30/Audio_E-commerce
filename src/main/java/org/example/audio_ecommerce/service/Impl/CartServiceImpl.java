@@ -20,8 +20,6 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
-
-
 @Service
 @RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
@@ -235,8 +233,8 @@ public class CartServiceImpl implements CartService {
 
     @Override
     @Transactional
-    public CustomerOrderResponse checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request) {
-        CustomerOrder customerOrder = createOrderInternal(
+    public List<CustomerOrderResponse> checkoutCODWithResponse(UUID customerId, CheckoutCODRequest request) {
+        List<CustomerOrder> customerOrder = createOrdersSplitByStore(
                 customerId,
                 request.getItems(),
                 request.getAddressId(),
@@ -244,74 +242,25 @@ public class CartServiceImpl implements CartService {
                 false,                        // enforceCodDeposit = false (COD bỏ qua)
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),// truyền voucher theo shop
-                request.getServiceTypeId()
+                request.getServiceTypeIds()
         );
-
-        // Re-fetch để chắc chắn các @PreUpdate đã chạy và totals đã tính
-        customerOrder = customerOrderRepository.findById(customerOrder.getId()).orElse(customerOrder);
-
-        // (Tuỳ chọn) Breakdown giảm theo từng shop cho FE (storeId -> discountTotal)
-        var storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(customerOrder.getId());
-        Map<UUID, BigDecimal> storeDiscounts = storeOrders.stream()
-                .collect(Collectors.toMap(
-                        so -> so.getStore().getStoreId(),
-                        so -> Optional.ofNullable(so.getStoreVoucherDiscount()).orElse(BigDecimal.ZERO),
-                        BigDecimal::add // phòng trùng khóa (hiếm)
-                ));
-
-        Map<String, BigDecimal> platformDiscountMap = new LinkedHashMap<>();
-        try {
-            if (customerOrder.getPlatformVoucherDetailJson() != null) {
-                var node = new com.fasterxml.jackson.databind.ObjectMapper()
-                        .readTree(customerOrder.getPlatformVoucherDetailJson());
-                node.fields().forEachRemaining(e -> {
-                    platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText()));
-                });
-            }
-        } catch (Exception ignored) {}
-
-        CustomerOrderResponse resp = new CustomerOrderResponse();
-        resp.setId(customerOrder.getId());
-        resp.setStatus(customerOrder.getStatus().name());
-        resp.setMessage(customerOrder.getMessage());
-        resp.setCreatedAt(customerOrder.getCreatedAt().toString());
-
-        // Trả đủ 3 con số quan trọng
-        resp.setTotalAmount(Optional.ofNullable(customerOrder.getTotalAmount()).orElse(BigDecimal.ZERO));
-        resp.setDiscountTotal(Optional.ofNullable(customerOrder.getDiscountTotal()).orElse(BigDecimal.ZERO));
-        resp.setGrandTotal(Optional.ofNullable(customerOrder.getGrandTotal()).orElse(BigDecimal.ZERO));
-
-        // (tuỳ chọn) gửi kèm breakdown theo shop
-        resp.setStoreDiscounts(storeDiscounts);
-        resp.setPlatformDiscount(platformDiscountMap);
-        // Shipping snapshot
-        resp.setReceiverName(customerOrder.getShipReceiverName());
-        resp.setPhoneNumber(customerOrder.getShipPhoneNumber());
-        resp.setCountry(customerOrder.getShipCountry());
-        resp.setProvince(customerOrder.getShipProvince());
-        resp.setDistrict(customerOrder.getShipDistrict());
-        resp.setWard(customerOrder.getShipWard());
-        resp.setStreet(customerOrder.getShipStreet());
-        resp.setAddressLine(customerOrder.getShipAddressLine());
-        resp.setPostalCode(customerOrder.getShipPostalCode());
-        resp.setNote(customerOrder.getShipNote());
-
-        return resp;
+        return customerOrder.stream().map(this::toOrderResponse).toList();
     }
 
     @Override
     @Transactional
-    public CustomerOrder createOrderForOnline(UUID customerId, CheckoutCODRequest request) {
-        return createOrderInternal(
+    public List<CustomerOrderResponse> createOrderForOnline(UUID customerId, CheckoutCODRequest request) {
+        List<CustomerOrder> orders = createOrdersSplitByStore(
                 customerId,
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false,                         // online không check deposit
+                false, // online không check deposit
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),
-                request.getServiceTypeId()// truyền voucher theo shop
+                request.getServiceTypeIds()
         );
+        return orders.stream().map(this::toOrderResponse).toList();
     }
 
     /* ================= helpers ================= */
@@ -359,7 +308,7 @@ public class CartServiceImpl implements CartService {
     }
 
     @Transactional
-    protected CustomerOrder createOrderInternal(
+    protected List<CustomerOrder> createOrdersSplitByStore(
             UUID customerId,
             List<CheckoutItemRequest> itemsReq,
             UUID addressId,
@@ -367,7 +316,7 @@ public class CartServiceImpl implements CartService {
             boolean enforceCodDeposit,
             List<StoreVoucherUse> storeVouchers,
             List<PlatformVoucherUse> platformVouchers,
-            Integer serviceTypeId
+            Map<UUID, Integer> serviceTypeIds
     ) {
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
@@ -377,7 +326,7 @@ public class CartServiceImpl implements CartService {
             throw new IllegalStateException("Cart is empty");
         }
 
-        // 1) Map request -> CartItem trong cart
+        // 1) Map request -> CartItem
         List<CartItem> itemsToCheckout = new ArrayList<>();
         for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
             CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
@@ -391,7 +340,7 @@ public class CartServiceImpl implements CartService {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
 
-        // 2) Gom theo store
+        // 2) Group theo store
         Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
         for (CartItem item : itemsToCheckout) {
             UUID storeId = (item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
@@ -401,7 +350,7 @@ public class CartServiceImpl implements CartService {
             itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
         }
 
-        // 2b) CHỈ COD mới check deposit (nhưng hiện đang bỏ cho COD theo yêu cầu)
+        // 2b) (tuỳ chọn) enforce COD deposit theo shop
         if (enforceCodDeposit) {
             BigDecimal ratio = codConfig.getCodDepositRatio();
             for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
@@ -425,106 +374,116 @@ public class CartServiceImpl implements CartService {
         }
 
         // 3) Lấy địa chỉ
-        CustomerAddress chosenAddr;
+        CustomerAddress addr;
         if (addressId != null) {
-            chosenAddr = customer.getAddresses().stream()
+            addr = customer.getAddresses().stream()
                     .filter(a -> a.getId().equals(addressId))
                     .findFirst()
                     .orElseThrow(() -> new NoSuchElementException("Address not found"));
         } else {
-            chosenAddr = customer.getAddresses().stream()
+            addr = customer.getAddresses().stream()
                     .filter(CustomerAddress::isDefault)
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException("No default address found for checkout"));
         }
 
-        Integer toDistrictId = chosenAddr.getDistrictId();
-        String toWardCode = chosenAddr.getWardCode();
+        Integer toDistrictId = addr.getDistrictId();
+        String toWardCode = addr.getWardCode();
 
-        // 4) Tạo CustomerOrder + snapshot địa chỉ
-        CustomerOrder customerOrder = CustomerOrder.builder()
-                .customer(customer)
-                .createdAt(java.time.LocalDateTime.now())
-                .message(message)
-                .status(OrderStatus.PENDING)
-                .shipReceiverName(chosenAddr.getReceiverName())
-                .shipPhoneNumber(chosenAddr.getPhoneNumber())
-                .shipCountry(chosenAddr.getCountry())
-                .shipProvince(chosenAddr.getProvince())
-                .shipDistrict(chosenAddr.getDistrict())
-                .shipWard(chosenAddr.getWard())
-                .shipStreet(chosenAddr.getStreet())
-                .shipAddressLine(chosenAddr.getAddressLine())
-                .shipPostalCode(chosenAddr.getPostalCode())
-                .shipNote(chosenAddr.getNote())
-                .build();
-
-        // 5) CustomerOrderItem
-        List<CustomerOrderItem> customerOrderItems = new ArrayList<>();
-        for (CartItem item : itemsToCheckout) {
-            customerOrderItems.add(CustomerOrderItem.builder()
-                    .customerOrder(customerOrder)
-                    .type(item.getType().name())
-                    .refId(item.getReferenceId())
-                    .name(item.getNameSnapshot())
-                    .quantity(item.getQuantity())
-                    .unitPrice(item.getUnitPrice())
-                    .lineTotal(item.getLineTotal())
-                    .storeId((item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
-                            ? item.getProduct().getStore().getStoreId()
-                            : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null))
-                    .build());
-        }
-        customerOrder.setItems(customerOrderItems);
-
-        // 6) Lưu CustomerOrder
-        customerOrder = customerOrderRepository.save(customerOrder);
-
-        BigDecimal totalShipping = BigDecimal.ZERO;
-
-        // 7) Tạo StoreOrders + chuẩn bị map items theo store để áp voucher
+        // Dùng cho voucher services
         Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
-        List<StoreOrder> persistedStoreOrders = new ArrayList<>();
+        Map<UUID, Store> storeCache = new HashMap<>();
 
+        // Kết quả orders để trả về
+        List<CustomerOrder> createdOrders = new ArrayList<>();
+
+        // 4) Loop từng shop → tạo 1 CustomerOrder riêng
         for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
             UUID storeIdKey = entry.getKey();
             Store store = storeRepo.findById(storeIdKey)
                     .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
-            // ====== NEW: Tính phí ship GHN cho store này ======
-            var reqGHN = buildForStoreShipment(
-                    entry.getValue(),
-                    toDistrictId,
-                    toWardCode,
-                    serviceTypeId // mặc định hàng nặng; FE có thể cho chọn 2/5 và truyền vào request checkout nếu muốn
-            );
-            String feeJson = ghnFeeService.calculateFeeRaw(reqGHN);
-            BigDecimal shippingFee = extractTotalFee(feeJson); // xem hàm bên dưới
-            totalShipping = totalShipping.add(shippingFee);
+            storeCache.put(storeIdKey, store);
 
-            StoreOrder storeOrder = StoreOrder.builder()
+            // 4a) Tính phí GHN cho shop này
+            Integer serviceTypeIdForStore = Optional.ofNullable(serviceTypeIds)
+                    .map(m -> m.get(storeIdKey))
+                    .orElse(5);
+            var reqGHN = buildForStoreShipment(entry.getValue(), toDistrictId, toWardCode, serviceTypeIdForStore);
+            BigDecimal shippingFee = extractTotalFee(ghnFeeService.calculateFeeRaw(reqGHN));
+
+            // 4b) Tạo CustomerOrder cho shop
+            CustomerOrder co = CustomerOrder.builder()
+                    .customer(customer)
+                    .createdAt(java.time.LocalDateTime.now())
+                    .message(message)
+                    .status(OrderStatus.PENDING)
+                    // snapshot địa chỉ
+                    .shipReceiverName(addr.getReceiverName())
+                    .shipPhoneNumber(addr.getPhoneNumber())
+                    .shipCountry(addr.getCountry())
+                    .shipProvince(addr.getProvince())
+                    .shipDistrict(addr.getDistrict())
+                    .shipWard(addr.getWard())
+                    .shipStreet(addr.getStreet())
+                    .shipAddressLine(addr.getAddressLine())
+                    .shipPostalCode(addr.getPostalCode())
+                    .shipNote(addr.getNote())
+                    .build();
+
+            // 4c) Items của riêng shop này
+            List<CustomerOrderItem> coItems = new ArrayList<>();
+            for (CartItem ci : entry.getValue()) {
+                coItems.add(CustomerOrderItem.builder()
+                        .customerOrder(co)
+                        .type(ci.getType().name())
+                        .refId(ci.getReferenceId())
+                        .name(ci.getNameSnapshot())
+                        .quantity(ci.getQuantity())
+                        .unitPrice(ci.getUnitPrice())
+                        .lineTotal(ci.getLineTotal())
+                        .storeId(storeIdKey)
+                        .build());
+            }
+            co.setItems(coItems);
+
+            // 4d) Subtotal
+            BigDecimal subtotal = coItems.stream()
+                    .map(CustomerOrderItem::getLineTotal)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // set tạm
+            co.setTotalAmount(subtotal);
+            co.setShippingFeeTotal(shippingFee);
+
+            // Lưu để có id
+            co = customerOrderRepository.save(co);
+
+            // 4e) Tạo StoreOrder (liên kết đến co)
+            StoreOrder so = StoreOrder.builder()
                     .store(store)
                     .createdAt(java.time.LocalDateTime.now())
                     .status(OrderStatus.PENDING)
-                    .customerOrder(customerOrder)
+                    .customerOrder(co)
                     // snapshot địa chỉ:
-                    .shipReceiverName(customerOrder.getShipReceiverName())
-                    .shipPhoneNumber(customerOrder.getShipPhoneNumber())
-                    .shipCountry(customerOrder.getShipCountry())
-                    .shipProvince(customerOrder.getShipProvince())
-                    .shipDistrict(customerOrder.getShipDistrict())
-                    .shipWard(customerOrder.getShipWard())
-                    .shipStreet(customerOrder.getShipStreet())
-                    .shipAddressLine(customerOrder.getShipAddressLine())
-                    .shipPostalCode(customerOrder.getShipPostalCode())
-                    .shipNote(customerOrder.getShipNote())
-                    // gán phí ship
+                    .shipReceiverName(co.getShipReceiverName())
+                    .shipPhoneNumber(co.getShipPhoneNumber())
+                    .shipCountry(co.getShipCountry())
+                    .shipProvince(co.getShipProvince())
+                    .shipDistrict(co.getShipDistrict())
+                    .shipWard(co.getShipWard())
+                    .shipStreet(co.getShipStreet())
+                    .shipAddressLine(co.getShipAddressLine())
+                    .shipPostalCode(co.getShipPostalCode())
+                    .shipNote(co.getShipNote())
                     .shippingFee(shippingFee)
+                    .shippingServiceTypeId(serviceTypeIdForStore)
                     .build();
 
-            List<StoreOrderItem> storeOrderItems = new ArrayList<>();
+            List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
-                storeOrderItems.add(StoreOrderItem.builder()
-                        .storeOrder(storeOrder)
+                soItems.add(StoreOrderItem.builder()
+                        .storeOrder(so)
                         .type(ci.getType().name())
                         .refId(ci.getReferenceId())
                         .name(ci.getNameSnapshot())
@@ -533,79 +492,54 @@ public class CartServiceImpl implements CartService {
                         .lineTotal(ci.getLineTotal())
                         .build());
             }
+            so.setItems(soItems);
+            storeOrderRepository.save(so);
 
-            storeOrder.setItems(storeOrderItems);
-            storeOrder = storeOrderRepository.save(storeOrder);
-            persistedStoreOrders.add(storeOrder);
-            storeItemsMap.put(storeOrder.getStore().getStoreId(), storeOrderItems);
+            // gom cho voucher service
+            storeItemsMap.put(storeIdKey, soItems);
+
+            createdOrders.add(co);
         }
 
-        // Lưu tổng phí ship ở CustomerOrder
-        customerOrder.setShippingFeeTotal(totalShipping);
-        customerOrder = customerOrderRepository.save(customerOrder);
-
-        // 7b) Áp voucher theo shop (giữ nguyên)
+        // 5) Áp voucher theo shop + platform cho từng shop
         Map<UUID, BigDecimal> storeDiscountByStore =
                 voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
 
-        BigDecimal totalStoreDiscount = BigDecimal.ZERO;
-        Map<UUID, String> storeVoucherDetailJsonMap = new HashMap<>();
-        // nếu computeDiscountByStore của bạn đã có detail map, set vào; nếu chưa, bạn có thể generate theo input
-        // ví dụ tạm: {"CODE":amount} từ storeDiscountByStore; tuỳ bạn đã có detail hơn trong service:
-        for (StoreVoucherUse su : Optional.ofNullable(storeVouchers).orElse(List.of())) {
-            // key theo store
-            // ở đây giả sử StoreVoucherUse có storeId & code
-            // tạo map json cho từng store dạng {"CODE":amount} — amount tạm thời set null, nếu cần chính xác thì bạn bổ sung service trả chi tiết
+        var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+
+        // 6) Cập nhật từng CustomerOrder: discount/grand + JSON detail
+        for (CustomerOrder co : createdOrders) {
+            UUID storeIdOfOrder = co.getItems().stream()
+                    .map(CustomerOrderItem::getStoreId)
+                    .findFirst().orElse(null);
+
+            BigDecimal storeDiscount = storeDiscountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal platformDiscount = platformResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal discountTotal = storeDiscount.add(platformDiscount);
+
+            BigDecimal grand = co.getTotalAmount()
+                    .add(co.getShippingFeeTotal())
+                    .subtract(discountTotal);
+
+            // set vào order
+            co.setStoreDiscountTotal(storeDiscount);
+            co.setPlatformDiscountTotal(platformDiscount);
+            co.setDiscountTotal(discountTotal);
+            co.setGrandTotal(grand);
+            co.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
+            // nếu bạn có JSON chi tiết cho store-voucher, set vào co.setStoreVoucherDetailJson(...)
+
+            customerOrderRepository.save(co);
         }
 
-        // set vào order theo storeDiscountByStore
-        for (StoreOrder so : persistedStoreOrders) {
-            BigDecimal d = storeDiscountByStore.getOrDefault(so.getStore().getStoreId(), BigDecimal.ZERO);
-            if (d != null && d.signum() > 0) {
-                so.setStoreVoucherDiscount(d);
-                // optional: so.setStoreVoucherDetailJson(storeVoucherDetailJsonMap.get(so.getStore().getStoreId()));
-                totalStoreDiscount = totalStoreDiscount.add(d);
-                storeOrderRepository.save(so);
-            }
-        }
-
-        // 7c) Áp voucher toàn sàn (mới)
-        var platformResult = voucherService.computePlatformDiscounts(
-                platformVouchers, storeItemsMap);
-
-        BigDecimal totalPlatformDiscount = BigDecimal.ZERO;
-        for (StoreOrder so : persistedStoreOrders) {
-            BigDecimal d = platformResult.discountByStore
-                    .getOrDefault(so.getStore().getStoreId(), BigDecimal.ZERO);
-            if (d != null && d.signum() > 0) {
-                so.setPlatformVoucherDiscount(d);
-                so.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson()); // lưu chung map vào từng store
-                storeOrderRepository.save(so);
-                totalPlatformDiscount = totalPlatformDiscount.add(d);
-            }
-        }
-
-        // 7d) Cập nhật tổng discount + JSON lên CustomerOrder (trigger @PreUpdate => grandTotal)
-        customerOrder.setStoreDiscountTotal(totalStoreDiscount);
-        customerOrder.setPlatformDiscountTotal(totalPlatformDiscount);
-        customerOrder.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
-
-        // Nếu bạn có JSON chi tiết cho store voucher toàn đơn:
-        if (!storeVoucherDetailJsonMap.isEmpty()) {
-            try {
-                String json = new com.fasterxml.jackson.databind.ObjectMapper()
-                        .writeValueAsString(storeVoucherDetailJsonMap);
-                customerOrder.setStoreVoucherDetailJson(json);
-            } catch (Exception ignored) {}
-        }
-
-        // 8) Xoá item khỏi cart
+        // 7) Xoá item khỏi cart
         cart.getItems().removeAll(itemsToCheckout);
         cartRepo.save(cart);
         cartItemRepo.deleteAll(itemsToCheckout);
 
-        return customerOrder;
+        return createdOrders;
     }
+
 
     @Override
     @Transactional
@@ -772,4 +706,76 @@ public class CartServiceImpl implements CartService {
             if (v != null) subtotal = subtotal.add(v);
         }
     }
+
+    private CustomerOrderResponse toOrderResponse(CustomerOrder order) {
+        CustomerOrderResponse resp = new CustomerOrderResponse();
+        resp.setId(order.getId());
+        resp.setStatus(order.getStatus().name());
+        resp.setMessage(order.getMessage());
+        resp.setCreatedAt(order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
+
+        // Lấy storeId/storeName từ StoreOrder của order (1 shop/1 order)
+        var storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
+        UUID storeId = null;
+        String storeName = null;
+        Integer svTypeId = null;
+        BigDecimal storeVoucherDiscount = BigDecimal.ZERO;
+        BigDecimal platformVoucherDiscount = BigDecimal.ZERO;
+
+        if (!storeOrders.isEmpty()) {
+            StoreOrder so = storeOrders.get(0);
+            storeId = so.getStore().getStoreId();
+            storeName = so.getStore().getStoreName();
+            svTypeId = so.getShippingServiceTypeId();
+            storeVoucherDiscount = Optional.ofNullable(so.getStoreVoucherDiscount()).orElse(BigDecimal.ZERO);
+            platformVoucherDiscount = Optional.ofNullable(so.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+        }
+        resp.setStoreId(storeId);
+        resp.setStoreName(storeName);
+        resp.setShippingServiceTypeId(svTypeId);
+
+        // Tổng số
+        resp.setTotalAmount(Optional.ofNullable(order.getTotalAmount()).orElse(BigDecimal.ZERO));
+        resp.setShippingFeeTotal(Optional.ofNullable(order.getShippingFeeTotal()).orElse(BigDecimal.ZERO));
+
+        // discountTotal của riêng shop này
+        BigDecimal discountTotal = Optional.ofNullable(order.getDiscountTotal()).orElse(
+                storeVoucherDiscount.add(platformVoucherDiscount)
+        );
+        resp.setDiscountTotal(discountTotal);
+
+        resp.setGrandTotal(Optional.ofNullable(order.getGrandTotal())
+                .orElse(resp.getTotalAmount().add(resp.getShippingFeeTotal()).subtract(discountTotal)));
+
+        // Map detail platformDiscount: parse JSON rồi lọc phần số tiền (nếu JSON không chia theo shop thì trả nguyên map)
+        Map<String, BigDecimal> platformDiscountMap = new LinkedHashMap<>();
+        try {
+            if (order.getPlatformVoucherDetailJson() != null) {
+                var node = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(order.getPlatformVoucherDetailJson());
+                node.fields().forEachRemaining(e -> {
+                    platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
+                });
+            }
+        } catch (Exception ignore) {}
+        resp.setPlatformDiscount(platformDiscountMap);
+
+        // Nếu bạn đã lưu JSON chi tiết cho store-voucher per order, parse vào resp.setStoreVoucherDiscount(map)
+        // Nếu chưa có detail theo mã, có thể set null hoặc map rỗng.
+
+        // Shipping snapshot
+        resp.setReceiverName(order.getShipReceiverName());
+        resp.setPhoneNumber(order.getShipPhoneNumber());
+        resp.setCountry(order.getShipCountry());
+        resp.setProvince(order.getShipProvince());
+        resp.setDistrict(order.getShipDistrict());
+        resp.setWard(order.getShipWard());
+        resp.setStreet(order.getShipStreet());
+        resp.setAddressLine(order.getShipAddressLine());
+        resp.setPostalCode(order.getShipPostalCode());
+        resp.setNote(order.getShipNote());
+
+        return resp;
+    }
+
 }

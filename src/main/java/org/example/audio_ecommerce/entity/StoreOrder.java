@@ -56,6 +56,9 @@ public class StoreOrder {
     @Column(name = "platform_voucher_discount", precision = 18, scale = 2)
     private BigDecimal platformVoucherDiscount = BigDecimal.ZERO; // phần giảm platform phân bổ vào store này
 
+    @Column(name = "shipping_service_type_id")
+    private Integer shippingServiceTypeId;
+
     @Lob
     @Column(name = "store_voucher_detail_json")
     private String storeVoucherDetailJson; // {"CODE1":10000,"CODE2":15000}

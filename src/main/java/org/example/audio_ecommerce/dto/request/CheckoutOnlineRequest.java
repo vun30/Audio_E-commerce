@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.dto.request;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Data
@@ -13,7 +14,7 @@ public class CheckoutOnlineRequest {
     private List<CheckoutItemRequest> items; // danh sách item được chọn trong giỏ
     private List<StoreVoucherUse> storeVouchers;
     private List<PlatformVoucherUse> platformVouchers;
-    private Integer serviceTypeId;
+    private Map<UUID, Integer> serviceTypeIds;
     private String returnUrl;             // FE gửi vào (ví dụ https://dats.vn/checkout/success)
     private String cancelUrl;             // FE gửi vào (ví dụ https://dats.vn/checkout/cancel)
 }

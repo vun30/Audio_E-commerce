@@ -5,14 +5,18 @@ import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
 import vn.payos.type.Webhook;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 public interface PayOSEcomService {
-    CheckoutOnlineResponse createPaymentForCustomerOrder(UUID customerOrderId,
-                                                         BigDecimal amount,
-                                                         String description,
-                                                         String returnUrl,
-                                                         String cancelUrl);
+    CheckoutOnlineResponse createPaymentForMultipleCustomerOrders(
+            List<UUID> orderIds,
+            BigDecimal totalAmount,
+            String description,
+            String returnUrl,
+            String cancelUrl,
+            long batchOrderCode // dùng làm orderCode PayOS
+    );
 
     void confirmWebhook(Webhook webhook);
 }
