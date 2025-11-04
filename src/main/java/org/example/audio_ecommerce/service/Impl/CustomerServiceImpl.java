@@ -269,6 +269,11 @@ public class CustomerServiceImpl implements CustomerService {
                 .postalCode(a.getPostalCode())
                 .note(a.getNote())
                 .isDefault(a.isDefault())
+                .provinceCode(a.getProvinceCode())
+                .districtId(a.getDistrictId())
+                .wardCode(a.getWardCode())
+                .lat(a.getLat())
+                .lng(a.getLng())
                 .build();
     }
 }
