@@ -13,6 +13,7 @@ import org.example.audio_ecommerce.email.OrderItemEmailData;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.CustomerOrderItem;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
 import org.example.audio_ecommerce.repository.PlatformTransactionRepository;
@@ -116,6 +117,9 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
                 // Đánh dấu chờ thanh toán (tuỳ flow)
                 order.setStatus(OrderStatus.PENDING);
                 order.setCreatedAt(LocalDateTime.now());
+                if (order.getPaymentMethod() != PaymentMethod.ONLINE) {
+                    order.setPaymentMethod(PaymentMethod.ONLINE); // đảm bảo gắn ONLINE
+                }
                 customerOrderRepository.save(order);
             }
 

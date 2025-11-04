@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -98,6 +99,10 @@ public class StoreOrder {
 
     @Column(name = "ship_note", length = 512)
     private String shipNote;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method", length = 20, nullable = false)
+    private PaymentMethod paymentMethod = PaymentMethod.COD;
 
     @PrePersist
     @PreUpdate

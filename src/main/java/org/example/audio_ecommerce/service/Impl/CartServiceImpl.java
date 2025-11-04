@@ -239,7 +239,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false,                        // enforceCodDeposit = false (COD bỏ qua)
+                true,                        // enforceCodDeposit = false (COD bỏ qua)
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),// truyền voucher theo shop
                 request.getServiceTypeIds()
@@ -430,6 +430,12 @@ public class CartServiceImpl implements CartService {
                     .shipNote(addr.getNote())
                     .build();
 
+            if (enforceCodDeposit) {
+                co.setPaymentMethod(PaymentMethod.COD);
+            } else {
+                co.setPaymentMethod(PaymentMethod.ONLINE);
+            }
+
             // 4c) Items của riêng shop này
             List<CustomerOrderItem> coItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
@@ -479,6 +485,8 @@ public class CartServiceImpl implements CartService {
                     .shippingFee(shippingFee)
                     .shippingServiceTypeId(serviceTypeIdForStore)
                     .build();
+            so.setPaymentMethod(co.getPaymentMethod());
+
 
             List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {

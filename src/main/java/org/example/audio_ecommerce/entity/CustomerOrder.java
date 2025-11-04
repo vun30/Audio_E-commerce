@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -55,6 +56,10 @@ public class CustomerOrder {
 
     @Column(name = "platform_discount_total", precision = 18, scale = 2)
     private BigDecimal platformDiscountTotal = BigDecimal.ZERO; // tổng giảm từ voucher toàn sàn
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method", length = 20, nullable = false)
+    private PaymentMethod paymentMethod = PaymentMethod.COD;
 
     // JSON/text lưu mapping <voucherCodeOrId, amount>
     // Nếu dùng PostgreSQL có thể đổi sang @JdbcType(JSON) hoặc @Type(JsonType.class)
