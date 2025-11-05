@@ -11,9 +11,13 @@ import org.example.audio_ecommerce.dto.request.ConfirmSuccessRequest;
 import org.example.audio_ecommerce.dto.request.DenyReceiveRequest;
 import org.example.audio_ecommerce.dto.request.PushLocationRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.entity.DeliveryAssignment;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.StoreOrder;
 import org.example.audio_ecommerce.service.DeliveryService;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @Tag(
@@ -54,7 +58,7 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "403", description = "Staff không thuộc store này hoặc không đủ quyền")
     })
     @PostMapping("/assign")
-    public BaseResponse<Void> assign(
+    public BaseResponse<StoreOrder> assign(
             @Parameter(description = "ID cửa hàng (UUID)", required = true, example = "9b4b4e0f-6f1f-4a5c-8e5f-2f21b4ac7f10")
             @PathVariable UUID storeId,
 
@@ -73,7 +77,8 @@ public class StoreDeliveryController {
             @RequestBody AssignDeliveryRequest req
     ) {
         deliveryService.assignDeliveryStaff(storeId, storeOrderId, req.getDeliveryStaffId(), req.getPreparedByStaffId(), req.getNote());
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("✅ Phân công nhân viên giao hàng thành công", order);
     }
 
     // ==============================
@@ -93,14 +98,15 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "404", description = "Không tìm thấy StoreOrder")
     })
     @PostMapping("/ready")
-    public BaseResponse<Void> readyForPickup(
+    public BaseResponse<StoreOrder> readyForPickup(
             @Parameter(description = "ID cửa hàng (UUID)", required = true)
             @PathVariable UUID storeId,
             @Parameter(description = "ID đơn của cửa hàng (UUID)", required = true)
             @PathVariable UUID storeOrderId
     ) {
         deliveryService.markReadyForPickup(storeId, storeOrderId);
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("📦 Đã đánh dấu READY_FOR_PICKUP", order);
     }
 
     // ==============================
@@ -119,14 +125,15 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "404", description = "Không tìm thấy StoreOrder hoặc chưa có assignment")
     })
     @PostMapping("/out-for-delivery")
-    public BaseResponse<Void> outForDelivery(
+    public BaseResponse<StoreOrder> outForDelivery(
             @Parameter(description = "ID cửa hàng (UUID)", required = true)
             @PathVariable UUID storeId,
             @Parameter(description = "ID đơn của cửa hàng (UUID)", required = true)
             @PathVariable UUID storeOrderId
     ) {
         deliveryService.markOutForDelivery(storeId, storeOrderId);
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("🚚 Đã đánh dấu OUT_FOR_DELIVERY", order);
     }
 
     // ==============================
@@ -145,14 +152,15 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "404", description = "Không tìm thấy StoreOrder hoặc chưa có assignment")
     })
     @PostMapping("/arrived")
-    public BaseResponse<Void> deliveredWaitingConfirm(
+    public BaseResponse<StoreOrder> deliveredWaitingConfirm(
             @Parameter(description = "ID cửa hàng (UUID)", required = true)
             @PathVariable UUID storeId,
             @Parameter(description = "ID đơn của cửa hàng (UUID)", required = true)
             @PathVariable UUID storeOrderId
     ) {
         deliveryService.markDeliveredWaitingConfirm(storeId, storeOrderId);
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("📍 Đã đến nơi, chờ xác nhận (DELIVERED_WAITING_CONFIRM)", order);
     }
 
     // ==============================
@@ -173,7 +181,7 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "400", description = "Thiếu tham số bắt buộc (ví dụ photoUrl)")
     })
     @PostMapping("/success")
-    public BaseResponse<Void> confirmSuccess(
+    public BaseResponse<StoreOrder> confirmSuccess(
             @Parameter(description = "ID cửa hàng (UUID)", required = true)
             @PathVariable UUID storeId,
             @Parameter(description = "ID đơn của cửa hàng (UUID)", required = true)
@@ -191,7 +199,8 @@ public class StoreDeliveryController {
     ) {
         deliveryService.confirmDeliverySuccess(storeId, storeOrderId, req.getPhotoUrl(),
                 Boolean.TRUE.equals(req.getInstalled()), req.getNote());
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("✅ Giao thành công (DELIVERY_SUCCESS)", order);
     }
 
     // ==============================
@@ -211,7 +220,7 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "404", description = "Không tìm thấy StoreOrder")
     })
     @PostMapping("/deny")
-    public BaseResponse<Void> denyReceive(
+    public BaseResponse<StoreOrder> denyReceive(
             @Parameter(description = "ID cửa hàng (UUID)", required = true)
             @PathVariable UUID storeId,
             @Parameter(description = "ID đơn của cửa hàng (UUID)", required = true)
@@ -226,7 +235,8 @@ public class StoreDeliveryController {
             @RequestBody DenyReceiveRequest req
     ) {
         deliveryService.markDeliveryDenied(storeId, storeOrderId, req.getReason());
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("❌ Khách từ chối nhận (DELIVERY_DENIED)", order);
     }
 
     // ==============================
@@ -249,7 +259,7 @@ public class StoreDeliveryController {
             @ApiResponse(responseCode = "400", description = "Toạ độ không hợp lệ")
     })
     @PostMapping("/location")
-    public BaseResponse<Void> pushLocation(
+    public BaseResponse<StoreOrder> pushLocation(
             @Parameter(description = "ID cửa hàng (UUID)", required = true)
             @PathVariable UUID storeId,
             @Parameter(description = "ID đơn của cửa hàng (UUID)", required = true)
@@ -267,6 +277,42 @@ public class StoreDeliveryController {
     ) {
         deliveryService.pushLocation(storeId, storeOrderId, req.getLatitude(), req.getLongitude(),
                 req.getSpeedKmh(), req.getAddressText());
-        return BaseResponse.success(null);
+        StoreOrder order = deliveryService.getStoreOrderEntity(storeOrderId);
+        return BaseResponse.success("🗺️ Đã ghi nhận vị trí", order);
     }
+
+    // list (không phân trang)
+    @GetMapping("/assignments")
+    public BaseResponse<?> listAssignments(
+            @PathVariable UUID storeId,
+            @RequestParam(required = false) OrderStatus status
+    ) {
+        var data = deliveryService.listAssignments(storeId, status);
+        return BaseResponse.success("📋 Danh sách phân công", data);
+    }
+
+    // page
+    @GetMapping("/assignments/page")
+    public BaseResponse<?> pageAssignments(
+            @PathVariable UUID storeId,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort
+    ) {
+        var data = deliveryService.pageAssignments(storeId, status, page, size, sort);
+        return BaseResponse.success("📄 Phân trang phân công", data);
+    }
+
+    // get one
+    @GetMapping("/assignments/{assignmentId}")
+    public BaseResponse<?> getAssignment(
+            @PathVariable UUID storeId,
+            @PathVariable UUID assignmentId
+    ) {
+        var data = deliveryService.getAssignment(storeId, assignmentId);
+        return BaseResponse.success("ℹ️ Chi tiết phân công", data);
+    }
+
+
 }

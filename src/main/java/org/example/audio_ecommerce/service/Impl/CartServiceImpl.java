@@ -940,7 +940,7 @@ public class CartServiceImpl implements CartService {
                     .build();
 
             // Bạn muốn mặc định COD cho store-ship? (đổi nếu cần)
-            co.setPaymentMethod(PaymentMethod.COD);
+            co.setPaymentMethod(PaymentMethod.STORE);
 
             // Items
             List<CustomerOrderItem> coItems = new ArrayList<>();

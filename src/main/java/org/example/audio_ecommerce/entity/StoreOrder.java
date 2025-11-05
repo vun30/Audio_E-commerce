@@ -1,5 +1,8 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
@@ -23,16 +26,18 @@ public class StoreOrder {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "store_id", nullable = false)
+    @JsonIgnore
     private Store store;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "status", length = 64, nullable = false)
     private OrderStatus status = OrderStatus.PENDING;
 
     @OneToMany(mappedBy = "storeOrder", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonBackReference
     private List<StoreOrderItem> items = new ArrayList<>();
 
     @Column(name = "discount_total", precision = 18, scale = 2)
@@ -43,6 +48,7 @@ public class StoreOrder {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_order_id", nullable = false)
+    @JsonBackReference
     private CustomerOrder customerOrder;
 
     @Column(name = "total_amount", precision = 18, scale = 2)
@@ -101,7 +107,7 @@ public class StoreOrder {
     private String shipNote;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "payment_method", length = 20, nullable = false)
+    @Column(name = "payment_method", length = 32, nullable = false)
     private PaymentMethod paymentMethod = PaymentMethod.COD;
 
     @PrePersist

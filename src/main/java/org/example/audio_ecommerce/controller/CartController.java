@@ -61,11 +61,12 @@ public class CartController {
     })
     @PostMapping("/items")
     @ResponseStatus(HttpStatus.CREATED)
-    public CartResponse addItems(
+    public BaseResponse<CartResponse> addItems(
             @Parameter(description = "ID khách hàng (UUID)", required = true)
             @PathVariable UUID customerId,
             @Valid @RequestBody AddCartItemsRequest req) {
-        return cartService.addItems(customerId, req);
+        CartResponse cart = cartService.addItems(customerId, req);
+        return BaseResponse.success("✅ Thêm vào giỏ hàng thành công", cart);
     }
 
     @Operation(

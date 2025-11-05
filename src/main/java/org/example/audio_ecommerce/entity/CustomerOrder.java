@@ -29,7 +29,7 @@ public class CustomerOrder {
     private LocalDateTime createdAt;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "status", length = 64, nullable = false)
     private OrderStatus status = OrderStatus.PENDING;
 
     @Column(name = "message", length = 512)
@@ -58,7 +58,7 @@ public class CustomerOrder {
     private BigDecimal platformDiscountTotal = BigDecimal.ZERO; // tổng giảm từ voucher toàn sàn
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "payment_method", length = 20, nullable = false)
+    @Column(name = "payment_method", length = 32, nullable = false)
     private PaymentMethod paymentMethod = PaymentMethod.COD;
 
     // JSON/text lưu mapping <voucherCodeOrId, amount>

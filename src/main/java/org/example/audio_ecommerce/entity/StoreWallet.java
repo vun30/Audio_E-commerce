@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
@@ -29,6 +30,7 @@ public class StoreWallet {
     // ✅ Liên kết ngược về Store
     @OneToOne
     @JoinColumn(name = "store_id", nullable = false, unique = true)
+    @JsonBackReference("store-wallet")
     private Store store;
 
     @Column(precision = 18, scale = 2, nullable = false)
