@@ -23,6 +23,7 @@ public class DeliveryServiceImpl implements DeliveryService {
     private final DeliveryAssignmentRepository assignmentRepo;
     private final DeliveryLocationLogRepository locationRepo;
     private final DeliveryProofRepository proofRepo;
+    private final CustomerOrderRepository customerOrderRepository;
 
     private StoreOrder mustGetStoreOrderOfStore(UUID storeId, UUID storeOrderId) {
         StoreOrder so = storeOrderRepo.findById(storeOrderId)
@@ -63,6 +64,8 @@ public class DeliveryServiceImpl implements DeliveryService {
         // chuyển trạng thái sang READY_FOR_PICKUP
         so.setStatus(OrderStatus.READY_FOR_PICKUP);
         storeOrderRepo.save(so);
+        syncCustomerOrderStatus(so);
+
     }
 
     @Override
@@ -160,5 +163,53 @@ public class DeliveryServiceImpl implements DeliveryService {
             storeOrderRepo.save(so);
         }
     }
+
+    private void syncCustomerOrderStatus(StoreOrder changed) {
+        var co = changed.getCustomerOrder();
+        if (co == null) return;
+
+        // Lấy tất cả store orders của CustomerOrder này
+        var all = storeOrderRepo.findAllByCustomerOrder_Id(co.getId());
+        boolean allSuccess = all.stream().allMatch(so -> so.getStatus() == OrderStatus.DELIVERY_SUCCESS);
+        boolean anyDeliveredWaiting = all.stream().anyMatch(so -> so.getStatus() == OrderStatus.DELIVERED_WAITING_CONFIRM);
+        boolean anyOutFor = all.stream().anyMatch(so -> so.getStatus() == OrderStatus.OUT_FOR_DELIVERY);
+        boolean allReady = all.stream().allMatch(so -> so.getStatus() == OrderStatus.READY_FOR_PICKUP);
+        boolean anyDenied = all.stream().anyMatch(so -> so.getStatus() == OrderStatus.DELIVERY_DENIED);
+
+        OrderStatus newParent;
+        if (allSuccess) {
+            newParent = OrderStatus.DELIVERY_SUCCESS;
+        } else if (anyDeliveredWaiting) {
+            newParent = OrderStatus.DELIVERED_WAITING_CONFIRM;
+        } else if (anyOutFor) {
+            newParent = OrderStatus.OUT_FOR_DELIVERY;
+        } else if (allReady) {
+            newParent = OrderStatus.READY_FOR_PICKUP;
+        } else {
+            // fallback nếu có mix: giữ nguyên hoặc đẩy lên mức "tiến nhất" đang có
+            newParent = co.getStatus() == null ? OrderStatus.PENDING : co.getStatus();
+        }
+
+        // Gắn cờ/note khi có denied (tuỳ chính sách bạn có thể tạo thêm enum PENDING/PARTIALLY_DENIED)
+        if (anyDenied) {
+            String note = Optional.ofNullable(co.getShipNote()).orElse("");
+            if (!note.contains("[ANY_DENIED]")) {
+                note = (note.isBlank() ? "" : note + " | ") + "[ANY_DENIED]";
+                co.setShipNote(note);
+            }
+            // Nếu muốn trạng thái riêng, mở comment dưới:
+            // newParent = OrderStatus.DELIVERY_DENIED;
+        }
+
+        if (co.getStatus() != newParent) {
+            co.setStatus(newParent);
+            // Gợi ý mốc thời gian (nếu bạn có các trường timestamp tương ứng):
+            // if (newParent == OrderStatus.OUT_FOR_DELIVERY) co.setShippingStartedAt(LocalDateTime.now());
+            // if (newParent == OrderStatus.DELIVERY_SUCCESS) co.setCompletedAt(LocalDateTime.now());
+            // ...
+            customerOrderRepository.save(co);
+        }
+    }
+
 }
 

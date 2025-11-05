@@ -96,6 +96,15 @@ public final class GhnFeeRequestBuilder {
         req.setInsurance_value(0);
         req.setCoupon(null);
         req.setItems(feeItems);
+
+        try {
+            String jsonReq = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(req);
+            org.slf4j.LoggerFactory.getLogger(GhnFeeRequestBuilder.class)
+                    .info("[GHN-FEE][BUILDER] Payload:\n{}", jsonReq);
+        } catch (Exception ignore) {}
+
         return req;
     }
 

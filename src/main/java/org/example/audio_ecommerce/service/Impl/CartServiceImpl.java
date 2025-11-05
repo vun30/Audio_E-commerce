@@ -15,11 +15,13 @@ import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buil
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
@@ -409,6 +411,21 @@ public class CartServiceImpl implements CartService {
                     .map(m -> m.get(storeIdKey))
                     .orElse(5);
             var reqGHN = buildForStoreShipment(entry.getValue(), toDistrictId, toWardCode, serviceTypeIdForStore);
+            // === LOG REQUEST JSON ===
+            try {
+                String jsonReq = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(reqGHN);
+                log.info("[GHN-FEE][STORE:{}][CO?] Request payload:\n{}", storeIdKey, jsonReq);
+            } catch (Exception e) {
+                log.warn("[GHN-FEE] Failed to serialize request payload", e);
+            }
+            // Call service
+            String feeRaw = ghnFeeService.calculateFeeRaw(reqGHN);
+
+            // === LOG RESPONSE RAW ===
+            log.info("[GHN-FEE][STORE:{}] Response raw: {}", storeIdKey, feeRaw);
+
             BigDecimal shippingFee = extractTotalFee(ghnFeeService.calculateFeeRaw(reqGHN));
 
             // 4b) Tạo CustomerOrder cho shop
