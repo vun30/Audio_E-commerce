@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
@@ -17,6 +18,7 @@ public class DeliveryAssignment {
     // Đơn của store
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "store_order_id", nullable = false)
+    @JsonBackReference
     private StoreOrder storeOrder;
 
     // Staff chuẩn bị hàng (có thể chính là staffDeliver nếu cửa hàng nhỏ)

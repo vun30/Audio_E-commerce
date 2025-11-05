@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.entity;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
@@ -35,6 +36,7 @@ public class Store {
 
     // ✅ Liên kết 1-1 với StoreWallet (thay vì lưu walletId thủ công)
     @OneToOne(mappedBy = "store", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JsonBackReference("store-wallet")
     private StoreWallet wallet;
 
     @Column(nullable = false, length = 255)

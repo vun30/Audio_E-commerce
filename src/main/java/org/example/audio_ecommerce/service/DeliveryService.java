@@ -1,5 +1,12 @@
 package org.example.audio_ecommerce.service;
 
+import org.example.audio_ecommerce.dto.response.DeliveryAssignmentResponse;
+import org.example.audio_ecommerce.entity.DeliveryAssignment;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.StoreOrder;
+import org.springframework.data.domain.Page;
+
+import java.util.List;
 import java.util.UUID;
 
 public interface DeliveryService {
@@ -23,5 +30,10 @@ public interface DeliveryService {
 
     // 7) shipper gửi location định kỳ
     void pushLocation(UUID storeId, UUID storeOrderId, Double lat, Double lng, Double speed, String addressText);
-}
 
+    List<DeliveryAssignmentResponse> listAssignments(UUID storeId, OrderStatus status);
+    Page<DeliveryAssignmentResponse> pageAssignments(UUID storeId, OrderStatus status, int page, int size, String sort);
+    DeliveryAssignmentResponse getAssignment(UUID storeId, UUID assignmentId);
+    // 11) tiện ích: lấy StoreOrder sau cập nhật
+    StoreOrder getStoreOrderEntity(UUID storeOrderId);
+}
