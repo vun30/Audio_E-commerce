@@ -49,7 +49,8 @@ public class SecurityConfig {
                             "https://conicboulevard.pro.vn",
                             "https://www.conicboulevard.pro.vn",
                             "https://conicboulevard.vercel.app",
-                            "https://manager.conicboulevard.pro.vn"
+                            "https://manager.conicboulevard.pro.vn",
+                            "http://localhost:8081"
                     ));
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
