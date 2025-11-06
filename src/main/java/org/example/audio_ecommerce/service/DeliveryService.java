@@ -41,4 +41,5 @@ public interface DeliveryService {
     List<DeliveryAssignmentResponse> listAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status);
     Page<DeliveryAssignmentResponse> pageAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status, int page, int size, String sort);
 
+
 }
