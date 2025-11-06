@@ -83,7 +83,7 @@ public class DeliveryServiceImpl implements DeliveryService {
     @Transactional
     public void markReadyForPickup(UUID storeId, UUID storeOrderId) {
         StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
-        so.setStatus(OrderStatus.READY_FOR_PICKUP);
+        so.setStatus(OrderStatus.READY_FOR_DELIVERY);
         storeOrderRepo.save(so);
         syncCustomerOrderStatus(so);
     }
@@ -270,6 +270,44 @@ public class DeliveryServiceImpl implements DeliveryService {
             customerOrderRepository.save(co);
         }
     }
+
+    @Override
+    @Transactional
+    public List<DeliveryAssignmentResponse> listAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status) {
+        // bảo vệ: store & staff thuộc store
+        storeRepo.findById(storeId).orElseThrow(() -> new NoSuchElementException("Store not found"));
+        var staff = staffRepo.findById(staffId).orElseThrow(() -> new NoSuchElementException("Staff not found"));
+        if (!staff.getStore().getStoreId().equals(storeId)) {
+            throw new SecurityException("Staff not belong to this store");
+        }
+
+        if (status == null) {
+            var entities = assignmentRepo.findAllByStoreAndDeliveryStaff(storeId, staffId);
+            return entities.stream().map(this::toDTO).toList();
+        } else {
+            // nếu muốn không phân trang khi có status, có thể gọi page với size lớn
+            var page = assignmentRepo.findPageByStoreAndDeliveryStaffAndStatus(storeId, staffId, status,
+                    PageRequest.of(0, 1000, Sort.by("assignedAt").descending()));
+            return page.getContent().stream().map(this::toDTO).toList();
+        }
+    }
+
+    @Override
+    @Transactional
+    public Page<DeliveryAssignmentResponse> pageAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status, int page, int size, String sort) {
+        storeRepo.findById(storeId).orElseThrow(() -> new NoSuchElementException("Store not found"));
+        var staff = staffRepo.findById(staffId).orElseThrow(() -> new NoSuchElementException("Staff not found"));
+        if (!staff.getStore().getStoreId().equals(storeId)) {
+            throw new SecurityException("Staff not belong to this store");
+        }
+
+        Sort s = Sort.by((sort == null || sort.isBlank()) ? "assignedAt" : sort).descending();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1), s);
+
+        Page<DeliveryAssignment> p = assignmentRepo.findPageByStoreAndDeliveryStaffAndStatus(storeId, staffId, status, pageable);
+        return p.map(this::toDTO);
+    }
+
 
     private DeliveryAssignmentResponse toDTO(DeliveryAssignment a) {
         if (a == null) return null;

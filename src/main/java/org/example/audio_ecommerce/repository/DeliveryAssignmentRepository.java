@@ -57,5 +57,30 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
     Page<DeliveryAssignment> findPageByStoreIdAndStatus(@Param("storeId") UUID storeId,
                                                         @Param("status") OrderStatus status,
                                                         Pageable pageable);
+
+    @Query("""
+        select a from DeliveryAssignment a
+        where a.deliveryStaff.id = :staffId
+          and a.storeOrder.store.storeId = :storeId
+          and (:status is null or a.storeOrder.status = :status)
+    """)
+    Page<DeliveryAssignment> findPageByStoreAndDeliveryStaffAndStatus(
+            @Param("storeId") UUID storeId,
+            @Param("staffId") UUID staffId,
+            @Param("status") OrderStatus status,
+            Pageable pageable
+    );
+
+    // Liệt kê tất cả assignment của 1 staff (giữ nguyên theo store để tránh lộ chéo)
+    @Query("""
+        select a from DeliveryAssignment a
+        where a.deliveryStaff.id = :staffId
+          and a.storeOrder.store.storeId = :storeId
+        order by coalesce(a.pickUpAt, a.assignedAt) desc
+    """)
+    List<DeliveryAssignment> findAllByStoreAndDeliveryStaff(
+            @Param("storeId") UUID storeId,
+            @Param("staffId") UUID staffId
+    );
 }
 
