@@ -13,6 +13,11 @@ public interface VoucherService {
             Map<UUID, List<StoreOrderItem>> storeItems
     );
 
+    StoreVoucherResult computeDiscountByStoreWithDetail(
+            List<StoreVoucherUse> vouchersInput,
+            Map<UUID, List<StoreOrderItem>> storeItems
+    );
+
     // a) Tổng giảm theo từng store (để phân bổ xuống StoreOrder)
     // b) Mapping <voucherCodeOrId, amount> cho toàn đơn (để trả response + lưu JSON)
     PlatformVoucherResult computePlatformDiscounts(List<PlatformVoucherUse> platformVouchers,
@@ -21,12 +26,16 @@ public interface VoucherService {
     class PlatformVoucherResult {
         public Map<UUID, BigDecimal> discountByStore = new HashMap<>();
         public Map<String, BigDecimal> platformDiscountMap = new LinkedHashMap<>(); // code/id -> amount
+
         public String toPlatformVoucherJson() {
             try {
                 return new com.fasterxml.jackson.databind.ObjectMapper()
                         .writeValueAsString(platformDiscountMap);
-            } catch (Exception e) { return "{}"; }
+            } catch (Exception e) {
+                return "{}";
+            }
         }
+
         public Map<UUID, String> toPerStoreJson() {
             // Chỉ dùng khi bạn muốn lưu chi tiết theo store — ở đây mình lưu 1 map đơn giản cho platformJson ở từng store
             Map<UUID, String> json = new HashMap<>();
@@ -37,6 +46,36 @@ public interface VoucherService {
             } catch (Exception e) { /* ignore */ }
             return json;
         }
-        private Set<UUID> storeItemsMapKeySet(Map<UUID, BigDecimal> m) { return m.keySet(); }
+
+        private Set<UUID> storeItemsMapKeySet(Map<UUID, BigDecimal> m) {
+            return m.keySet();
+        }
+    }
+
+    class StoreVoucherResult {
+        /**
+         * Tổng giảm theo store
+         */
+        public Map<UUID, BigDecimal> discountByStore = new HashMap<>();
+        /**
+         * Chi tiết theo store: { storeId -> { CODE -> amount } }
+         */
+        public Map<UUID, Map<String, BigDecimal>> detailByStore = new HashMap<>();
+
+        /**
+         * Xuất JSON cho từng store từ detailByStore
+         */
+        public Map<UUID, String> toDetailJsonByStore() {
+            Map<UUID, String> json = new HashMap<>();
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            detailByStore.forEach((sid, map) -> {
+                try {
+                    json.put(sid, om.writeValueAsString(map));
+                } catch (Exception e) {
+                    json.put(sid, "{}");
+                }
+            });
+            return json;
+        }
     }
 }

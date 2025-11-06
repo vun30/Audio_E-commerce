@@ -40,6 +40,7 @@ public class AccountServiceImpl implements AccountService {
     private final WalletRepository walletRepository;
     private final StoreWalletRepository storeWalletRepository;
     private final StoreWalletTransactionRepository storeWalletTransactionRepository;
+    private final StaffRepository staffRepository;
 
     // 👇 thêm dependency EmailService
     private final EmailService emailService;
@@ -255,6 +256,52 @@ public class AccountServiceImpl implements AccountService {
         } catch (Exception ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new BaseResponse<>(401, "Invalid refresh token", null));
+        }
+    }
+
+    @Override
+    public ResponseEntity<BaseResponse> loginStaff(LoginRequest request) {
+        return loginStaffInternal(request);
+    }
+
+    private ResponseEntity<BaseResponse> loginStaffInternal(LoginRequest request) {
+        try {
+            // Ghép email với role STAFF theo chuẩn bạn đang dùng
+            String usernameWithRole = request.getEmail() + ":" + RoleEnum.STAFF.name();
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(usernameWithRole, request.getPassword())
+            );
+
+            Account user = repository.findByEmailAndRole(request.getEmail(), RoleEnum.STAFF)
+                    .orElseThrow(() -> new UsernameNotFoundException("Staff account not found"));
+
+            // Tìm hồ sơ Staff
+            var staffOpt = staffRepository.findByAccount_Id(user.getId());
+            if (staffOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new BaseResponse<>(401, "Staff profile not found for this account", null));
+            }
+
+            var staff = staffOpt.get();
+            UUID staffId = staff.getId();
+            UUID storeId = (staff.getStore() != null) ? staff.getStore().getStoreId() : null;
+
+            // ✅ Tạo token — giữ tương thích: vẫn generate theo (accountId, customerId, email, role)
+            // Với staff thì customerId = null
+            String accessToken = jwtTokenProvider.generateToken(user.getId(), null, user.getEmail(), user.getRole().name());
+            String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId(), null, user.getEmail(), user.getRole().name());
+
+            AccountResponse userResponse =
+                    new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
+
+            StaffInfo staffInfo = new StaffInfo(staffId, storeId, staff.getFullName(), staff.getEmail(), staff.getPhone());
+
+            LoginResponse loginResponse = new LoginResponse(accessToken, refreshToken, userResponse, staffInfo);
+
+            return ResponseEntity.ok(new BaseResponse<>(200, "Login staff success", loginResponse));
+        } catch (BadCredentialsException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new BaseResponse<>(401, "Invalid credentials", null));
         }
     }
 }

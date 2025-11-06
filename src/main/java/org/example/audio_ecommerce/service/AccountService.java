@@ -21,4 +21,7 @@ public interface AccountService {
 
     // Refresh Token
     ResponseEntity<BaseResponse> refreshToken(RefreshTokenRequest request);
+
+    //Staff
+    ResponseEntity<BaseResponse> loginStaff(LoginRequest request);
 }

@@ -54,4 +54,11 @@ public class AccountController {
     public ResponseEntity<BaseResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         return accountService.refreshToken(request);
     }
+
+    // controller/AuthController.java
+    @PostMapping("/auth/staff/login")
+    public ResponseEntity<BaseResponse> loginStaff(@RequestBody @Valid LoginRequest request) {
+        return accountService.loginStaff(request);
+    }
+
 }

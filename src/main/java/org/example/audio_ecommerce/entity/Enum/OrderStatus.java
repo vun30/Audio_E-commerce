@@ -15,5 +15,6 @@ public enum OrderStatus {
     OUT_FOR_DELIVERY,          // đang giao (đẩy geo-location định kỳ)
     DELIVERED_WAITING_CONFIRM, // giao tới đúng địa chỉ, chờ xác nhận/biên bản
     DELIVERY_SUCCESS,          // giao thành công (chụp hình hoặc tick “đã lắp đặt”)
-    DELIVERY_DENIED            // khách từ chối nhận (order deny receive)
+    DELIVERY_DENIED,            // khách từ chối nhận (order deny receive)
+    READY_FOR_DELIVERY          // hàng đã sẵn sàng giao (chờ nhân viên giao nhận đến lấy)
 }

@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface StaffRepository extends JpaRepository<Staff, UUID> {
     List<Staff> findByStore(Store store);
     Optional<Staff> findByIdAndStore(UUID id, Store store);
+    boolean existsByAccount_Id(UUID accountId);
+    Optional<Staff> findByAccount_Id(UUID accountId);
 }
