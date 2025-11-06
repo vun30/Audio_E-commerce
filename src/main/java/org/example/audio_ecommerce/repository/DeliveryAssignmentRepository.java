@@ -82,5 +82,77 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
             @Param("storeId") UUID storeId,
             @Param("staffId") UUID staffId
     );
+
+    @Query("""
+    select da from DeliveryAssignment da
+    join fetch da.storeOrder so
+    left join fetch so.items si
+    where so.store.storeId = :storeId
+""")
+    List<DeliveryAssignment> findAllByStoreIdFetchItems(@Param("storeId") UUID storeId);
+
+    @Query("""
+    select da from DeliveryAssignment da
+    join fetch da.storeOrder so
+    left join fetch so.items si
+    where so.store.storeId = :storeId
+      and so.status = :status
+""")
+    List<DeliveryAssignment> findAllByStoreIdAndStatusFetchItems(@Param("storeId") UUID storeId,
+                                                                 @Param("status") OrderStatus status);
+
+    @Query(value = """
+    select da from DeliveryAssignment da
+    join fetch da.storeOrder so
+    left join fetch so.items si
+    where so.store.storeId = :storeId
+      and (:status is null or so.status = :status)
+""",
+            countQuery = """
+    select count(da) from DeliveryAssignment da
+    join da.storeOrder so
+    where so.store.storeId = :storeId
+      and (:status is null or so.status = :status)
+""")
+    Page<DeliveryAssignment> findPageByStoreIdAndStatusFetchItems(@Param("storeId") UUID storeId,
+                                                                  @Param("status") OrderStatus status,
+                                                                  Pageable pageable);
+
+    @Query("""
+    select da from DeliveryAssignment da
+    join fetch da.storeOrder so
+    left join fetch so.items si
+    where so.store.storeId = :storeId and da.deliveryStaff.id = :staffId
+""")
+    List<DeliveryAssignment> findAllByStoreAndDeliveryStaffFetchItems(@Param("storeId") UUID storeId,
+                                                                      @Param("staffId") UUID staffId);
+
+    @Query(value = """
+    select da from DeliveryAssignment da
+    join fetch da.storeOrder so
+    left join fetch so.items si
+    where so.store.storeId = :storeId
+      and da.deliveryStaff.id = :staffId
+      and (:status is null or so.status = :status)
+""",
+            countQuery = """
+    select count(da) from DeliveryAssignment da
+    join da.storeOrder so
+    where so.store.storeId = :storeId
+      and da.deliveryStaff.id = :staffId
+      and (:status is null or so.status = :status)
+""")
+    Page<DeliveryAssignment> findPageByStoreAndDeliveryStaffAndStatusFetchItems(@Param("storeId") UUID storeId,
+                                                                                @Param("staffId") UUID staffId,
+                                                                                @Param("status") OrderStatus status,
+                                                                                Pageable pageable);
+
+    @Query("""
+    select da from DeliveryAssignment da
+    join fetch da.storeOrder so
+    left join fetch so.items si
+    where da.id = :assignmentId
+""")
+    Optional<DeliveryAssignment> findByIdFetchItems(@Param("assignmentId") UUID assignmentId);
 }
 
