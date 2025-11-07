@@ -346,6 +346,7 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     private List<OrderItemResponse> toItemDTOs(StoreOrder so) {
         if (so == null || so.getItems() == null) return List.of();
+        BigDecimal orderGrand = Optional.ofNullable(so.getGrandTotal()).orElse(BigDecimal.ZERO);
         return so.getItems().stream().map(i ->
                 OrderItemResponse.builder()
                         .id(i.getId())
@@ -355,6 +356,7 @@ public class DeliveryServiceImpl implements DeliveryService {
                         .quantity(i.getQuantity())
                         .unitPrice(i.getUnitPrice())
                         .lineTotal(i.getLineTotal())
+                        .orderGrandTotal(orderGrand)
                         .build()
         ).toList();
     }
