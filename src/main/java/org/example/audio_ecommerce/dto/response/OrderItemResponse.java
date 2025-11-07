@@ -13,4 +13,5 @@ public class OrderItemResponse {
     private int quantity;
     private BigDecimal unitPrice;
     private BigDecimal lineTotal;       // nếu có
+    private BigDecimal orderGrandTotal;
 }

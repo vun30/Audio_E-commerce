@@ -11,7 +11,9 @@ import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.CartService;
 import org.example.audio_ecommerce.service.GhnFeeService;
+
 import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
+
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -288,6 +290,32 @@ public class CartServiceImpl implements CartService {
     private static CartResponse toResponse(Cart cart) {
         var items = cart.getItems() == null ? List.<CartItem>of() : cart.getItems();
 
+        List<CartResponse.Item> itemDtos = items.stream().map(ci -> {
+            String type = ci.getType().name();
+            UUID refId = ci.getReferenceId();
+
+            String originProvince = null, originDistrict = null, originWard = null;
+
+            Product p = ci.getProduct();
+            originProvince = p.getProvinceCode();
+            originDistrict = p.getDistrictCode();
+            originWard = p.getWardCode();
+
+            return CartResponse.Item.builder()
+                    .cartItemId(ci.getCartItemId())
+                    .type(type)
+                    .refId(refId)
+                    .name(ci.getNameSnapshot())
+                    .image(ci.getImageSnapshot())
+                    .quantity(ci.getQuantity())
+                    .unitPrice(ci.getUnitPrice())
+                    .lineTotal(ci.getLineTotal())
+                    .originProvinceCode(originProvince)
+                    .originDistrictCode(originDistrict)
+                    .originWardCode(originWard)
+                    .build();
+        }).toList();
+
         return CartResponse.builder()
                 .cartId(cart.getCartId())
                 .customerId(cart.getCustomer().getId())
@@ -295,17 +323,7 @@ public class CartServiceImpl implements CartService {
                 .subtotal(cart.getSubtotal())
                 .discountTotal(cart.getDiscountTotal())
                 .grandTotal(cart.getGrandTotal())
-                .items(items.stream().map(ci -> CartResponse.Item.builder()
-                        .cartItemId(ci.getCartItemId())
-                        .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
-                        .name(ci.getNameSnapshot())
-                        .image(ci.getImageSnapshot())
-                        .quantity(ci.getQuantity())
-                        .unitPrice(ci.getUnitPrice())
-                        .lineTotal(ci.getLineTotal())
-                        .build()
-                ).toList())
+                .items(itemDtos)
                 .build();
     }
 
@@ -828,7 +846,8 @@ public class CartServiceImpl implements CartService {
                     platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         resp.setPlatformDiscount(platformDiscountMap);
 
         // Nếu bạn đã lưu JSON chi tiết cho store-voucher per order, parse vào resp.setStoreVoucherDiscount(map)
@@ -1007,7 +1026,7 @@ public class CartServiceImpl implements CartService {
                     .shipAddressLine(co.getShipAddressLine())
                     .shipPostalCode(co.getShipPostalCode())
                     // ghi chú rõ để FE phân biệt
-                    .shipNote( (co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]" )
+                    .shipNote((co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]")
                     .shippingFee(shippingFee)
                     .shippingServiceTypeId(serviceTypeIdForStore) // null
                     .build();
