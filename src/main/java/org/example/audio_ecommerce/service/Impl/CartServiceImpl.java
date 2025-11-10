@@ -243,7 +243,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                true,                        // enforceCodDeposit = false (COD bỏ qua)
+                false,                        // enforceCodDeposit = false (COD bỏ qua)
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),// truyền voucher theo shop
                 request.getServiceTypeIds()
