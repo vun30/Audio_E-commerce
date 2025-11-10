@@ -12,7 +12,7 @@ public class PlatformCampaignScheduler {
     private final PlatformCampaignService platformCampaignService;
 
     // ✅ Chạy tự động mỗi phút
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 6000)
     public void runScheduler() {
         platformCampaignService.tickAllCampaigns();
     }

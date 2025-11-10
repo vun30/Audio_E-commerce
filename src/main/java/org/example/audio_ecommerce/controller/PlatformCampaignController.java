@@ -288,25 +288,22 @@ public ResponseEntity<BaseResponse> updateCampaignStatus(
 }
 
 
-@GetMapping("/joined/store/{storeId}")
+@GetMapping("/joined-campaigns")
 @Operation(
-        summary = "Lấy danh sách campaignId mà store đã join",
+        summary = "Lấy danh sách campaign mà store đã join",
         description = """
         Filter danh sách các campaign mà store đã tham gia.
-        
-        - campaignStatus nhận: ONOPEN | ACTIVE | EXPIRED (nullable cũng được → trả ra tất cả)
-        - storeApproved nhận: true | false | null
-            + true : chỉ trả các campaign store đã được admin duyệt
-            + false: store đã join nhưng chưa được duyệt campaign
-            + null : lấy tất cả không phân biệt
+
+        - campaignStatus: ONOPEN | ACTIVE | EXPIRED
+        - storeApproved : true | false | null
         """
 )
-public ResponseEntity<List<UUID>> getJoinedCampaignIdsByCampaignStatus(
-        @PathVariable UUID storeId,
+public ResponseEntity<List<CampaignResponse>> getJoinedCampaigns(
+        @RequestParam UUID storeId,
         @RequestParam(required = false) String campaignStatus,
         @RequestParam(required = false) Boolean storeApproved
 ) {
-    return platformCampaignService.getJoinedCampaignIdsByCampaignStatus(storeId, campaignStatus, storeApproved);
+    return platformCampaignService.getJoinedCampaignsByCampaignStatus(storeId, campaignStatus, storeApproved);
 }
 
 
