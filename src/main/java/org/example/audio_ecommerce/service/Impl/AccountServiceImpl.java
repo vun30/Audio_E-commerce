@@ -147,7 +147,7 @@ public class AccountServiceImpl implements AccountService {
         // 1️⃣ Tạo Store mặc định
         Store store = Store.builder()
                 .account(account)
-                .storeName("Store of " + account.getName())
+                .storeName(account.getName())
                 .description("This store is created automatically and is inactive until KYC is approved.")
                 .status(StoreStatus.INACTIVE)
                 .createdAt(LocalDateTime.now())
