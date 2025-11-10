@@ -108,4 +108,10 @@ List<PlatformCampaignProduct> findAllActiveByProduct(
         @Param("productId") UUID productId,
         @Param("now") LocalDateTime now
 );
+
+List<PlatformCampaignProduct> findAllByProduct_ProductId(UUID productId);
+
+@Query("SELECT p FROM PlatformCampaignProduct p WHERE p.product.productId = :productId")
+List<PlatformCampaignProduct> findAllByProduct(@Param("productId") UUID productId);
+
 }
