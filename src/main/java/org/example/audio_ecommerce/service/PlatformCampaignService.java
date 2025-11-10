@@ -61,8 +61,11 @@ ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
 // 7) Admin đổi trạng thái campaign (DRAFT -> ONOPEN , DISABLED)
 ResponseEntity<BaseResponse> updateCampaignStatus(UUID campaignId, String newStatus);
 
-ResponseEntity<List<UUID>> getJoinedCampaignIdsByCampaignStatus(UUID storeId, String campaignStatus, Boolean storeApproved);
-
+   ResponseEntity<List<CampaignResponse>> getJoinedCampaignsByCampaignStatus(
+            UUID storeId,
+            String campaignStatus,
+            Boolean storeApproved
+    );
 
 }
 

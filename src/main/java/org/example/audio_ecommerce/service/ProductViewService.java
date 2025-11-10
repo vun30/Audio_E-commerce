@@ -1,9 +1,12 @@
 package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.entity.Product;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface ProductViewService {
@@ -23,5 +26,6 @@ public interface ProductViewService {
     );
 
     ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType);
+
 
 }

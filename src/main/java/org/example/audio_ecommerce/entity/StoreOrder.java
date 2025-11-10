@@ -57,6 +57,9 @@ public class StoreOrder {
     @Column(name = "shipping_fee")
     private BigDecimal shippingFee; // phí ship GHN cho đơn của từng store
 
+
+
+
     @Column(name = "store_voucher_discount", precision = 18, scale = 2)
     private BigDecimal storeVoucherDiscount = BigDecimal.ZERO; // giảm do voucher shop của chính store này
 

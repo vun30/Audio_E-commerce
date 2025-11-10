@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.dto.response;
 
+import com.google.type.DateTime;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -18,9 +19,17 @@ public class CampaignProductOverviewResponse {
     private String campaignName;
     private String campaignType;
     private List<ProductDto> products;
+    private LocalDateTime startTime;
+    private LocalDateTime endTime;
+    private String badgeLabel;    // "Flash Sale", "Mega Sale"
+    private String badgeColor;    // "#FF6600"
+    private String badgeIconUrl;  // "https://cdn.audiohub.vn/badges/flashsale.png"
 
-    @Getter @Setter @Builder
-    @NoArgsConstructor @AllArgsConstructor
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class ProductDto {
         private UUID campaignProductId; // ✅ ID bảng trung gian
         private UUID productId;
@@ -33,8 +42,11 @@ public class CampaignProductOverviewResponse {
         private List<FlashSlotDto> flashSaleSlots;
     }
 
-    @Getter @Setter @Builder
-    @NoArgsConstructor @AllArgsConstructor
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class VoucherDto {
         private String type;
         private BigDecimal discountValue;
@@ -46,8 +58,11 @@ public class CampaignProductOverviewResponse {
         private LocalDateTime endTime;
     }
 
-    @Getter @Setter @Builder
-    @NoArgsConstructor @AllArgsConstructor
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class FlashSlotDto {
         private UUID slotId;
         private LocalDateTime openTime;

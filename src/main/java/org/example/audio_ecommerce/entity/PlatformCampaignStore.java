@@ -33,6 +33,8 @@ public class PlatformCampaignStore {
     private Boolean approved = false;
     private LocalDateTime registeredAt;
     private LocalDateTime approvedAt;
+    private LocalDateTime lastUpdateAt;
+
 
     @PrePersist
     public void onRegister() {
