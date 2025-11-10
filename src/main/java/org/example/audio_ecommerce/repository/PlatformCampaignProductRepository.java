@@ -114,4 +114,39 @@ List<PlatformCampaignProduct> findAllByProduct_ProductId(UUID productId);
 @Query("SELECT p FROM PlatformCampaignProduct p WHERE p.product.productId = :productId")
 List<PlatformCampaignProduct> findAllByProduct(@Param("productId") UUID productId);
 
+List<PlatformCampaignProduct> findAllByStore_StoreId(UUID storeId);
+
+ @Query("""
+select distinct p.campaign.id
+from PlatformCampaignProduct p
+where p.store.storeId = :storeId
+  and (
+        (
+          :active = true
+          and (
+                (p.campaign.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
+                 and :now between p.campaign.startTime and p.campaign.endTime)
+                or
+                (p.campaign.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.APPROVE
+                 and :now <= p.campaign.endTime)
+          )
+        )
+        or
+        (
+          :expired = true
+          and (
+                p.campaign.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.EXPIRED
+                or p.campaign.endTime < :now
+          )
+        )
+    )
+""")
+List<UUID> findJoinedCampaignIdsByCampaignState(
+        @Param("storeId") UUID storeId,
+        @Param("active") boolean isActive,
+        @Param("expired") boolean isExpired,
+        @Param("now") LocalDateTime now
+);
+
+
 }

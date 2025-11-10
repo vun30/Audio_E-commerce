@@ -12,5 +12,9 @@ import java.util.UUID;
 public interface PlatformCampaignStoreRepository extends JpaRepository<PlatformCampaignStore, UUID> {
     boolean existsByCampaign_IdAndStore_StoreId(UUID campaignId, UUID storeId);
     List<PlatformCampaignStore> findAllByStore_StoreIdAndApprovedTrue(UUID storeId);
-    Optional<PlatformCampaignStore> findByCampaign_IdAndStore_StoreId(UUID campaignId, UUID storeId);
+      Optional<PlatformCampaignStore> findByCampaign_IdAndStore_StoreId(UUID campaignId, UUID storeId);
+
+      List<PlatformCampaignStore> findAllByStore_StoreId(UUID storeId);
+
+
 }

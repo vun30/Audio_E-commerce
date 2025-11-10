@@ -1,6 +1,9 @@
 package org.example.audio_ecommerce.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CampaignProductRegisterRequest;
@@ -275,11 +278,37 @@ public class PlatformCampaignController {
                         Đây là chuẩn marketplace real (Shopee / TTS / Lazada)
                     """
     )
-    public ResponseEntity<BaseResponse> updateCampaignStatus(
-            @PathVariable UUID campaignId,
-            @RequestParam String status
-    ) {
-        return platformCampaignService.updateCampaignStatus(campaignId, status);
-    }
+@Parameter(name = "status", description = "ONOPEN hoặc DISABLED")
+@PutMapping("/{campaignId}/status")
+public ResponseEntity<BaseResponse> updateCampaignStatus(
+        @PathVariable UUID campaignId,
+        @RequestParam String status
+) {
+    return platformCampaignService.updateCampaignStatus(campaignId, status);
+}
+
+
+@GetMapping("/joined/store/{storeId}")
+@Operation(
+        summary = "Lấy danh sách campaignId mà store đã join",
+        description = """
+        Filter danh sách các campaign mà store đã tham gia.
+        
+        - campaignStatus nhận: ONOPEN | ACTIVE | EXPIRED (nullable cũng được → trả ra tất cả)
+        - storeApproved nhận: true | false | null
+            + true : chỉ trả các campaign store đã được admin duyệt
+            + false: store đã join nhưng chưa được duyệt campaign
+            + null : lấy tất cả không phân biệt
+        """
+)
+public ResponseEntity<List<UUID>> getJoinedCampaignIdsByCampaignStatus(
+        @PathVariable UUID storeId,
+        @RequestParam(required = false) String campaignStatus,
+        @RequestParam(required = false) Boolean storeApproved
+) {
+    return platformCampaignService.getJoinedCampaignIdsByCampaignStatus(storeId, campaignStatus, storeApproved);
+}
+
+
 
 }
