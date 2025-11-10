@@ -330,9 +330,9 @@ public ResponseEntity<BaseResponse> joinCampaign(UUID campaignId, CampaignProduc
         if (!product.getStore().getStoreId().equals(store.getStoreId()))
             throw new RuntimeException("🚫 Product does not belong to current store: " + product.getName());
 
-        // ✅ Rule: product đã cập nhật cách đây >= 7 ngày
-        if (product.getLastUpdateIntervalDays() != null && product.getLastUpdateIntervalDays() < 7)
-            throw new RuntimeException("⚠️ Product must be updated ≥ 7 days ago to join: " + product.getName());
+//        // ✅ Rule: product đã cập nhật cách đây >= 7 ngày
+//        if (product.getLastUpdateIntervalDays() != null && product.getLastUpdateIntervalDays() < 7)
+//            throw new RuntimeException("⚠️ Product must be updated ≥ 7 days ago to join: " + product.getName());
 
         PlatformCampaignFlashSlot slot = null;
         LocalDateTime start = campaign.getStartTime();
