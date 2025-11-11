@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.request.CreateOrUpdateCampaignRequest;
 import org.example.audio_ecommerce.dto.request.CampaignProductRegisterRequest;
+import org.example.audio_ecommerce.dto.request.RejectProductRequest;
 import org.example.audio_ecommerce.dto.request.UpdateCampaignRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CampaignResponse;
@@ -17,7 +18,7 @@ public interface PlatformCampaignService {
     // 1) Tạo campaign hợp nhất (MEGA_SALE / FAST_SALE)
     ResponseEntity<BaseResponse> createCampaignUnified(CreateOrUpdateCampaignRequest req);
 
-     // Cập nhật campaign (bao gồm cập nhật slot)
+    // Cập nhật campaign (bao gồm cập nhật slot)
     ResponseEntity<BaseResponse<CampaignResponse>> updateCampaign(UUID campaignId, UpdateCampaignRequest req);
 
 
@@ -36,29 +37,40 @@ public interface PlatformCampaignService {
     ResponseEntity<BaseResponse> getAllCampaigns(String type, String status, LocalDateTime start, LocalDateTime end);
 
     // 1️⃣ Lấy danh sách sản phẩm trong campaign (lọc theo store, thời gian, trạng thái)
-ResponseEntity<BaseResponse> getCampaignProducts(
-        UUID campaignId,
-        UUID storeId,
-        String status,
-        LocalDateTime from,
-        LocalDateTime to
-);
+    ResponseEntity<BaseResponse> getCampaignProducts(
+            UUID campaignId,
+            UUID storeId,
+            String status,
+            LocalDateTime from,
+            LocalDateTime to
+    );
 
-// 2️⃣ Admin duyệt sản phẩm
-ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> productIds);
+    // 2️⃣ Admin duyệt sản phẩm
+    ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> productIds);
 
-ResponseEntity<BaseResponse> updateCampaignProductStatus(UUID campaignId, String newStatus, List<UUID> productIds);
+    ResponseEntity<BaseResponse> updateCampaignProductStatus(UUID campaignId, String newStatus, List<UUID> productIds);
 
-ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
-        String type,
-        String status,
-        UUID storeId,
-        UUID campaignId,   // ✅ thêm filter theo campaignId
-        int page,
-        int size
-);
+    ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
+            String type,
+            String status,
+            UUID storeId,
+            UUID campaignId,   // ✅ thêm filter theo campaignId
+            int page,
+            int size
+    );
 
-// 7) Admin đổi trạng thái campaign (DRAFT -> ONOPEN , DISABLED)
-ResponseEntity<BaseResponse> updateCampaignStatus(UUID campaignId, String newStatus);
+    // 7) Admin đổi trạng thái campaign (DRAFT -> ONOPEN , DISABLED)
+    ResponseEntity<BaseResponse> updateCampaignStatus(UUID campaignId, String newStatus);
+
+    ResponseEntity<List<CampaignResponse>> getJoinedCampaignsByCampaignStatus(
+            UUID storeId,
+            String campaignStatus,
+            Boolean storeApproved
+    );
+
+    ResponseEntity<BaseResponse> rejectCampaignProducts(UUID campaignId, RejectProductRequest req);
+
+    ResponseEntity<BaseResponse> getCampaignProductDetails(UUID storeId, UUID campaignId, String status);
 
 }
+

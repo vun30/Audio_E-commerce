@@ -79,7 +79,7 @@ SELECT DISTINCT p FROM Product p
 JOIN p.store s
 LEFT JOIN s.storeAddresses addr
 WHERE (:status IS NULL OR p.status = :status)
-  AND (:categoryId IS NULL OR p.category.id = :categoryId)
+  AND (:categoryId IS NULL OR p.category.categoryId = :categoryId)
   AND (:storeId IS NULL OR s.storeId = :storeId)
   AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
   AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)

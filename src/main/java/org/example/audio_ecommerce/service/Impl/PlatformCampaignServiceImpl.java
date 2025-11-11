@@ -5,6 +5,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CreateOrUpdateCampaignRequest;
 import org.example.audio_ecommerce.dto.request.CampaignProductRegisterRequest;
+import org.example.audio_ecommerce.dto.request.RejectProductRequest;
 import org.example.audio_ecommerce.dto.request.UpdateCampaignRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
@@ -30,6 +31,7 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
     private final PlatformCampaignProductRepository campaignProductRepository;
     private final ProductRepository productRepository;
     private final StoreRepository storeRepository;
+    private final PlatformCampaignStoreRepository campaignStoreRepository;
 
     // =====================================================
     // 1) TẠO CAMPAIGN HỢP NHẤT
@@ -295,6 +297,8 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
 
         PlatformCampaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new RuntimeException("❌ Campaign not found"));
+
+        ensureStoreJoinedCampaign(campaign, store);
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -645,74 +649,79 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
     }
 
 
-   @Override
-@Transactional
-public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> campaignProductIds) {
-    if (campaignProductIds == null || campaignProductIds.isEmpty()) {
-        throw new RuntimeException("❌ Danh sách campaignProductIds không được trống");
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, List<UUID> campaignProductIds) {
+        if (campaignProductIds == null || campaignProductIds.isEmpty()) {
+            throw new RuntimeException("❌ Danh sách campaignProductIds không được trống");
+        }
+
+        PlatformCampaign campaign = campaignRepository.findById(campaignId)
+                .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
+
+        List<PlatformCampaignProduct> products = campaignProductRepository.findAllById(campaignProductIds);
+
+        if (products.isEmpty()) {
+            throw new RuntimeException("⚠️ Không tìm thấy sản phẩm tương ứng với campaignProductIds");
+        }
+
+        List<PlatformCampaignProduct> draftProducts = products.stream()
+                .filter(p -> p.getStatus() == VoucherStatus.DRAFT)
+                .toList();
+
+        if (draftProducts.isEmpty()) {
+            return ResponseEntity.ok(new BaseResponse<>(200, "⚠️ Không có sản phẩm nào ở trạng thái DRAFT để duyệt", List.of()));
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // ✅ Re-check overlap trước khi approve
+        for (PlatformCampaignProduct p : draftProducts) {
+            Product product = p.getProduct();
+            LocalDateTime start = p.getStartTime();
+            LocalDateTime end = p.getEndTime();
+
+            validateProductNotOverlappingCampaign(product, start, end);
+        }
+
+        // 4️⃣ Cập nhật trạng thái: DRAFT → APPROVE
+        draftProducts.forEach(p -> {
+            p.setApproved(true);
+            p.setApprovedAt(now);
+            p.setUpdatedAt(now);
+            p.setStatus(VoucherStatus.APPROVE);
+        });
+
+        campaignProductRepository.saveAll(draftProducts);
+
+        // ✅ update storeCampaign approve
+        draftProducts.forEach(p -> {
+            markStoreCampaignApproved(p.getCampaign(), p.getStore());
+        });
+
+        List<Map<String, Object>> data = draftProducts.stream().map(p -> {
+            Product prod = p.getProduct();
+            Store store = p.getStore();
+
+            return Map.<String, Object>of(
+                    "campaignProductId", p.getId(),
+                    "productId", prod != null ? prod.getProductId() : null,
+                    "productName", prod != null ? prod.getName() : "(Unknown Product)",
+                    "storeId", store != null ? store.getStoreId() : null,
+                    "storeName", store != null ? store.getStoreName() : "(Unknown Store)",
+                    "oldStatus", "DRAFT",
+                    "newStatus", "APPROVE",
+                    "approved", p.getApproved(),
+                    "approvedAt", p.getApprovedAt()
+            );
+        }).toList();
+
+        return ResponseEntity.ok(new BaseResponse<>(
+                200,
+                "✅ Đã duyệt " + draftProducts.size() + " sản phẩm (DRAFT → APPROVE) trong campaign " + campaign.getName(),
+                data
+        ));
     }
-
-    PlatformCampaign campaign = campaignRepository.findById(campaignId)
-            .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
-
-    List<PlatformCampaignProduct> products = campaignProductRepository.findAllById(campaignProductIds);
-
-    if (products.isEmpty()) {
-        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm tương ứng với campaignProductIds");
-    }
-
-    List<PlatformCampaignProduct> draftProducts = products.stream()
-            .filter(p -> p.getStatus() == VoucherStatus.DRAFT)
-            .toList();
-
-    if (draftProducts.isEmpty()) {
-        return ResponseEntity.ok(new BaseResponse<>(200, "⚠️ Không có sản phẩm nào ở trạng thái DRAFT để duyệt", List.of()));
-    }
-
-    LocalDateTime now = LocalDateTime.now();
-
-    // ✅ Re-check overlap trước khi approve
-    for (PlatformCampaignProduct p : draftProducts) {
-        Product product = p.getProduct();
-        LocalDateTime start = p.getStartTime();
-        LocalDateTime end = p.getEndTime();
-
-        validateProductNotOverlappingCampaign(product, start, end);
-    }
-
-    // 4️⃣ Cập nhật trạng thái: DRAFT → APPROVE
-    draftProducts.forEach(p -> {
-        p.setApproved(true);
-        p.setApprovedAt(now);
-        p.setUpdatedAt(now);
-        p.setStatus(VoucherStatus.APPROVE);
-    });
-
-    campaignProductRepository.saveAll(draftProducts);
-
-    List<Map<String, Object>> data = draftProducts.stream().map(p -> {
-        Product prod = p.getProduct();
-        Store store = p.getStore();
-
-        return Map.<String, Object>of(
-                "campaignProductId", p.getId(),
-                "productId", prod != null ? prod.getProductId() : null,
-                "productName", prod != null ? prod.getName() : "(Unknown Product)",
-                "storeId", store != null ? store.getStoreId() : null,
-                "storeName", store != null ? store.getStoreName() : "(Unknown Store)",
-                "oldStatus", "DRAFT",
-                "newStatus", "APPROVE",
-                "approved", p.getApproved(),
-                "approvedAt", p.getApprovedAt()
-        );
-    }).toList();
-
-    return ResponseEntity.ok(new BaseResponse<>(
-            200,
-            "✅ Đã duyệt " + draftProducts.size() + " sản phẩm (DRAFT → APPROVE) trong campaign " + campaign.getName(),
-            data
-    ));
-}
 
 
     @Override
@@ -783,121 +792,119 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
         ));
     }
 
-    @Override
-    @Transactional
-    public void tickAllCampaigns() {
-        LocalDateTime now = LocalDateTime.now();
+   @Override
+@Transactional
+public void tickAllCampaigns() {
+    LocalDateTime now = LocalDateTime.now();
 
-        System.out.println("🕒 [Scheduler] tickAllCampaigns() chạy lúc: " + now);
+    System.out.println("🕒 [Scheduler] tickAllCampaigns() chạy lúc: " + now);
 
-        // ==========================================================
-        // 1) CẬP NHẬT TRẠNG THÁI CHIẾN DỊCH
-        // ==========================================================
-        List<PlatformCampaign> campaigns = campaignRepository.findAll();
+    // ==========================================================
+    // 1) UPDATE CAMPAIGN STATUS
+    // ==========================================================
+    List<PlatformCampaign> campaigns = campaignRepository.findAll();
 
-        for (PlatformCampaign c : campaigns) {
-            VoucherStatus oldStatus = c.getStatus();
+    for (PlatformCampaign c : campaigns) {
+        VoucherStatus oldStatus = c.getStatus();
 
-            if (c.getStartTime() != null && now.isBefore(c.getStartTime())) {
-                continue;
-            }
-
-            // ACTIVE chỉ khi trước đó là ON_OPEN
-            if (!now.isBefore(c.getStartTime()) && !now.isAfter(c.getEndTime())) {
-                if (oldStatus == VoucherStatus.ONOPEN) {
-                    c.setStatus(VoucherStatus.ACTIVE);
-                    System.out.printf("📢 Campaign '%s' chuyển từ %s → ACTIVE%n", c.getName(), oldStatus);
-                }
-            }
-
-            // EXPIRED
-            if (c.getEndTime() != null && now.isAfter(c.getEndTime())) {
-                if (c.getStatus() != VoucherStatus.EXPIRED) {
-                    c.setStatus(VoucherStatus.EXPIRED);
-                    System.out.printf("📢 Campaign '%s' chuyển từ %s → EXPIRED%n", c.getName(), oldStatus);
-                }
-            }
+        if (c.getStartTime() != null && now.isBefore(c.getStartTime())) {
+            continue;
         }
-        campaignRepository.saveAll(campaigns);
 
-
-        // ==========================================================
-        // 2) SLOT lấy theo campaign active
-        // ==========================================================
-        List<PlatformCampaignFlashSlot> slots = flashSlotRepository.findAll();
-
-        for (PlatformCampaignFlashSlot s : slots) {
-            PlatformCampaign campaign = s.getCampaign();
-            if (campaign == null || campaign.getStatus() != VoucherStatus.ACTIVE) continue;
-
-            SlotStatus oldStatus = s.getStatus();
-
-            if (!now.isBefore(s.getOpenTime()) && !now.isAfter(s.getCloseTime())) {
-                if (s.getStatus() == SlotStatus.PENDING) { // chỉ từ on_open
-                    s.setStatus(SlotStatus.ACTIVE);
-                    System.out.printf("🟢 Slot [%s] của Campaign '%s' chuyển từ %s → ACTIVE%n",
-                            s.getId(), campaign.getName(), oldStatus);
-                }
-            } else if (now.isAfter(s.getCloseTime())) {
-                if (s.getStatus() != SlotStatus.CLOSED) {
-                    s.setStatus(SlotStatus.CLOSED);
-                }
-            } else if (now.isBefore(s.getOpenTime())) {
-                if (s.getStatus() != SlotStatus.PENDING) {
-                    s.setStatus(SlotStatus.PENDING);
-                }
-            }
-        }
-        flashSlotRepository.saveAll(slots);
-
-
-        // ==========================================================
-        // 3) PRODUCT TRONG CAMPAIGN
-        // ==========================================================
-        List<PlatformCampaignProduct> products = campaignProductRepository.findAll();
-
-        for (PlatformCampaignProduct p : products) {
-
-            PlatformCampaign campaign = p.getCampaign();
-            PlatformCampaignFlashSlot slot = p.getFlashSlot();
-            if (campaign == null) continue;
-
-            // FAST SALE
-            if (slot != null) {
-
-                // ACTIVE chỉ khi trước đó là ON_OPEN
-                if (campaign.getStatus() == VoucherStatus.ACTIVE &&
-                        !now.isBefore(slot.getOpenTime()) &&
-                        p.getStatus() == VoucherStatus.ONOPEN &&
-                        !now.isAfter(slot.getCloseTime())) {
-                    p.setStatus(VoucherStatus.ACTIVE);
-                }
-
-                if (now.isAfter(slot.getCloseTime()) ||
-                        campaign.getStatus() == VoucherStatus.EXPIRED ||
-                        (p.getEndTime() != null && now.isAfter(p.getEndTime()))) {
-                    p.setStatus(VoucherStatus.EXPIRED);
-                }
-            }
-
-            // MEGA_SALE
-            else {
-                if (campaign.getStatus() == VoucherStatus.ACTIVE &&
-                        now.isAfter(campaign.getStartTime()) &&
-                        now.isBefore(campaign.getEndTime()) &&
-                        p.getStatus() == VoucherStatus.ONOPEN) {
-                    p.setStatus(VoucherStatus.ACTIVE);
-                }
-
-                if (campaign.getStatus() == VoucherStatus.EXPIRED ||
-                        (p.getEndTime() != null && now.isAfter(p.getEndTime()))) {
-                    p.setStatus(VoucherStatus.EXPIRED);
-                }
+        // ACTIVE only khi trước đó là ONOPEN hoặc APPROVE  // FIXED
+        if (!now.isBefore(c.getStartTime()) && !now.isAfter(c.getEndTime())) {
+            if (oldStatus == VoucherStatus.ONOPEN || oldStatus == VoucherStatus.APPROVE) { // FIXED
+                c.setStatus(VoucherStatus.ACTIVE);
+                System.out.printf("📢 Campaign '%s' chuyển từ %s → ACTIVE%n", c.getName(), oldStatus);
             }
         }
 
-        campaignProductRepository.saveAll(products);
+        // EXPIRED
+        if (c.getEndTime() != null && now.isAfter(c.getEndTime())) {
+            if (c.getStatus() != VoucherStatus.EXPIRED) {
+                c.setStatus(VoucherStatus.EXPIRED);
+                System.out.printf("📢 Campaign '%s' chuyển từ %s → EXPIRED%n", c.getName(), oldStatus);
+            }
+        }
     }
+    campaignRepository.saveAll(campaigns);
+
+
+    // ==========================================================
+    // 2) SLOT UPDATE (FAST SALE)
+    // ==========================================================
+    List<PlatformCampaignFlashSlot> slots = flashSlotRepository.findAll();
+
+    for (PlatformCampaignFlashSlot s : slots) {
+        PlatformCampaign campaign = s.getCampaign();
+        if (campaign == null || campaign.getStatus() != VoucherStatus.ACTIVE) continue;
+
+        SlotStatus oldStatus = s.getStatus();
+
+        if (!now.isBefore(s.getOpenTime()) && !now.isAfter(s.getCloseTime())) {
+            if (s.getStatus() == SlotStatus.PENDING) {
+                s.setStatus(SlotStatus.ACTIVE);
+                System.out.printf("🟢 Slot [%s] của Campaign '%s' chuyển từ %s → ACTIVE%n",
+                        s.getId(), campaign.getName(), oldStatus);
+            }
+        } else if (now.isAfter(s.getCloseTime())) {
+            s.setStatus(SlotStatus.CLOSED);
+        } else if (now.isBefore(s.getOpenTime())) {
+            s.setStatus(SlotStatus.PENDING);
+        }
+    }
+    flashSlotRepository.saveAll(slots);
+
+
+    // ==========================================================
+    // 3) PRODUCT IN CAMPAIGN UPDATE
+    // ==========================================================
+    List<PlatformCampaignProduct> products = campaignProductRepository.findAll();
+
+    for (PlatformCampaignProduct p : products) {
+
+        PlatformCampaign campaign = p.getCampaign();
+        PlatformCampaignFlashSlot slot = p.getFlashSlot();
+        if (campaign == null) continue;
+
+        // FAST SALE
+        if (slot != null) {
+
+            // FIXED: APPROVE cũng được chuyển ACTIVE
+            if (campaign.getStatus() == VoucherStatus.ACTIVE &&
+                    !now.isBefore(slot.getOpenTime()) &&
+                    (p.getStatus() == VoucherStatus.ONOPEN || p.getStatus() == VoucherStatus.APPROVE) && // FIXED
+                    !now.isAfter(slot.getCloseTime())) {
+                p.setStatus(VoucherStatus.ACTIVE);
+            }
+
+            if (now.isAfter(slot.getCloseTime()) ||
+                    campaign.getStatus() == VoucherStatus.EXPIRED ||
+                    (p.getEndTime() != null && now.isAfter(p.getEndTime()))) {
+                p.setStatus(VoucherStatus.EXPIRED);
+            }
+        }
+        // MEGA_SALE
+        else {
+
+            // FIXED: APPROVE cũng auto ACTIVE nếu đến giờ chạy
+            if (campaign.getStatus() == VoucherStatus.ACTIVE &&
+                    now.isAfter(campaign.getStartTime()) &&
+                    now.isBefore(campaign.getEndTime()) &&
+                    (p.getStatus() == VoucherStatus.ONOPEN || p.getStatus() == VoucherStatus.APPROVE)) { // FIXED
+                p.setStatus(VoucherStatus.ACTIVE);
+            }
+
+            if (campaign.getStatus() == VoucherStatus.EXPIRED ||
+                    (p.getEndTime() != null && now.isAfter(p.getEndTime()))) {
+                p.setStatus(VoucherStatus.EXPIRED);
+            }
+        }
+    }
+
+    campaignProductRepository.saveAll(products);
+}
+
 
     @Override
     public ResponseEntity<BaseResponse> getCampaignProductOverviewFiltered(
@@ -980,6 +987,13 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
                                                         .discountPercent(x.getDiscountPercent())
                                                         .maxDiscountValue(x.getMaxDiscountValue())
                                                         .minOrderValue(x.getMinOrderValue())
+
+                                                        // ✅ thêm phần này
+                                                        .status(x.getStatus().name())
+                                                        .startTime(x.getStartTime())
+                                                        .endTime(x.getEndTime())
+                                                        // ====================
+
                                                         .build())
                                                 .build();
                                     }).toList();
@@ -993,6 +1007,11 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
                     .campaignId(campaign.getId())
                     .campaignName(campaign.getName())
                     .campaignType(campaign.getCampaignType().name())
+                    .startTime(campaign.getStartTime())
+                    .endTime(campaign.getEndTime())
+                    .badgeLabel(campaign.getBadgeLabel())
+                    .badgeColor(campaign.getBadgeColor())
+                    .badgeIconUrl(campaign.getBadgeIconUrl())
                     .products(productDtos)
                     .build();
         }).toList();
@@ -1066,38 +1085,347 @@ public ResponseEntity<BaseResponse> approveCampaignProducts(UUID campaignId, Lis
                 .findAllByProduct_ProductId(product.getProductId());
 
         for (PlatformCampaignProduct ex : existing) {
+
+            // ❗Chỉ check nếu record kia đang ở trạng thái có hiệu lực
+            // DRAFT thì bỏ qua
+            if (ex.getStatus() == VoucherStatus.DRAFT || ex.getStatus() == VoucherStatus.DISABLED) {
+                continue;
+            }
+
             LocalDateTime exStart = ex.getStartTime();
             LocalDateTime exEnd = ex.getEndTime();
 
             if (exStart == null || exEnd == null) continue;
 
-            // check overlap
+            // RULE 1: Overlap time hard block
             boolean overlap = !(newEnd.isBefore(exStart) || newStart.isAfter(exEnd));
-
             if (overlap) {
                 throw new RuntimeException(
                         "🚫 Product " + product.getName()
-                                + " đang tham gia campaign khác từ "
-                                + exStart + " → " + exEnd
+                                + " đang tham gia campaign '" + ex.getCampaign().getName() + "' từ "
+                                + exStart + " → " + exEnd + " (status: " + ex.getStatus() + ")"
                 );
             }
-            // Rule 3: FAST_SALE cross campaign same day restriction
-// Nếu new campaign là FastSale -> product không được join thêm FastSale khác cùng ngày (dù khác giờ)
-if (ex.getCampaign().getCampaignType() == CampaignType.FAST_SALE
-        && product.getStore() != null) {
 
-    // newStart và exStart convert về LocalDate
-    if (newStart.toLocalDate().isEqual(exStart.toLocalDate())) {
-        throw new RuntimeException(
-                "🚫 Product '" + product.getName() +
-                        "' đã tham gia Flash Sale khác trong ngày " + newStart.toLocalDate() +
-                        ". Flash Sale là single shot / không được join 2 FS khác nhau cùng 1 ngày."
-        );
+            // RULE 3: FAST_SALE same day block nhưng cũng chỉ block khi campaign kia active/approve/onopen
+            if (ex.getCampaign().getCampaignType() == CampaignType.FAST_SALE) {
+                if (newStart.toLocalDate().isEqual(exStart.toLocalDate())) {
+                    throw new RuntimeException(
+                            "🚫 Product '" + product.getName() +
+                                    "' đã tham gia Flash Sale khác trong ngày " + newStart.toLocalDate() +
+                                    " (status: " + ex.getStatus() + "). Flash Sale là single shot ngày đó"
+                    );
+                }
+            }
+        }
+    }
+
+// org.example.audio_ecommerce.service.Impl.PlatformCampaignServiceImpl (thêm method)
+
+    @Override
+    public ResponseEntity<List<CampaignResponse>> getJoinedCampaignsByCampaignStatus(
+            UUID storeId,
+            String campaignStatus,
+            Boolean storeApproved
+    ) {
+        if (storeId == null) throw new RuntimeException("❌ storeId required");
+
+        VoucherStatus st = null;
+        if (campaignStatus != null && !campaignStatus.isBlank()) {
+            try {
+                st = VoucherStatus.valueOf(campaignStatus.trim().toUpperCase());
+            } catch (Exception e) {
+                throw new RuntimeException("❌ campaignStatus chỉ nhận: ONOPEN | ACTIVE | EXPIRED");
+            }
+        }
+
+        List<PlatformCampaignStore> cs = campaignStoreRepository.findAllByStore_StoreId(storeId);
+
+        LocalDateTime now = LocalDateTime.now();
+
+        VoucherStatus finalSt = st;
+
+        List<PlatformCampaign> campaigns = cs.stream()
+                .filter(x -> x.getCampaign() != null)
+                .filter(x -> storeApproved == null || Boolean.TRUE.equals(x.getApproved()) == storeApproved)
+                .filter(x -> {
+                    if (finalSt == null) return true;
+                    PlatformCampaign c = x.getCampaign();
+                    LocalDateTime start = c.getStartTime();
+                    LocalDateTime end = c.getEndTime();
+                    LocalDateTime nowL = now;
+
+                    return switch (finalSt) {
+                        case ONOPEN -> c.getStatus() == VoucherStatus.ONOPEN;
+                        case ACTIVE -> c.getStatus() == VoucherStatus.ACTIVE
+                                && start != null && end != null
+                                && !nowL.isBefore(start) && !nowL.isAfter(end);
+                        case EXPIRED -> c.getStatus() == VoucherStatus.EXPIRED
+                                || (end != null && nowL.isAfter(end));
+                        default -> false;
+                    };
+                })
+                .map(PlatformCampaignStore::getCampaign)
+                .distinct()
+                .toList();
+
+        List<CampaignResponse> resp = campaigns.stream()
+                .map(c -> CampaignResponse.builder()
+                        .id(c.getId())
+                        .code(c.getCode())
+                        .name(c.getName())
+                        .description(c.getDescription())
+                        .campaignType(c.getCampaignType())
+                        .badgeLabel(c.getBadgeLabel())
+                        .badgeColor(c.getBadgeColor())
+                        .badgeIconUrl(c.getBadgeIconUrl())
+                        .status(c.getStatus())
+                        .allowRegistration(c.getAllowRegistration())
+                        .approvalRule(c.getApprovalRule())
+                        .startTime(c.getStartTime())
+                        .endTime(c.getEndTime())
+                        .createdAt(c.getCreatedAt())
+                        .flashSlots(
+                                c.getFlashSlots() == null ? null :
+                                        c.getFlashSlots().stream().map(s ->
+                                                CampaignResponse.FlashSlotDto.builder()
+                                                        .id(s.getId())
+                                                        .openTime(s.getOpenTime())
+                                                        .closeTime(s.getCloseTime())
+                                                        .status(s.getStatus())
+                                                        .build()
+                                        ).toList()
+                        )
+                        .build()
+                ).toList();
+
+        return ResponseEntity.ok(resp);
+    }
+
+    private void ensureStoreJoinedCampaign(PlatformCampaign campaign, Store store) {
+
+        var exist = campaignStoreRepository
+                .findByCampaign_IdAndStore_StoreId(campaign.getId(), store.getStoreId())
+                .orElse(null);
+
+        if (exist != null) return; // đã join rồi thì skip
+
+        PlatformCampaignStore cs = PlatformCampaignStore.builder()
+                .campaign(campaign)
+                .store(store)
+                .approved(false)     // default
+                .registeredAt(LocalDateTime.now())
+                .build();
+
+        campaignStoreRepository.save(cs);
+    }
+
+    private void markStoreCampaignApproved(PlatformCampaign campaign, Store store) {
+
+    PlatformCampaignStore cs = campaignStoreRepository
+            .findByCampaign_IdAndStore_StoreId(campaign.getId(), store.getStoreId())
+            .orElse(null);
+
+    if (cs == null) return; // an toàn, ideally không xảy ra
+
+    // đã approved trước đó thì update lastUpdateAt thôi, ko đổi approved nữa
+    if (Boolean.TRUE.equals(cs.getApproved())) {
+        cs.setLastUpdateAt(LocalDateTime.now());
+        campaignStoreRepository.save(cs);
+        return;
+    }
+
+    cs.setApproved(true);
+    cs.setApprovedAt(LocalDateTime.now());
+    cs.setLastUpdateAt(LocalDateTime.now());  // <--- thêm dòng này
+
+    campaignStoreRepository.save(cs);
+}
+
+@Override
+@Transactional
+public ResponseEntity<BaseResponse> rejectCampaignProducts(
+        UUID campaignId,
+        RejectProductRequest req
+) {
+    if (req == null || req.getCampaignProductIds() == null || req.getCampaignProductIds().isEmpty()) {
+        throw new RuntimeException("❌ Danh sách campaignProductIds không được trống");
+    }
+
+    PlatformCampaign campaign = campaignRepository.findById(campaignId)
+            .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
+
+    List<PlatformCampaignProduct> products = campaignProductRepository.findAllById(req.getCampaignProductIds());
+    if (products.isEmpty()) {
+        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm tương ứng với campaignProductIds");
+    }
+
+    LocalDateTime now = LocalDateTime.now();
+
+    // 🔹 Nếu chỉ có 1 ID thì dùng reason trong request
+    // 🔹 Nếu có nhiều ID mà chỉ gửi 1 reason thì dùng chung cho toàn bộ
+    // 🔹 Nếu gửi kèm nhiều reason tương ứng -> dùng theo từng cặp (tùy kiểu FE gửi)
+    String commonReason = req.getReason();
+    Map<UUID, String> reasonMap = req.getReasonMap(); // option — nếu FE gửi dạng mapping
+
+    List<Map<String, Object>> updatedList = new ArrayList<>();
+
+    for (PlatformCampaignProduct p : products) {
+        if (p.getStatus() == VoucherStatus.REJECTED || p.getStatus() == VoucherStatus.EXPIRED) continue;
+
+        String appliedReason = (reasonMap != null && reasonMap.containsKey(p.getId()))
+                ? reasonMap.get(p.getId())
+                : commonReason;
+
+        p.setStatus(VoucherStatus.REJECTED);
+        p.setApproved(false);
+        p.setApprovedAt(null);
+        p.setReason(appliedReason);
+        p.setUpdatedAt(now);
+
+        campaignProductRepository.save(p);
+
+        Product prod = p.getProduct();
+        Store store = p.getStore();
+
+        updatedList.add(Map.of(
+                "campaignProductId", p.getId(),
+                "productId", prod != null ? prod.getProductId() : null,
+                "productName", prod != null ? prod.getName() : "(Unknown Product)",
+                "storeName", store != null ? store.getStoreName() : "(Unknown Store)",
+                "status", "REJECTED",
+                "reason", appliedReason,
+                "updatedAt", now
+        ));
+    }
+
+    return ResponseEntity.ok(new BaseResponse<>(
+            200,
+            "🚫 Đã từ chối " + updatedList.size() + " sản phẩm trong campaign '" + campaign.getName() + "'",
+            updatedList
+    ));
+}
+
+@Override
+@Transactional
+public ResponseEntity<BaseResponse> getCampaignProductDetails(UUID storeId, UUID campaignId, String status) {
+    System.out.println("=== [DEBUG] getCampaignProductDetails CALLED ===");
+    System.out.println("storeId = " + storeId);
+    System.out.println("campaignId = " + campaignId);
+    System.out.println("status = " + status);
+
+    try {
+        // =============================
+        // 1️⃣ Parse Enum VoucherStatus
+        // =============================
+        VoucherStatus statusEnum = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                statusEnum = VoucherStatus.valueOf(status.trim().toUpperCase());
+                System.out.println("Parsed statusEnum = " + statusEnum);
+            } catch (IllegalArgumentException e) {
+                System.err.println("[ERROR] Invalid VoucherStatus: " + status);
+                throw new RuntimeException("❌ Invalid status: DRAFT / ACTIVE / APPROVE / EXPIRED / REJECTED / DISABLED");
+            }
+        }
+
+        final VoucherStatus finalStatusEnum = statusEnum;
+
+        System.out.println("=== [DEBUG] Fetching all campaign products... ===");
+        List<PlatformCampaignProduct> list = campaignProductRepository.findAll();
+        System.out.println("Total products loaded = " + list.size());
+
+        // =============================
+        // 2️⃣ Lọc dữ liệu theo điều kiện
+        // =============================
+        list = list.stream()
+                .filter(p -> {
+                    boolean match = campaignId == null || (p.getCampaign() != null && p.getCampaign().getId().equals(campaignId));
+                    if (!match) System.out.println("[Filter] Skip campaignId mismatch: " + p.getId());
+                    return match;
+                })
+                .filter(p -> {
+                    boolean match = storeId == null || (p.getStore() != null && p.getStore().getStoreId().equals(storeId));
+                    if (!match) System.out.println("[Filter] Skip storeId mismatch: " + p.getId());
+                    return match;
+                })
+                .filter(p -> {
+                    boolean match = finalStatusEnum == null || (p.getStatus() != null && p.getStatus() == finalStatusEnum);
+                    if (!match) System.out.println("[Filter] Skip status mismatch: " + p.getId() + " status=" + p.getStatus());
+                    return match;
+                })
+                .toList();
+
+        System.out.println("After filter: " + list.size() + " products matched.");
+
+        if (list.isEmpty()) {
+            return ResponseEntity.ok(new BaseResponse<>(404, "⚠️ Không tìm thấy sản phẩm nào phù hợp với filter", List.of()));
+        }
+
+        // =============================
+        // 3️⃣ Build JSON trả về (sử dụng LinkedHashMap tránh lỗi generic)
+        // =============================
+        System.out.println("=== [DEBUG] Building response... ===");
+        List<Map<String, Object>> result = list.stream().map(p -> {
+            Product prod = p.getProduct();
+            Store store = p.getStore();
+            PlatformCampaign campaign = p.getCampaign();
+            PlatformCampaignFlashSlot slot = p.getFlashSlot();
+
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("campaignProductId", p.getId());
+            map.put("campaignId", campaign != null ? campaign.getId() : null);
+            map.put("campaignName", campaign != null ? campaign.getName() : null);
+            map.put("campaignType", campaign != null ? campaign.getCampaignType() : null);
+            map.put("storeId", store != null ? store.getStoreId() : null);
+            map.put("storeName", store != null ? store.getStoreName() : null);
+            map.put("productId", prod != null ? prod.getProductId() : null);
+            map.put("productName", prod != null ? prod.getName() : null);
+            map.put("brandName", prod != null ? prod.getBrandName() : null);
+            map.put("category", prod != null && prod.getCategory() != null ? prod.getCategory().getName() : null);
+            map.put("originalPrice", p.getOriginalPrice());
+            map.put("discountedPrice", p.getDiscountedPrice());
+            map.put("discountType", p.getType());
+            map.put("discountValue", p.getDiscountValue());
+            map.put("discountPercent", p.getDiscountPercent());
+            map.put("maxDiscountValue", p.getMaxDiscountValue());
+            map.put("minOrderValue", p.getMinOrderValue());
+            map.put("totalVoucherIssued", p.getTotalVoucherIssued());
+            map.put("totalUsageLimit", p.getTotalUsageLimit());
+            map.put("usagePerUser", p.getUsagePerUser());
+            map.put("remainingUsage", p.getRemainingUsage());
+            map.put("approved", p.getApproved());
+            map.put("approvedAt", p.getApprovedAt());
+            map.put("registeredAt", p.getRegisteredAt());
+            map.put("status", p.getStatus());
+            map.put("reason", p.getReason());
+            map.put("startTime", p.getStartTime());
+            map.put("endTime", p.getEndTime());
+            map.put("slot", slot != null ? Map.of(
+                    "slotId", slot.getId(),
+                    "openTime", slot.getOpenTime(),
+                    "closeTime", slot.getCloseTime(),
+                    "slotStatus", slot.getStatus()
+            ) : null);
+            map.put("createdAt", p.getCreatedAt());
+            map.put("updatedAt", p.getUpdatedAt());
+            return map;
+        }).toList();
+
+        System.out.println("=== [DEBUG] Build success, returning response ===");
+        return ResponseEntity.ok(new BaseResponse<>(200,
+                "✅ Lấy danh sách sản phẩm theo trạng thái " + (statusEnum != null ? statusEnum.name() : "ALL"),
+                result));
+
+    } catch (Exception e) {
+        System.err.println("=== [ERROR] Exception in getCampaignProductDetails ===");
+        e.printStackTrace();
+        return ResponseEntity.status(500)
+                .body(new BaseResponse<>(500, "❌ INTERNAL ERROR: " + e.getMessage(), null));
     }
 }
 
-        }
-    }
+
 
 
 }
