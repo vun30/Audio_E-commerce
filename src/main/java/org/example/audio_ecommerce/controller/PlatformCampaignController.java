@@ -306,6 +306,153 @@ public ResponseEntity<List<CampaignResponse>> getJoinedCampaigns(
     return platformCampaignService.getJoinedCampaignsByCampaignStatus(storeId, campaignStatus, storeApproved);
 }
 
+// =============================================================
+// ✅ ADMIN – TỪ CHỐI 1 HOẶC NHIỀU SẢN PHẨM TRONG CAMPAIGN
+// =============================================================
+@PostMapping("/{campaignId}/products/reject")
+@Operation(
+        summary = "🚫 Từ chối 1 hoặc nhiều sản phẩm trong campaign (Admin)",
+        description = """
+                - **Admin** dùng API này để từ chối các sản phẩm mà store đã đăng ký tham gia campaign (MEGA_SALE / FAST_SALE).
+                - Hành vi khi bị từ chối:
+                    • `status` = `REJECTED`
+                    • `approved` = false
+                    • `approvedAt` = null
+                    • Lưu `reason` do admin nhập
+                - Hỗ trợ 2 cách gửi request:
+                    1️⃣ Gửi **1 lý do chung** cho toàn bộ sản phẩm.  
+                    2️⃣ Gửi **reasonMap** để set lý do riêng cho từng `campaignProductId`.
+
+                ⚙️ **Ví dụ request (chung 1 lý do):**
+                ```json
+                {
+                  "campaignProductIds": [
+                    "a12f3e11-4c01-4b1b-bc45-64ad3319f012",
+                    "b98b9f32-cc2f-47dc-97cb-9fa024a1c456"
+                  ],
+                  "reason": "Không đạt yêu cầu giảm giá tối thiểu"
+                }
+                ```
+
+                ⚙️ **Ví dụ request (lý do riêng cho từng sản phẩm):**
+                ```json
+                {
+                  "campaignProductIds": [
+                    "a12f3e11-4c01-4b1b-bc45-64ad3319f012",
+                    "b98b9f32-cc2f-47dc-97cb-9fa024a1c456"
+                  ],
+                  "reasonMap": {
+                    "a12f3e11-4c01-4b1b-bc45-64ad3319f012": "Sai mô tả sản phẩm",
+                    "b98b9f32-cc2f-47dc-97cb-9fa024a1c456": "Hình ảnh vi phạm chính sách"
+                  }
+                }
+                ```
+
+                📤 **Ví dụ response:**
+                ```json
+                {
+                  "status": 200,
+                  "message": "🚫 Đã từ chối 2 sản phẩm trong campaign 'Mega Sale 12.12'",
+                  "data": [
+                    {
+                      "campaignProductId": "a12f3e11-4c01-4b1b-bc45-64ad3319f012",
+                      "productId": "1111-xxxx",
+                      "productName": "Loa Bluetooth Sony",
+                      "storeName": "Sony Store",
+                      "status": "REJECTED",
+                      "reason": "Sai mô tả sản phẩm",
+                      "updatedAt": "2025-11-11T18:30:00"
+                    },
+                    {
+                      "campaignProductId": "b98b9f32-cc2f-47dc-97cb-9fa024a1c456",
+                      "productId": "2222-yyyy",
+                      "productName": "Tai nghe JBL",
+                      "storeName": "JBL Việt Nam",
+                      "status": "REJECTED",
+                      "reason": "Hình ảnh vi phạm chính sách",
+                      "updatedAt": "2025-11-11T18:30:00"
+                    }
+                  ]
+                }
+                ```
+                """
+)
+@ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Từ chối sản phẩm thành công"),
+        @ApiResponse(responseCode = "400", description = "Request không hợp lệ"),
+        @ApiResponse(responseCode = "404", description = "Không tìm thấy campaign hoặc sản phẩm")
+})
+public ResponseEntity<BaseResponse> rejectCampaignProducts(
+        @Parameter(description = "ID của campaign chứa sản phẩm cần từ chối", required = true)
+        @PathVariable UUID campaignId,
+
+        @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                description = """
+                        JSON chứa danh sách ID sản phẩm cần từ chối và lý do.
+                        - Có thể gửi 1 `reason` chung hoặc `reasonMap` riêng từng sản phẩm.
+                        """,
+                required = true
+        )
+        @RequestBody org.example.audio_ecommerce.dto.request.RejectProductRequest req
+) {
+    return platformCampaignService.rejectCampaignProducts(campaignId, req);
+}
+
+@Operation(
+        summary = "📋 Lấy chi tiết sản phẩm trong campaign theo store + status",
+        description = """
+            Trả về toàn bộ thông tin `PlatformCampaignProduct` (bao gồm campaign, store, product, slot, discount, thời gian, trạng thái).
+            
+            ⚙️ **Tham số**  
+            - `storeId` (UUID): ID của cửa hàng  
+            - `campaignId` (UUID): ID chiến dịch  
+            - `status` (String): Trạng thái lọc (DRAFT, ACTIVE, APPROVE, EXPIRED, REJECTED, DISABLED)
+            
+            📤 **Response mẫu:**
+            ```json
+            {
+              "status": 200,
+              "message": "✅ Chi tiết sản phẩm theo campaign & store",
+              "data": [
+                {
+                  "campaignProductId": "a1b2c3d4",
+                  "campaignId": "b1c2d3e4",
+                  "campaignName": "Mega Sale 12.12",
+                  "storeName": "Audio Pro",
+                  "productName": "Loa JBL Charge 5",
+                  "discountType": "PERCENT",
+                  "discountPercent": 20,
+                  "status": "APPROVE",
+                  "approvedAt": "2025-11-11T14:00:00",
+                  "slot": {
+                    "slotId": "xxxx",
+                    "openTime": "2025-11-12T00:00:00",
+                    "closeTime": "2025-11-12T06:00:00",
+                    "slotStatus": "ACTIVE"
+                  }
+                }
+              ]
+            }
+            ```
+        """,
+        responses = {
+                @ApiResponse(responseCode = "200", description = "Thành công - trả về danh sách sản phẩm"),
+                @ApiResponse(responseCode = "404", description = "Không có dữ liệu")
+        }
+)
+@GetMapping("/products/details")
+public ResponseEntity<BaseResponse> getCampaignProductDetails(
+        @RequestParam(required = false) UUID storeId,
+        @RequestParam(required = false) UUID campaignId,
+        @RequestParam(required = false) String status
+) {
+    return platformCampaignService.getCampaignProductDetails(storeId, campaignId, status);
+}
+
+
+
+
+
 
 
 }

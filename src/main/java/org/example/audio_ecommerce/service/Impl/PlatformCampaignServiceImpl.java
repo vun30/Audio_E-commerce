@@ -5,6 +5,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CreateOrUpdateCampaignRequest;
 import org.example.audio_ecommerce.dto.request.CampaignProductRegisterRequest;
+import org.example.audio_ecommerce.dto.request.RejectProductRequest;
 import org.example.audio_ecommerce.dto.request.UpdateCampaignRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
@@ -1240,6 +1241,192 @@ public void tickAllCampaigns() {
 
     campaignStoreRepository.save(cs);
 }
+
+@Override
+@Transactional
+public ResponseEntity<BaseResponse> rejectCampaignProducts(
+        UUID campaignId,
+        RejectProductRequest req
+) {
+    if (req == null || req.getCampaignProductIds() == null || req.getCampaignProductIds().isEmpty()) {
+        throw new RuntimeException("❌ Danh sách campaignProductIds không được trống");
+    }
+
+    PlatformCampaign campaign = campaignRepository.findById(campaignId)
+            .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
+
+    List<PlatformCampaignProduct> products = campaignProductRepository.findAllById(req.getCampaignProductIds());
+    if (products.isEmpty()) {
+        throw new RuntimeException("⚠️ Không tìm thấy sản phẩm tương ứng với campaignProductIds");
+    }
+
+    LocalDateTime now = LocalDateTime.now();
+
+    // 🔹 Nếu chỉ có 1 ID thì dùng reason trong request
+    // 🔹 Nếu có nhiều ID mà chỉ gửi 1 reason thì dùng chung cho toàn bộ
+    // 🔹 Nếu gửi kèm nhiều reason tương ứng -> dùng theo từng cặp (tùy kiểu FE gửi)
+    String commonReason = req.getReason();
+    Map<UUID, String> reasonMap = req.getReasonMap(); // option — nếu FE gửi dạng mapping
+
+    List<Map<String, Object>> updatedList = new ArrayList<>();
+
+    for (PlatformCampaignProduct p : products) {
+        if (p.getStatus() == VoucherStatus.REJECTED || p.getStatus() == VoucherStatus.EXPIRED) continue;
+
+        String appliedReason = (reasonMap != null && reasonMap.containsKey(p.getId()))
+                ? reasonMap.get(p.getId())
+                : commonReason;
+
+        p.setStatus(VoucherStatus.REJECTED);
+        p.setApproved(false);
+        p.setApprovedAt(null);
+        p.setReason(appliedReason);
+        p.setUpdatedAt(now);
+
+        campaignProductRepository.save(p);
+
+        Product prod = p.getProduct();
+        Store store = p.getStore();
+
+        updatedList.add(Map.of(
+                "campaignProductId", p.getId(),
+                "productId", prod != null ? prod.getProductId() : null,
+                "productName", prod != null ? prod.getName() : "(Unknown Product)",
+                "storeName", store != null ? store.getStoreName() : "(Unknown Store)",
+                "status", "REJECTED",
+                "reason", appliedReason,
+                "updatedAt", now
+        ));
+    }
+
+    return ResponseEntity.ok(new BaseResponse<>(
+            200,
+            "🚫 Đã từ chối " + updatedList.size() + " sản phẩm trong campaign '" + campaign.getName() + "'",
+            updatedList
+    ));
+}
+
+@Override
+@Transactional
+public ResponseEntity<BaseResponse> getCampaignProductDetails(UUID storeId, UUID campaignId, String status) {
+    System.out.println("=== [DEBUG] getCampaignProductDetails CALLED ===");
+    System.out.println("storeId = " + storeId);
+    System.out.println("campaignId = " + campaignId);
+    System.out.println("status = " + status);
+
+    try {
+        // =============================
+        // 1️⃣ Parse Enum VoucherStatus
+        // =============================
+        VoucherStatus statusEnum = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                statusEnum = VoucherStatus.valueOf(status.trim().toUpperCase());
+                System.out.println("Parsed statusEnum = " + statusEnum);
+            } catch (IllegalArgumentException e) {
+                System.err.println("[ERROR] Invalid VoucherStatus: " + status);
+                throw new RuntimeException("❌ Invalid status: DRAFT / ACTIVE / APPROVE / EXPIRED / REJECTED / DISABLED");
+            }
+        }
+
+        final VoucherStatus finalStatusEnum = statusEnum;
+
+        System.out.println("=== [DEBUG] Fetching all campaign products... ===");
+        List<PlatformCampaignProduct> list = campaignProductRepository.findAll();
+        System.out.println("Total products loaded = " + list.size());
+
+        // =============================
+        // 2️⃣ Lọc dữ liệu theo điều kiện
+        // =============================
+        list = list.stream()
+                .filter(p -> {
+                    boolean match = campaignId == null || (p.getCampaign() != null && p.getCampaign().getId().equals(campaignId));
+                    if (!match) System.out.println("[Filter] Skip campaignId mismatch: " + p.getId());
+                    return match;
+                })
+                .filter(p -> {
+                    boolean match = storeId == null || (p.getStore() != null && p.getStore().getStoreId().equals(storeId));
+                    if (!match) System.out.println("[Filter] Skip storeId mismatch: " + p.getId());
+                    return match;
+                })
+                .filter(p -> {
+                    boolean match = finalStatusEnum == null || (p.getStatus() != null && p.getStatus() == finalStatusEnum);
+                    if (!match) System.out.println("[Filter] Skip status mismatch: " + p.getId() + " status=" + p.getStatus());
+                    return match;
+                })
+                .toList();
+
+        System.out.println("After filter: " + list.size() + " products matched.");
+
+        if (list.isEmpty()) {
+            return ResponseEntity.ok(new BaseResponse<>(404, "⚠️ Không tìm thấy sản phẩm nào phù hợp với filter", List.of()));
+        }
+
+        // =============================
+        // 3️⃣ Build JSON trả về (sử dụng LinkedHashMap tránh lỗi generic)
+        // =============================
+        System.out.println("=== [DEBUG] Building response... ===");
+        List<Map<String, Object>> result = list.stream().map(p -> {
+            Product prod = p.getProduct();
+            Store store = p.getStore();
+            PlatformCampaign campaign = p.getCampaign();
+            PlatformCampaignFlashSlot slot = p.getFlashSlot();
+
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("campaignProductId", p.getId());
+            map.put("campaignId", campaign != null ? campaign.getId() : null);
+            map.put("campaignName", campaign != null ? campaign.getName() : null);
+            map.put("campaignType", campaign != null ? campaign.getCampaignType() : null);
+            map.put("storeId", store != null ? store.getStoreId() : null);
+            map.put("storeName", store != null ? store.getStoreName() : null);
+            map.put("productId", prod != null ? prod.getProductId() : null);
+            map.put("productName", prod != null ? prod.getName() : null);
+            map.put("brandName", prod != null ? prod.getBrandName() : null);
+            map.put("category", prod != null && prod.getCategory() != null ? prod.getCategory().getName() : null);
+            map.put("originalPrice", p.getOriginalPrice());
+            map.put("discountedPrice", p.getDiscountedPrice());
+            map.put("discountType", p.getType());
+            map.put("discountValue", p.getDiscountValue());
+            map.put("discountPercent", p.getDiscountPercent());
+            map.put("maxDiscountValue", p.getMaxDiscountValue());
+            map.put("minOrderValue", p.getMinOrderValue());
+            map.put("totalVoucherIssued", p.getTotalVoucherIssued());
+            map.put("totalUsageLimit", p.getTotalUsageLimit());
+            map.put("usagePerUser", p.getUsagePerUser());
+            map.put("remainingUsage", p.getRemainingUsage());
+            map.put("approved", p.getApproved());
+            map.put("approvedAt", p.getApprovedAt());
+            map.put("registeredAt", p.getRegisteredAt());
+            map.put("status", p.getStatus());
+            map.put("reason", p.getReason());
+            map.put("startTime", p.getStartTime());
+            map.put("endTime", p.getEndTime());
+            map.put("slot", slot != null ? Map.of(
+                    "slotId", slot.getId(),
+                    "openTime", slot.getOpenTime(),
+                    "closeTime", slot.getCloseTime(),
+                    "slotStatus", slot.getStatus()
+            ) : null);
+            map.put("createdAt", p.getCreatedAt());
+            map.put("updatedAt", p.getUpdatedAt());
+            return map;
+        }).toList();
+
+        System.out.println("=== [DEBUG] Build success, returning response ===");
+        return ResponseEntity.ok(new BaseResponse<>(200,
+                "✅ Lấy danh sách sản phẩm theo trạng thái " + (statusEnum != null ? statusEnum.name() : "ALL"),
+                result));
+
+    } catch (Exception e) {
+        System.err.println("=== [ERROR] Exception in getCampaignProductDetails ===");
+        e.printStackTrace();
+        return ResponseEntity.status(500)
+                .body(new BaseResponse<>(500, "❌ INTERNAL ERROR: " + e.getMessage(), null));
+    }
+}
+
+
+
 
 }
 
