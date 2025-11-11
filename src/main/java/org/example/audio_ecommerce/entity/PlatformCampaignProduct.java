@@ -44,6 +44,8 @@ public class PlatformCampaignProduct {
     // 💰 THÔNG TIN GIẢM GIÁ (Voucher logic)
     // =======================================================
 
+
+
     @Column(precision = 12, scale = 2)
     private BigDecimal discountValue; // Nếu FIXED: giảm tiền
 
@@ -59,6 +61,7 @@ public class PlatformCampaignProduct {
     // =======================================================
     // 🔢 HẠN MỨC PHÁT HÀNH & SỬ DỤNG
     // =======================================================
+    private String reason;               // Lý do tạo voucher
     private Integer totalVoucherIssued;   // Số lượng phát hành
     private Integer totalUsageLimit;      // Tổng lượt dùng toàn hệ thống
     private Integer usagePerUser;         // Mỗi user dùng tối đa
@@ -82,7 +85,7 @@ private BigDecimal discountedPrice;
     private LocalDateTime endTime;
 
     @Enumerated(EnumType.STRING)
-    private VoucherStatus status; // DRAFT / ACTIVE / EXPIRED / DISABLED
+    private VoucherStatus status; // DRAFT,      // Mới tạoACTIVE,     // Đang hoạt độngEXPIRED,    // Hết hạnDISABLED,    // Tạm dừngAPPROVE,ONOPEN, // Mở đăng ký REJECTED // Từ chối
 
     private Boolean approved = false;
     private LocalDateTime approvedAt;

@@ -6,5 +6,6 @@ public enum VoucherStatus {
     EXPIRED,    // Hết hạn
     DISABLED,    // Tạm dừng
     APPROVE,
-    ONOPEN // Mở đăng ký
+    ONOPEN, // Mở đăng ký
+    REJECTED // Từ chối
 }
