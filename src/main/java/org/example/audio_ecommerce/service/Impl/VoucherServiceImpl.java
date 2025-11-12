@@ -210,4 +210,58 @@ public class VoucherServiceImpl implements VoucherService {
         return r;
     }
 
+    @Override
+    public StoreVoucherResult computeDiscountByStoreWithDetail(List<StoreVoucherUse> input,
+                                                               Map<UUID, List<StoreOrderItem>> storeItems) {
+        StoreVoucherResult out = new StoreVoucherResult();
+        if (input == null || input.isEmpty()) return out;
+
+        LocalDateTime now = LocalDateTime.now();
+
+        for (StoreVoucherUse use : input) {
+            UUID storeId = use.getStoreId();
+            List<String> codes = use.getCodes() == null ? List.of() : use.getCodes();
+            List<StoreOrderItem> items = storeItems.getOrDefault(storeId, List.of());
+            if (codes.isEmpty() || items.isEmpty()) continue;
+
+            BigDecimal applied = BigDecimal.ZERO;
+            BigDecimal storeSubtotal = items.stream()
+                    .map(StoreOrderItem::getLineTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            Map<String, BigDecimal> detail = out.detailByStore.computeIfAbsent(storeId, k -> new LinkedHashMap<>());
+
+            for (String raw : codes) {
+                String code = raw == null ? "" : raw.trim();
+                if (code.isEmpty()) continue;
+
+                ShopVoucher v = voucherRepo.findByShop_StoreIdAndCodeIgnoreCase(storeId, code).orElse(null);
+                if (v == null || v.getStatus() != VoucherStatus.ACTIVE) continue;
+                if (v.getStartTime()!=null && now.isBefore(v.getStartTime())) continue;
+                if (v.getEndTime()!=null && now.isAfter(v.getEndTime())) continue;
+                if (v.getRemainingUsage()!=null && v.getRemainingUsage()<=0) continue;
+
+                BigDecimal eligibleSubtotal = eligibleSubtotal(v, items);
+                if (v.getMinOrderValue()!=null && eligibleSubtotal.compareTo(v.getMinOrderValue())<0) continue;
+
+                BigDecimal discount = discountOf(v, eligibleSubtotal);
+                BigDecimal cap = storeSubtotal.subtract(applied);
+                if (cap.signum()<=0) break;
+                if (discount.compareTo(cap)>0) discount = cap;
+
+                if (discount.signum() > 0) {
+                    applied = applied.add(discount);
+                    // ✅ lưu chi tiết theo mã
+                    detail.merge(code, discount, BigDecimal::add);
+                    if (v.getRemainingUsage()!=null && v.getRemainingUsage()>0) {
+                        v.setRemainingUsage(v.getRemainingUsage()-1);
+                    }
+                }
+            }
+            if (applied.signum()>0) {
+                out.discountByStore.merge(storeId, applied, BigDecimal::add);
+            }
+        }
+        return out;
+    }
+
 }

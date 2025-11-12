@@ -1,7 +1,10 @@
 package org.example.audio_ecommerce.dto.response;
 
 import lombok.*;
+
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -30,4 +33,6 @@ public class DeliveryAssignmentResponse {
     private LocalDateTime deliveredAt;
 
     private String note;
+    private BigDecimal orderTotal;
+    private List<OrderItemResponse> items;
 }

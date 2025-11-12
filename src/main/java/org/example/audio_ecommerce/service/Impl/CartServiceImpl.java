@@ -11,7 +11,9 @@ import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.CartService;
 import org.example.audio_ecommerce.service.GhnFeeService;
+
 import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
+
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -241,7 +243,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                true,                        // enforceCodDeposit = false (COD bỏ qua)
+                PaymentMethod.COD,                         // enforceCodDeposit = false (COD bỏ qua)
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),// truyền voucher theo shop
                 request.getServiceTypeIds()
@@ -257,7 +259,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false, // online không check deposit
+                PaymentMethod.ONLINE, // online không check deposit
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),
                 request.getServiceTypeIds()
@@ -288,6 +290,49 @@ public class CartServiceImpl implements CartService {
     private static CartResponse toResponse(Cart cart) {
         var items = cart.getItems() == null ? List.<CartItem>of() : cart.getItems();
 
+        List<CartResponse.Item> itemDtos = items.stream().map(ci -> {
+            String type = ci.getType().name();
+            UUID refId = ci.getReferenceId();
+
+            String originProvince = null, originDistrict = null, originWard = null;
+
+            if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                Product p = ci.getProduct();
+                originProvince = p.getProvinceCode();
+                originDistrict = p.getDistrictCode();
+                originWard = p.getWardCode();
+            } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                // Lấy mã origin từ 1 sản phẩm bất kỳ trong combo (ưu tiên cái có đủ code)
+                ProductCombo combo = ci.getCombo();
+                if (combo.getItems() != null) {
+                    for (var citem : combo.getItems()) {
+                        Product p = citem.getProduct();
+                        if (p != null && (p.getProvinceCode() != null || p.getDistrictCode() != null || p.getWardCode() != null)) {
+                            originProvince = p.getProvinceCode();
+                            originDistrict = p.getDistrictCode();
+                            originWard = p.getWardCode();
+                            break;
+                        }
+                    }
+                }
+                // Nếu không tìm được thì để null (FE tự xử lý hiển thị)
+            }
+
+            return CartResponse.Item.builder()
+                    .cartItemId(ci.getCartItemId())
+                    .type(type)
+                    .refId(refId)
+                    .name(ci.getNameSnapshot())
+                    .image(ci.getImageSnapshot())
+                    .quantity(ci.getQuantity())
+                    .unitPrice(ci.getUnitPrice())
+                    .lineTotal(ci.getLineTotal())
+                    .originProvinceCode(originProvince)
+                    .originDistrictCode(originDistrict)
+                    .originWardCode(originWard)
+                    .build();
+        }).toList();
+
         return CartResponse.builder()
                 .cartId(cart.getCartId())
                 .customerId(cart.getCustomer().getId())
@@ -295,19 +340,10 @@ public class CartServiceImpl implements CartService {
                 .subtotal(cart.getSubtotal())
                 .discountTotal(cart.getDiscountTotal())
                 .grandTotal(cart.getGrandTotal())
-                .items(items.stream().map(ci -> CartResponse.Item.builder()
-                        .cartItemId(ci.getCartItemId())
-                        .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
-                        .name(ci.getNameSnapshot())
-                        .image(ci.getImageSnapshot())
-                        .quantity(ci.getQuantity())
-                        .unitPrice(ci.getUnitPrice())
-                        .lineTotal(ci.getLineTotal())
-                        .build()
-                ).toList())
+                .items(itemDtos)
                 .build();
     }
+
 
     @Transactional
     protected List<CustomerOrder> createOrdersSplitByStore(
@@ -315,7 +351,7 @@ public class CartServiceImpl implements CartService {
             List<CheckoutItemRequest> itemsReq,
             UUID addressId,
             String message,
-            boolean enforceCodDeposit,
+            PaymentMethod paymentMethod,
             List<StoreVoucherUse> storeVouchers,
             List<PlatformVoucherUse> platformVouchers,
             Map<UUID, Integer> serviceTypeIds
@@ -352,28 +388,28 @@ public class CartServiceImpl implements CartService {
             itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
         }
 
-        // 2b) (tuỳ chọn) enforce COD deposit theo shop
-        if (enforceCodDeposit) {
-            BigDecimal ratio = codConfig.getCodDepositRatio();
-            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-                UUID storeIdKey = entry.getKey();
-                BigDecimal storeSubtotal = entry.getValue().stream()
-                        .map(CartItem::getLineTotal)
-                        .filter(Objects::nonNull)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
-                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
-                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
-                        .orElse(BigDecimal.ZERO);
-
-                if (deposit.compareTo(required) < 0) {
-                    throw new IllegalStateException(
-                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
-                                    + " required=" + required + " deposit=" + deposit);
-                }
-            }
-        }
+//        // 2b) (tuỳ chọn) enforce COD deposit theo shop
+//        if (enforceCodDeposit) {
+//            BigDecimal ratio = codConfig.getCodDepositRatio();
+//            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+//                UUID storeIdKey = entry.getKey();
+//                BigDecimal storeSubtotal = entry.getValue().stream()
+//                        .map(CartItem::getLineTotal)
+//                        .filter(Objects::nonNull)
+//                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+//
+//                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
+//                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
+//                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
+//                        .orElse(BigDecimal.ZERO);
+//
+//                if (deposit.compareTo(required) < 0) {
+//                    throw new IllegalStateException(
+//                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
+//                                    + " required=" + required + " deposit=" + deposit);
+//                }
+//            }
+//        }
 
         // 3) Lấy địa chỉ
         CustomerAddress addr;
@@ -391,6 +427,12 @@ public class CartServiceImpl implements CartService {
 
         Integer toDistrictId = addr.getDistrictId();
         String toWardCode = addr.getWardCode();
+
+        if (toDistrictId == null || toDistrictId <= 0 || toWardCode == null || toWardCode.isBlank()) {
+            throw new IllegalStateException(
+                    "Checkout address missing districtId/wardCode for GHN fee (addressId=" + addr.getId() + ")"
+            );
+        }
 
         // Dùng cho voucher services
         Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
@@ -447,11 +489,7 @@ public class CartServiceImpl implements CartService {
                     .shipNote(addr.getNote())
                     .build();
 
-            if (enforceCodDeposit) {
-                co.setPaymentMethod(PaymentMethod.COD);
-            } else {
-                co.setPaymentMethod(PaymentMethod.ONLINE);
-            }
+            co.setPaymentMethod(paymentMethod != null ? paymentMethod : PaymentMethod.ONLINE);
 
             // 4c) Items của riêng shop này
             List<CustomerOrderItem> coItems = new ArrayList<>();
@@ -527,10 +565,10 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher theo shop + platform cho từng shop
-        Map<UUID, BigDecimal> storeDiscountByStore =
-                voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
-
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(storeVouchers, storeItemsMap);
         var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+        Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
+        Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
         // 6) Cập nhật từng CustomerOrder: discount/grand + JSON detail
         for (CustomerOrder co : createdOrders) {
@@ -538,7 +576,7 @@ public class CartServiceImpl implements CartService {
                     .map(CustomerOrderItem::getStoreId)
                     .findFirst().orElse(null);
 
-            BigDecimal storeDiscount = storeDiscountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal storeDiscount = storeResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
             BigDecimal platformDiscount = platformResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
             BigDecimal discountTotal = storeDiscount.add(platformDiscount);
 
@@ -555,6 +593,29 @@ public class CartServiceImpl implements CartService {
             // nếu bạn có JSON chi tiết cho store-voucher, set vào co.setStoreVoucherDetailJson(...)
 
             customerOrderRepository.save(co);
+        }
+
+        // === NEW: đổ voucher xuống từng StoreOrder (GHN) ===
+        for (CustomerOrder co : createdOrders) {
+            List<StoreOrder> sos = storeOrderRepository.findAllByCustomerOrder_Id(co.getId());
+            if (sos == null || sos.isEmpty()) continue;
+
+            for (StoreOrder so : sos) {
+                UUID sid = so.getStore().getStoreId();
+                BigDecimal sv = storeResult.discountByStore.getOrDefault(sid, BigDecimal.ZERO);
+                BigDecimal pv = platformResult.discountByStore.getOrDefault(sid, BigDecimal.ZERO);
+
+                so.setStoreVoucherDiscount(sv);
+                so.setPlatformVoucherDiscount(pv);
+
+                // JSON chi tiết theo mã (shop) & platform
+                String storeJson = storeDetailJsonByStore.getOrDefault(sid, "{}");
+                String platJson = platformDetailJsonByStore.getOrDefault(sid, "{}");
+                so.setStoreVoucherDetailJson(storeJson);
+                so.setPlatformVoucherDetailJson(platJson);
+
+                storeOrderRepository.save(so);
+            }
         }
 
         // 7) Xoá item khỏi cart
@@ -805,7 +866,8 @@ public class CartServiceImpl implements CartService {
                     platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         resp.setPlatformDiscount(platformDiscountMap);
 
         // Nếu bạn đã lưu JSON chi tiết cho store-voucher per order, parse vào resp.setStoreVoucherDiscount(map)
@@ -984,7 +1046,7 @@ public class CartServiceImpl implements CartService {
                     .shipAddressLine(co.getShipAddressLine())
                     .shipPostalCode(co.getShipPostalCode())
                     // ghi chú rõ để FE phân biệt
-                    .shipNote( (co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]" )
+                    .shipNote((co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]")
                     .shippingFee(shippingFee)
                     .shippingServiceTypeId(serviceTypeIdForStore) // null
                     .build();
@@ -1010,9 +1072,10 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
-        Map<UUID, BigDecimal> storeDiscountByStore =
-                voucherService.computeDiscountByStore(storeVouchers, storeItemsMap);
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(storeVouchers, storeItemsMap);
         var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+        Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
+        Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
         // 6) Cập nhật discount + grand
         for (CustomerOrder co : createdOrders) {
@@ -1020,7 +1083,7 @@ public class CartServiceImpl implements CartService {
                     .map(CustomerOrderItem::getStoreId)
                     .findFirst().orElse(null);
 
-            BigDecimal storeDiscount = storeDiscountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal storeDiscount = storeResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
             BigDecimal platformDiscount = platformResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
             BigDecimal discountTotal = storeDiscount.add(platformDiscount);
 
@@ -1035,6 +1098,28 @@ public class CartServiceImpl implements CartService {
             co.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
 
             customerOrderRepository.save(co);
+        }
+
+        // === NEW: đổ voucher xuống từng StoreOrder (Store-Ship) ===
+        for (CustomerOrder co : createdOrders) {
+            List<StoreOrder> sos = storeOrderRepository.findAllByCustomerOrder_Id(co.getId());
+            if (sos == null || sos.isEmpty()) continue;
+
+            for (StoreOrder so : sos) {
+                UUID sid = so.getStore().getStoreId();
+                BigDecimal sv = storeResult.discountByStore.getOrDefault(sid, BigDecimal.ZERO);
+                BigDecimal pv = platformResult.discountByStore.getOrDefault(sid, BigDecimal.ZERO);
+
+                so.setStoreVoucherDiscount(sv);
+                so.setPlatformVoucherDiscount(pv);
+
+                String storeJson = storeDetailJsonByStore.getOrDefault(sid, "{}");
+                String platJson = platformDetailJsonByStore.getOrDefault(sid, "{}");
+                so.setStoreVoucherDetailJson(storeJson);
+                so.setPlatformVoucherDetailJson(platJson);
+
+                storeOrderRepository.save(so);
+            }
         }
 
         // 7) Xóa items khỏi cart
