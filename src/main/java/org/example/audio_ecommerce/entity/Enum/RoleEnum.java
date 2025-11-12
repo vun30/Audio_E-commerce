@@ -8,7 +8,8 @@ public enum RoleEnum {
     GUEST(2),
     STAFF(3),
     CUSTOMER(4),
-    STOREOWNER(5);
+    STOREOWNER(5),
+    FLATSTAFF(6);
 
     private final int value;
 
