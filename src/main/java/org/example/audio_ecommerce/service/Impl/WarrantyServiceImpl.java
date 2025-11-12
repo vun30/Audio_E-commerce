@@ -19,6 +19,8 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static org.example.audio_ecommerce.service.Impl.WarrantyPolicyResolver.resolveMonths;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -36,7 +38,69 @@ public class WarrantyServiceImpl implements WarrantyService {
 
     @Override
     @Transactional
-    public void activateForStoreOrder(UUID storeOrderId) { /* (y nguyên của bạn) */ }
+    public void activateForStoreOrder(UUID storeOrderId) {
+        // 1) Lấy StoreOrder + kiểm tra trạng thái giao thành công (tùy policy của bạn)
+        StoreOrder so = storeOrderRepo.findById(storeOrderId)
+                .orElseThrow(() -> new NoSuchElementException("StoreOrder not found: " + storeOrderId));
+
+        CustomerOrder co = so.getCustomerOrder();
+        if (co == null) throw new IllegalStateException("StoreOrder has no CustomerOrder linked");
+        if (!(OrderStatus.DELIVERY_SUCCESS.equals(co.getStatus()) || OrderStatus.DELIVERY_SUCCESS.equals(so.getStatus()))) {
+            log.warn("[WARRANTY] activateForStoreOrder called while order not delivered yet: so={}, coStatus={}, soStatus={}",
+                    storeOrderId, co.getStatus(), so.getStatus());
+            // tùy bạn: có thể throw, hoặc cho phép manual-activate. Mình CHO PHÉP manual ⇒ không throw.
+        }
+
+        // 2) Duyệt từng item PRODUCT, tạo N warranty theo quantity (idempotent)
+        if (so.getItems() == null || so.getItems().isEmpty()) {
+            log.info("[WARRANTY] StoreOrder {} has no items. Skip.", storeOrderId);
+            return;
+        }
+
+        int created = 0, skipped = 0;
+        for (StoreOrderItem item : so.getItems()) {
+            if (!"PRODUCT".equalsIgnoreCase(item.getType())) {
+                continue; // bỏ qua COMBO
+            }
+
+            UUID productId = item.getRefId();
+            Product p = productRepo.findById(productId)
+                    .orElseThrow(() -> new NoSuchElementException("Product not found for item: " + productId));
+
+            // Idempotent theo storeOrderItemId: đã tạo đủ số lượng chưa?
+            List<Warranty> existing = warrantyRepo.findByStoreOrderItemId(item.getId());
+            int already = existing == null ? 0 : existing.size();
+            int need = Optional.ofNullable(item.getQuantity()).orElse(1);
+            int remain = Math.max(0, need - already);
+            if (remain <= 0) {
+                skipped++;
+                continue;
+            }
+
+            // Ngày mua: theo CustomerOrder.createdAt (có thể đổi sang ngày giao thành công nếu bạn có cột)
+            LocalDate purchase = co.getCreatedAt() != null ? co.getCreatedAt().toLocalDate() : LocalDate.now();
+
+            Integer months = resolveMonths(p); // helper parse "24 tháng" → 24, default 12
+            for (int i = 0; i < remain; i++) {
+                Warranty w = Warranty.builder()
+                        .customer(co.getCustomer())
+                        .store(so.getStore())
+                        .product(p)
+                        .storeOrderItemId(item.getId())
+                        .policyCode("AUTO_FROM_ORDER")   // gắn nhãn nguồn
+                        .durationMonths(months)
+                        .purchaseDate(purchase)
+                        .startDate(purchase)
+                        .status(WarrantyStatus.ACTIVE)    // nếu bạn có enum trạng thái
+                        .covered(true)                    // ban đầu coi như còn hạn (sẽ tính lại khi trả response)
+                        .build();
+                warrantyRepo.save(w);
+                created++;
+            }
+        }
+
+        log.info("[WARRANTY] Activation done for StoreOrder {}: created={}, skippedExisting={}", storeOrderId, created, skipped);
+    }
 
     @Override
     @Transactional
@@ -57,7 +121,7 @@ public class WarrantyServiceImpl implements WarrantyService {
                 .product(p)
                 .storeOrderItemId(item.getId())
                 .policyCode("MANUAL")
-                .durationMonths(WarrantyPolicyResolver.resolveMonths(p))
+                .durationMonths(resolveMonths(p))
                 .purchaseDate(purchase)
                 .startDate(purchase)
                 .build();
