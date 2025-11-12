@@ -54,4 +54,14 @@ public class AccountController {
     public ResponseEntity<BaseResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         return accountService.refreshToken(request);
     }
+
+    @PostMapping("/register")
+    public ResponseEntity<BaseResponse> register(@RequestBody RegisterRequest request) {
+        return accountService.registerFlatStaff(request);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<BaseResponse> login(@RequestBody LoginRequest request) {
+        return accountService.loginFlatStaff(request);
+    }
 }

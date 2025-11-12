@@ -110,7 +110,9 @@ public class AccountServiceImpl implements AccountService {
 
     // ==================== Helpers ====================
 
-    /** ✅ Luôn tạo hồ sơ Customer 1–1 cho Account */
+    /**
+     * ✅ Luôn tạo hồ sơ Customer 1–1 cho Account
+     */
     private void createDefaultCustomerForAccount(Account account) {
         if (customerRepository.existsByAccount_Id(account.getId())) return;
 
@@ -140,7 +142,9 @@ public class AccountServiceImpl implements AccountService {
         walletRepository.save(wallet);
     }
 
-    /** ✅ Tạo store + store_wallet + transaction mặc định khi đăng ký Store Owner */
+    /**
+     * ✅ Tạo store + store_wallet + transaction mặc định khi đăng ký Store Owner
+     */
     private void createDefaultStoreWithWallet(Account account) {
         if (storeRepository.existsByAccount_Id(account.getId())) return;
 
@@ -256,5 +260,15 @@ public class AccountServiceImpl implements AccountService {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new BaseResponse<>(401, "Invalid refresh token", null));
         }
+    }
+
+    @Override
+    public ResponseEntity<BaseResponse> registerFlatStaff(RegisterRequest request) {
+        return register(request, RoleEnum.FLATSTAFF, "Flat Staff created");
+    }
+
+    @Override
+    public ResponseEntity<BaseResponse> loginFlatStaff(LoginRequest request) {
+        return login(request, RoleEnum.FLATSTAFF);
     }
 }
