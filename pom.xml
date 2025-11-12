@@ -28,12 +28,6 @@
 
     <dependencies>
 
-        <dependency>
-    <groupId>org.json</groupId>
-    <artifactId>json</artifactId>
-    <version>20210307</version>
-</dependency>
-
         <!-- Jackson support for Java 8 date/time (LocalDateTime, etc.) -->
 <dependency>
     <groupId>com.fasterxml.jackson.datatype</groupId>

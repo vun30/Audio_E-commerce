@@ -9,29 +9,19 @@ import org.springframework.http.ResponseEntity;
 public interface AccountService {
     // Customer
     ResponseEntity<BaseResponse> registerCustomer(RegisterRequest request);
-
     ResponseEntity<BaseResponse> loginCustomer(LoginRequest request);
 
     // Store
     ResponseEntity<BaseResponse> registerStore(RegisterRequest request);
-
     ResponseEntity<BaseResponse> loginStore(LoginRequest request);
 
     // Admin
     ResponseEntity<BaseResponse> registerAdmin(RegisterRequest request);
-
     ResponseEntity<BaseResponse> loginAdmin(LoginRequest request);
 
     // Refresh Token
     ResponseEntity<BaseResponse> refreshToken(RefreshTokenRequest request);
 
-
-    ResponseEntity<BaseResponse> registerFlatStaff(RegisterRequest request);
-
-    ResponseEntity<BaseResponse> loginFlatStaff(LoginRequest request);
-
-
     //Staff
     ResponseEntity<BaseResponse> loginStaff(LoginRequest request);
-
 }

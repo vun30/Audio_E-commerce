@@ -55,17 +55,6 @@ public class AccountController {
         return accountService.refreshToken(request);
     }
 
-
-    @PostMapping("/register")
-    public ResponseEntity<BaseResponse> register(@RequestBody RegisterRequest request) {
-        return accountService.registerFlatStaff(request);
-    }
-
-    @PostMapping("/login")
-    public ResponseEntity<BaseResponse> login(@RequestBody LoginRequest request) {
-        return accountService.loginFlatStaff(request);
-    }
-
     // controller/AuthController.java
     @PostMapping("/auth/staff/login")
     public ResponseEntity<BaseResponse> loginStaff(@RequestBody @Valid LoginRequest request) {
