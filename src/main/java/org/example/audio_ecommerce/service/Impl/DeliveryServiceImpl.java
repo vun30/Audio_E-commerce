@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service.Impl;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.DeliveryAssignmentResponse;
+import org.example.audio_ecommerce.dto.response.OrderItemResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.repository.*;
@@ -13,6 +14,7 @@ import org.springframework.data.domain.Pageable;            // ✔ Spring Data
 import org.springframework.data.domain.Sort;                // ✔ Spring Data
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -22,7 +24,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class DeliveryServiceImpl implements DeliveryService {
-
+    private final StoreOrderItemRepository storeOrderItemRepo;
     private final StoreOrderRepository storeOrderRepo;
     private final StoreRepository storeRepo;
     private final StaffRepository staffRepo;
@@ -83,7 +85,7 @@ public class DeliveryServiceImpl implements DeliveryService {
     @Transactional
     public void markReadyForPickup(UUID storeId, UUID storeOrderId) {
         StoreOrder so = mustGetStoreOrderOfStore(storeId, storeOrderId);
-        so.setStatus(OrderStatus.READY_FOR_PICKUP);
+        so.setStatus(OrderStatus.READY_FOR_DELIVERY);
         storeOrderRepo.save(so);
         syncCustomerOrderStatus(so);
     }
@@ -195,10 +197,10 @@ public class DeliveryServiceImpl implements DeliveryService {
         storeRepo.findById(storeId).orElseThrow(() -> new NoSuchElementException("Store not found"));
 
         List<DeliveryAssignment> entities = (status == null)
-                ? assignmentRepo.findAllByStoreId(storeId)
-                : assignmentRepo.findAllByStoreIdAndStatus(storeId, status);
-
+                ? assignmentRepo.findAllByStoreIdFetchItems(storeId)
+                : assignmentRepo.findAllByStoreIdAndStatusFetchItems(storeId, status);
         return entities.stream().map(this::toDTO).toList();
+
     }
 
     @Override
@@ -210,23 +212,23 @@ public class DeliveryServiceImpl implements DeliveryService {
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1), s);
 
         // lấy Page<DeliveryAssignment> từ repo
-        Page<DeliveryAssignment> p = assignmentRepo.findPageByStoreIdAndStatus(storeId, status, pageable);
-
-        // map sang Page<DeliveryAssignmentDTO> bằng Page.map(...)
+        Page<DeliveryAssignment> p =
+                assignmentRepo.findPageByStoreIdAndStatusFetchItems(storeId, status, pageable);
         return p.map(this::toDTO);
+
     }
 
     @Override
     @Transactional
     public DeliveryAssignmentResponse getAssignment(UUID storeId, UUID assignmentId) {
-        var a = assignmentRepo.findById(assignmentId)
+        var a = assignmentRepo.findByIdFetchItems(assignmentId)
                 .orElseThrow(() -> new NoSuchElementException("Assignment not found"));
-        // bảo vệ: phải thuộc store
-        if (a.getStoreOrder() == null || a.getStoreOrder().getStore() == null
+        if (a.getStoreOrder()==null || a.getStoreOrder().getStore()==null
                 || !storeId.equals(a.getStoreOrder().getStore().getStoreId())) {
             throw new SecurityException("Assignment not belong to this store");
         }
         return toDTO(a);
+
     }
 
     @Override
@@ -271,6 +273,47 @@ public class DeliveryServiceImpl implements DeliveryService {
         }
     }
 
+    @Override
+    @Transactional
+    public List<DeliveryAssignmentResponse> listAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status) {
+        // bảo vệ: store & staff thuộc store
+        storeRepo.findById(storeId).orElseThrow(() -> new NoSuchElementException("Store not found"));
+        var staff = staffRepo.findById(staffId).orElseThrow(() -> new NoSuchElementException("Staff not found"));
+        if (!staff.getStore().getStoreId().equals(storeId)) {
+            throw new SecurityException("Staff not belong to this store");
+        }
+
+        if (status == null) {
+            var entities = assignmentRepo.findAllByStoreAndDeliveryStaffFetchItems(storeId, staffId);
+            return entities.stream().map(this::toDTO).toList();
+        } else {
+            var page = assignmentRepo.findPageByStoreAndDeliveryStaffAndStatusFetchItems(
+                    storeId, staffId, status, PageRequest.of(0, 1000, Sort.by("assignedAt").descending()));
+            return page.getContent().stream().map(this::toDTO).toList();
+        }
+
+    }
+
+    @Override
+    @Transactional
+    public Page<DeliveryAssignmentResponse> pageAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status, int page, int size, String sort) {
+        storeRepo.findById(storeId).orElseThrow(() -> new NoSuchElementException("Store not found"));
+        var staff = staffRepo.findById(staffId).orElseThrow(() -> new NoSuchElementException("Staff not found"));
+        if (!staff.getStore().getStoreId().equals(storeId)) {
+            throw new SecurityException("Staff not belong to this store");
+        }
+
+        Sort s = Sort.by((sort == null || sort.isBlank()) ? "assignedAt" : sort).descending();
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1), s);
+
+        Page<DeliveryAssignment> p =
+                assignmentRepo.findPageByStoreAndDeliveryStaffAndStatusFetchItems(
+                        storeId, staffId, status, pageable);
+        return p.map(this::toDTO);
+
+    }
+
+
     private DeliveryAssignmentResponse toDTO(DeliveryAssignment a) {
         if (a == null) return null;
 
@@ -296,6 +339,33 @@ public class DeliveryServiceImpl implements DeliveryService {
                 .pickUpAt(a.getPickUpAt())
                 .deliveredAt(a.getDeliveredAt())
                 .note(a.getNote())
+                .items(toItemDTOs(so))
+                .orderTotal(calcOrderTotal(so))
                 .build();
     }
+
+    private List<OrderItemResponse> toItemDTOs(StoreOrder so) {
+        if (so == null || so.getItems() == null) return List.of();
+        BigDecimal orderGrand = Optional.ofNullable(so.getGrandTotal()).orElse(BigDecimal.ZERO);
+        return so.getItems().stream().map(i ->
+                OrderItemResponse.builder()
+                        .id(i.getId())
+                        .type(i.getType())
+                        .refId(i.getRefId())
+                        .name(i.getName())
+                        .quantity(i.getQuantity())
+                        .unitPrice(i.getUnitPrice())
+                        .lineTotal(i.getLineTotal())
+                        .orderGrandTotal(orderGrand)
+                        .build()
+        ).toList();
+    }
+
+    private BigDecimal calcOrderTotal(StoreOrder so) {
+        if (so == null || so.getItems() == null) return BigDecimal.ZERO;
+        return so.getItems().stream()
+                .map(StoreOrderItem::getLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
 }

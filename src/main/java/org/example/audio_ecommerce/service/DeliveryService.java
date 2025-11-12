@@ -36,4 +36,10 @@ public interface DeliveryService {
     DeliveryAssignmentResponse getAssignment(UUID storeId, UUID assignmentId);
     // 11) tiện ích: lấy StoreOrder sau cập nhật
     StoreOrder getStoreOrderEntity(UUID storeOrderId);
+
+    // DeliveryService.java
+    List<DeliveryAssignmentResponse> listAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status);
+    Page<DeliveryAssignmentResponse> pageAssignmentsOfStaff(UUID storeId, UUID staffId, OrderStatus status, int page, int size, String sort);
+
+
 }

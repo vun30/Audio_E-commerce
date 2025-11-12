@@ -19,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.UUID;
 
 @Tag(name = "Store", description = "Các API quản lý cửa hàng (Admin & Chủ shop)")
@@ -133,5 +134,41 @@ public class StoreController {
             @Parameter(description = "Index của địa chỉ cần đặt làm mặc định", example = "0")
             @PathVariable int index) {
         return storeService.setDefaultAddress(index);
+    }
+
+    @Operation(summary = "Danh sách tất cả staff của cửa hàng")
+    @GetMapping("/{storeId}/staff")
+    public ResponseEntity<BaseResponse> getAllStaff(
+            @PathVariable UUID storeId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        var staffList = staffService.getAllStaffByStoreId(storeId);
+        var paginated = staffList.stream()
+                .skip((long) page * size)
+                .limit(size)
+                .toList();
+
+        var response = new BaseResponse<>(
+                200,
+                "Lấy danh sách staff thành công",
+                Map.of(
+                        "content", paginated,
+                        "total", staffList.size(),
+                        "page", page,
+                        "size", size
+                )
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Lấy chi tiết 1 staff theo storeId và staffId")
+    @GetMapping("/{storeId}/staff/{staffId}")
+    public ResponseEntity<BaseResponse> getStaffById(
+            @PathVariable UUID storeId,
+            @PathVariable UUID staffId) {
+
+        StaffResponse staff = staffService.getStaffById(storeId, staffId);
+        return ResponseEntity.ok(new BaseResponse<>(200, "Lấy staff thành công", staff));
     }
 }

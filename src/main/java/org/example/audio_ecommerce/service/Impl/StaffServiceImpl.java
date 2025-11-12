@@ -15,6 +15,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -59,6 +60,39 @@ public class StaffServiceImpl implements StaffService {
         response.setEmail(staff.getEmail());
         response.setPhone(staff.getPhone());
         response.setStoreId(store.getStoreId().toString());
+        return response;
+    }
+
+    @Override
+    public List<StaffResponse> getAllStaffByStoreId(UUID storeId) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new IllegalArgumentException("Store not found"));
+
+        return staffRepository.findByStore(store).stream()
+                .map(this::mapToStaffResponse)
+                .toList();
+    }
+
+    @Override
+    public StaffResponse getStaffById(UUID storeId, UUID staffId) {
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new IllegalArgumentException("Store not found"));
+
+        Staff staff = staffRepository.findByIdAndStore(staffId, store)
+                .orElseThrow(() -> new IllegalArgumentException("Staff not found in this store"));
+
+        return mapToStaffResponse(staff);
+    }
+
+    // Helper method để tái sử dụng
+    private StaffResponse mapToStaffResponse(Staff staff) {
+        StaffResponse response = new StaffResponse();
+        response.setId(staff.getId());
+        response.setUsername(staff.getUsername());
+        response.setFullName(staff.getFullName());
+        response.setEmail(staff.getEmail());
+        response.setPhone(staff.getPhone());
+        response.setStoreId(staff.getStore().getStoreId().toString());
         return response;
     }
 }

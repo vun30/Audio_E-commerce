@@ -35,5 +35,8 @@ public class CartResponse {
         private int quantity;
         private BigDecimal unitPrice;
         private BigDecimal lineTotal;
+        private String originProvinceCode; // từ Product.provinceCode
+        private String originDistrictCode; // từ Product.districtCode
+        private String originWardCode;     // từ Product.wardCode
     }
 }
