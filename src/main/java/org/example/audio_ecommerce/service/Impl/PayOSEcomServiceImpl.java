@@ -36,7 +36,7 @@ import java.util.*;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PayOSEcomServiceImpl implements org.example.audio_ecommerce.service.PayOSEcomService {
+public class PayOSEcomServiceImpl implements PayOSEcomService {
 
     private static final DateTimeFormatter PAID_AT_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private final PayOS payOS;
