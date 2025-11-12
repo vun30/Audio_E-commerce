@@ -272,6 +272,7 @@ public class AccountServiceImpl implements AccountService {
     @Override
     public ResponseEntity<BaseResponse> loginFlatStaff(LoginRequest request) {
         return login(request, RoleEnum.FLATSTAFF);
+    }
 
     public ResponseEntity<BaseResponse> loginStaff(LoginRequest request) {
         return loginStaffInternal(request);
