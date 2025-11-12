@@ -243,7 +243,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false,                        // enforceCodDeposit = false (COD bỏ qua)
+                PaymentMethod.COD,                         // enforceCodDeposit = false (COD bỏ qua)
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),// truyền voucher theo shop
                 request.getServiceTypeIds()
@@ -259,7 +259,7 @@ public class CartServiceImpl implements CartService {
                 request.getItems(),
                 request.getAddressId(),
                 request.getMessage(),
-                false, // online không check deposit
+                PaymentMethod.ONLINE, // online không check deposit
                 request.getStoreVouchers(),
                 request.getPlatformVouchers(),
                 request.getServiceTypeIds()
@@ -296,10 +296,27 @@ public class CartServiceImpl implements CartService {
 
             String originProvince = null, originDistrict = null, originWard = null;
 
-            Product p = ci.getProduct();
-            originProvince = p.getProvinceCode();
-            originDistrict = p.getDistrictCode();
-            originWard = p.getWardCode();
+            if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                Product p = ci.getProduct();
+                originProvince = p.getProvinceCode();
+                originDistrict = p.getDistrictCode();
+                originWard = p.getWardCode();
+            } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                // Lấy mã origin từ 1 sản phẩm bất kỳ trong combo (ưu tiên cái có đủ code)
+                ProductCombo combo = ci.getCombo();
+                if (combo.getItems() != null) {
+                    for (var citem : combo.getItems()) {
+                        Product p = citem.getProduct();
+                        if (p != null && (p.getProvinceCode() != null || p.getDistrictCode() != null || p.getWardCode() != null)) {
+                            originProvince = p.getProvinceCode();
+                            originDistrict = p.getDistrictCode();
+                            originWard = p.getWardCode();
+                            break;
+                        }
+                    }
+                }
+                // Nếu không tìm được thì để null (FE tự xử lý hiển thị)
+            }
 
             return CartResponse.Item.builder()
                     .cartItemId(ci.getCartItemId())
@@ -327,13 +344,14 @@ public class CartServiceImpl implements CartService {
                 .build();
     }
 
+
     @Transactional
     protected List<CustomerOrder> createOrdersSplitByStore(
             UUID customerId,
             List<CheckoutItemRequest> itemsReq,
             UUID addressId,
             String message,
-            boolean enforceCodDeposit,
+            PaymentMethod paymentMethod,
             List<StoreVoucherUse> storeVouchers,
             List<PlatformVoucherUse> platformVouchers,
             Map<UUID, Integer> serviceTypeIds
@@ -370,28 +388,28 @@ public class CartServiceImpl implements CartService {
             itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
         }
 
-        // 2b) (tuỳ chọn) enforce COD deposit theo shop
-        if (enforceCodDeposit) {
-            BigDecimal ratio = codConfig.getCodDepositRatio();
-            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-                UUID storeIdKey = entry.getKey();
-                BigDecimal storeSubtotal = entry.getValue().stream()
-                        .map(CartItem::getLineTotal)
-                        .filter(Objects::nonNull)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
-                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
-                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
-                        .orElse(BigDecimal.ZERO);
-
-                if (deposit.compareTo(required) < 0) {
-                    throw new IllegalStateException(
-                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
-                                    + " required=" + required + " deposit=" + deposit);
-                }
-            }
-        }
+//        // 2b) (tuỳ chọn) enforce COD deposit theo shop
+//        if (enforceCodDeposit) {
+//            BigDecimal ratio = codConfig.getCodDepositRatio();
+//            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+//                UUID storeIdKey = entry.getKey();
+//                BigDecimal storeSubtotal = entry.getValue().stream()
+//                        .map(CartItem::getLineTotal)
+//                        .filter(Objects::nonNull)
+//                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+//
+//                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
+//                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
+//                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
+//                        .orElse(BigDecimal.ZERO);
+//
+//                if (deposit.compareTo(required) < 0) {
+//                    throw new IllegalStateException(
+//                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
+//                                    + " required=" + required + " deposit=" + deposit);
+//                }
+//            }
+//        }
 
         // 3) Lấy địa chỉ
         CustomerAddress addr;
@@ -409,6 +427,12 @@ public class CartServiceImpl implements CartService {
 
         Integer toDistrictId = addr.getDistrictId();
         String toWardCode = addr.getWardCode();
+
+        if (toDistrictId == null || toDistrictId <= 0 || toWardCode == null || toWardCode.isBlank()) {
+            throw new IllegalStateException(
+                    "Checkout address missing districtId/wardCode for GHN fee (addressId=" + addr.getId() + ")"
+            );
+        }
 
         // Dùng cho voucher services
         Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
@@ -465,11 +489,7 @@ public class CartServiceImpl implements CartService {
                     .shipNote(addr.getNote())
                     .build();
 
-            if (enforceCodDeposit) {
-                co.setPaymentMethod(PaymentMethod.COD);
-            } else {
-                co.setPaymentMethod(PaymentMethod.ONLINE);
-            }
+            co.setPaymentMethod(paymentMethod != null ? paymentMethod : PaymentMethod.ONLINE);
 
             // 4c) Items của riêng shop này
             List<CustomerOrderItem> coItems = new ArrayList<>();
