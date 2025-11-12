@@ -263,16 +263,77 @@ public class WarrantyServiceImpl implements WarrantyService {
 
         if (so.getItems() == null || so.getItems().isEmpty()) return List.of();
 
-        List<UUID> itemIds = so.getItems().stream()
+        // chỉ lấy item PRODUCT
+        List<StoreOrderItem> productItems = so.getItems().stream()
                 .filter(i -> "PRODUCT".equalsIgnoreCase(i.getType()))
-                .map(StoreOrderItem::getId)
                 .toList();
+        if (productItems.isEmpty()) return List.of();
 
-        if (itemIds.isEmpty()) return List.of();
+        List<UUID> itemIds = productItems.stream().map(StoreOrderItem::getId).toList();
+        // group warranties theo itemId
+        Map<UUID, List<Warranty>> byItemId = warrantyRepo.findByStoreOrderItemIdIn(itemIds)
+                .stream()
+                .collect(Collectors.groupingBy(Warranty::getStoreOrderItemId));
 
-        return warrantyRepo.findByStoreOrderItemIdIn(itemIds).stream()
-                .map(this::toWarrantyResponse)
-                .toList();
+        List<WarrantyResponse> out = new ArrayList<>();
+
+        for (StoreOrderItem item : productItems) {
+            int qty = Optional.ofNullable(item.getQuantity()).orElse(1);
+            List<Warranty> existing = byItemId.getOrDefault(item.getId(), List.of());
+
+            // 1) add các warranty đã kích hoạt
+            for (Warranty w : existing) {
+                out.add(toWarrantyResponse(w));
+            }
+
+            // 2) nếu còn thiếu ⇒ đẩy “placeholder” PENDING_ACTIVATION
+            int remain = Math.max(0, qty - existing.size());
+            if (remain > 0) {
+                // cần product + bối cảnh để build response
+                Product p = productRepo.findById(item.getRefId())
+                        .orElse(null); // nếu null vẫn render tối thiểu
+
+                // ngày mua tham chiếu
+                CustomerOrder co = so.getCustomerOrder();
+                LocalDate purchase = (co != null && co.getCreatedAt() != null)
+                        ? co.getCreatedAt().toLocalDate()
+                        : LocalDate.now();
+
+                for (int i = 0; i < remain; i++) {
+                    out.add(buildPendingActivationResponse(item, so, p, purchase));
+                }
+            }
+        }
+
+        // (tùy chọn) sắp xếp: đã kích hoạt trước, pending sau
+        out.sort(Comparator.comparing((WarrantyResponse r) -> "PENDING_ACTIVATION".equals(r.getStatus()))
+                .thenComparing(r -> Optional.ofNullable(r.getProductName()).orElse("")));
+        return out;
+    }
+
+    private WarrantyResponse buildPendingActivationResponse(
+            StoreOrderItem item, StoreOrder so, Product p, LocalDate purchaseRef
+    ) {
+        return WarrantyResponse.builder()
+                .id(null) // CHƯA có warranty record
+                .productId(p != null ? p.getProductId() : null)
+                .productName(p != null ? p.getName() : item.getName())
+                .storeId(so.getStore() != null ? so.getStore().getStoreId() : null)
+                .storeName(so.getStore() != null ? so.getStore().getStoreName() : null)
+                .customerId(so.getCustomerOrder() != null && so.getCustomerOrder().getCustomer() != null
+                        ? so.getCustomerOrder().getCustomer().getId() : null)
+                .customerName(so.getCustomerOrder() != null && so.getCustomerOrder().getCustomer() != null
+                        ? so.getCustomerOrder().getCustomer().getFullName() : null)
+                .serialNumber(null)
+                .policyCode(null)
+                .durationMonths(p != null ? resolveMonths(p) : null)
+                .purchaseDate(purchaseRef)
+                .startDate(null) // chưa kích hoạt
+                .endDate(null)
+                .status("PENDING_ACTIVATION") // chỉ dùng để render UI
+                .covered(false)
+                .stillValid(false)
+                .build();
     }
 
     private WarrantyResponse toWarrantyResponse(Warranty w) {
