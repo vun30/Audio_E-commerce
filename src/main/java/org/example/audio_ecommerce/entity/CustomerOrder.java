@@ -28,6 +28,9 @@ public class CustomerOrder {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(nullable = true)
+    private LocalDateTime deliveredAt;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 64, nullable = false)
     private OrderStatus status = OrderStatus.PENDING;

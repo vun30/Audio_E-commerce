@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -44,24 +45,40 @@ public class StoreOrderServiceImpl implements StoreOrderService {
             throw new IllegalArgumentException("Store does not own this order");
         }
 
-        // Parse string sang enum (an toàn hơn)
+        // Cập nhật status cho StoreOrder
         order.setStatus(status);
+
+        // ✅ Nếu store-order chuyển sang DELIVERY_SUCCESS → set deliveredAt
+        if (status == OrderStatus.DELIVERY_SUCCESS) {
+            order.setDeliveredAt(LocalDateTime.now());
+        }
+
         storeOrderRepository.save(order);
         storeOrderRepository.flush();
 
+        // ====== Đồng bộ trạng thái & deliveredAt cho CustomerOrder ======
         CustomerOrder customerOrder = order.getCustomerOrder();
         if (customerOrder != null) {
             var allStoreOrders = storeOrderRepository.findAllByCustomerOrder_Id(customerOrder.getId());
 
+            boolean allDelivered = allStoreOrders.stream()
+                    .allMatch(o -> o.getStatus() == OrderStatus.DELIVERY_SUCCESS);
+
             boolean allCompleted = allStoreOrders.stream()
                     .allMatch(o -> o.getStatus() == OrderStatus.COMPLETED);
+
             boolean allCancelled = allStoreOrders.stream()
                     .allMatch(o -> o.getStatus() == OrderStatus.CANCELLED);
+
             boolean anyShipping = allStoreOrders.stream()
                     .anyMatch(o -> o.getStatus() == OrderStatus.SHIPPING);
 
             OrderStatus customerNewStatus = customerOrder.getStatus();
-            if (allCompleted) {
+
+            // 👇 Ưu tiên DELIVERY_SUCCESS nếu tất cả store-order đã giao xong
+            if (allDelivered) {
+                customerNewStatus = OrderStatus.DELIVERY_SUCCESS;
+            } else if (allCompleted) {
                 customerNewStatus = OrderStatus.COMPLETED;
             } else if (allCancelled) {
                 customerNewStatus = OrderStatus.CANCELLED;
@@ -71,8 +88,15 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 customerNewStatus = OrderStatus.AWAITING_SHIPMENT;
             }
 
+            // Nếu status CustomerOrder thay đổi → set deliveredAt nếu là DELIVERY_SUCCESS
             if (customerOrder.getStatus() != customerNewStatus) {
                 customerOrder.setStatus(customerNewStatus);
+
+                if (customerNewStatus == OrderStatus.DELIVERY_SUCCESS) {
+                    // ✅ Khi toàn bộ store-order đã DELIVERY_SUCCESS → set deliveredAt cho CustomerOrder
+                    customerOrder.setDeliveredAt(LocalDateTime.now());
+                }
+
                 customerOrderRepository.saveAndFlush(customerOrder);
             }
         }
