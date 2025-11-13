@@ -7,5 +7,8 @@ public enum TransactionType {
         TRANSFER,    // Chuyển giữa ví
         WITHDRAW,    // Shop rút tiền
         DEPOSIT,    // Nạp tiền vào ví (nếu hệ thống có)
-        INITIALIZE  //Giao dịch mặc định khi khởi tạo ví
+        INITIALIZE,  //Giao dịch mặc định khi khởi tạo ví
+        PAYOUT_STORE,
+        PLATFORM_FEE,
+        SHIPPING_FEE_ADJUST
 }

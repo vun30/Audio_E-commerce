@@ -12,6 +12,7 @@ import java.util.UUID;
 
 public interface PlatformTransactionRepository extends JpaRepository<PlatformTransaction, UUID> {
 
+    List<PlatformTransaction> findAllByTypeAndStatus(TransactionType type, TransactionStatus status);
     // Lọc theo storeId
     List<PlatformTransaction> findByStoreId(UUID storeId);
 
