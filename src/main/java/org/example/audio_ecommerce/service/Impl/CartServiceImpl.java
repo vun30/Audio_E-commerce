@@ -51,16 +51,23 @@ public class CartServiceImpl implements CartService {
     public CartResponse addItems(UUID customerId, AddCartItemsRequest request) {
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
-        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
-                .orElseGet(() -> cartRepo.save(Cart.builder().customer(customer).status(CartStatus.ACTIVE).build()));
 
-        // Dùng key (type + refId) để merge
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseGet(() -> cartRepo.save(Cart.builder()
+                        .customer(customer)
+                        .status(CartStatus.ACTIVE)
+                        .build()));
+
+        // Map để merge các item trùng (type + refId)
         Map<String, CartItem> existingMap = new HashMap<>();
         for (CartItem it : Optional.ofNullable(cart.getItems()).orElseGet(ArrayList::new)) {
             String key = key(it.getType(), it.getReferenceId());
             existingMap.put(key, it);
         }
-        if (cart.getItems() == null) cart.setItems(new ArrayList<>());
+
+        if (cart.getItems() == null) {
+            cart.setItems(new ArrayList<>());
+        }
 
         for (var line : request.getItems()) {
             CartItemType type = CartItemType.valueOf(line.getType().toUpperCase(Locale.ROOT));
@@ -71,35 +78,41 @@ public class CartServiceImpl implements CartService {
                 Product p = productRepo.findById(refId)
                         .orElseThrow(() -> new NoSuchElementException("Product not found: " + refId));
 
-                // kiểm tồn đơn giản (nếu set)
+                // Kiểm tồn kho (chỉ kiểm theo qty thêm vào, không kiểm tổng vì có thể nhiều người cùng thêm)
                 if (p.getStockQuantity() != null && p.getStockQuantity() < qty) {
                     throw new IllegalStateException("Product out of stock: " + p.getName());
                 }
 
-                BigDecimal unit = (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
-                        ? p.getDiscountPrice() : (p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO);
-
                 String k = key(type, p.getProductId());
                 CartItem it = existingMap.get(k);
+
                 if (it == null) {
+                    int totalQty = qty;
+                    BigDecimal unitPrice = getUnitPriceWithBulk(p, totalQty);  // áp bulk ngay từ đầu
+
                     it = CartItem.builder()
                             .cart(cart)
                             .type(type)
                             .product(p)
-                            .quantity(qty)
-                            .unitPrice(unit)
-                            .lineTotal(unit.multiply(BigDecimal.valueOf(qty)))
+                            .quantity(totalQty)
+                            .unitPrice(unitPrice)
+                            .lineTotal(unitPrice.multiply(BigDecimal.valueOf(totalQty)))
                             .nameSnapshot(p.getName())
                             .imageSnapshot(firstImage(p.getImages()))
                             .build();
+
                     cart.getItems().add(it);
                     existingMap.put(k, it);
                 } else {
-                    it.setQuantity(it.getQuantity() + qty);
-                    it.setUnitPrice(unit); // cập nhật theo giá hiện tại
-                    it.setLineTotal(unit.multiply(BigDecimal.valueOf(it.getQuantity())));
+                    int totalQty = it.getQuantity() + qty;
+                    BigDecimal unitPrice = getUnitPriceWithBulk(p, totalQty);  // tính lại giá theo tổng
+
+                    it.setQuantity(totalQty);
+                    it.setUnitPrice(unitPrice);
+                    it.setLineTotal(unitPrice.multiply(BigDecimal.valueOf(totalQty)));
                 }
-            } else {
+
+            } else if (type == CartItemType.COMBO) {
                 ProductCombo c = comboRepo.findById(refId)
                         .orElseThrow(() -> new NoSuchElementException("Combo not found: " + refId));
 
@@ -107,20 +120,20 @@ public class CartServiceImpl implements CartService {
                     throw new IllegalStateException("Combo out of stock: " + c.getName());
                 }
 
-// ---- NEW: tính giá combo từ products ----
+                // Tính giá combo từ các product bên trong (có thể áp discountPrice của từng sp)
                 BigDecimal comboUnitPrice = c.getItems().stream()
                         .map(ci -> {
-                            Product p = ci.getProduct();
-                            BigDecimal base = (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
-                                    ? p.getDiscountPrice()
-                                    : p.getPrice();
-                            return base.multiply(BigDecimal.valueOf(ci.getQuantity())); // quantity trong combo item
+                            Product cp = ci.getProduct();
+                            BigDecimal base = (cp.getDiscountPrice() != null && cp.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
+                                    ? cp.getDiscountPrice()
+                                    : cp.getPrice();
+                            return base.multiply(BigDecimal.valueOf(ci.getQuantity()));
                         })
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-
                 String k = key(type, c.getComboId());
                 CartItem it = existingMap.get(k);
+
                 if (it == null) {
                     it = CartItem.builder()
                             .cart(cart)
@@ -135,17 +148,19 @@ public class CartServiceImpl implements CartService {
                     cart.getItems().add(it);
                     existingMap.put(k, it);
                 } else {
-                    it.setQuantity(it.getQuantity() + qty);
-                    it.setUnitPrice(comboUnitPrice);
-                    it.setLineTotal(comboUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
+                    int newQty = it.getQuantity() + qty;
+                    it.setQuantity(newQty);
+                    it.setUnitPrice(comboUnitPrice); // giá combo không đổi theo số lượng (trừ khi bạn muốn bulk cho combo)
+                    it.setLineTotal(comboUnitPrice.multiply(BigDecimal.valueOf(newQty)));
                 }
             }
         }
 
         recalcTotals(cart);
         cartRepo.save(cart);
-        // Không cần save item riêng vì cascade ALL đã lo, nhưng giữ cho chắc:
-        cartItemRepo.saveAll(cart.getItems());
+        // cascade ALL nên không cần save riêng items, nhưng giữ lại nếu muốn chắc chắn
+        // cartItemRepo.saveAll(cart.getItems());
+
         return toResponse(cart);
     }
 
@@ -646,13 +661,20 @@ public class CartServiceImpl implements CartService {
 
         // kiểm tồn tùy theo type
         if (item.getType() == CartItemType.PRODUCT && item.getProduct() != null) {
-            Integer stock = item.getProduct().getStockQuantity();
+            Product p = item.getProduct();
+            Integer stock = p.getStockQuantity();
             if (stock != null && stock < request.getQuantity()) {
-                throw new IllegalStateException("Product out of stock: " + item.getProduct().getName());
+                throw new IllegalStateException("Product out of stock: " + p.getName());
             }
-            item.setQuantity(request.getQuantity());
-            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+
+            int q = request.getQuantity();
+            item.setQuantity(q);
+
+            BigDecimal unit = getUnitPriceWithBulk(p, q);
+            item.setUnitPrice(unit);
+            item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
         } else {
+
             // COMBO
             ProductCombo combo = item.getCombo();
             Integer stock = combo != null ? combo.getStockQuantity() : null;
@@ -747,22 +769,33 @@ public class CartServiceImpl implements CartService {
             if (item == null) continue;
 
             // kiểm tồn
+            int q = line.getQuantity();
+
             if (type == CartItemType.PRODUCT && item.getProduct() != null) {
-                Integer stock = item.getProduct().getStockQuantity();
-                if (stock != null && stock < line.getQuantity()) {
-                    throw new IllegalStateException("Product out of stock: " + item.getProduct().getName());
+                Product p = item.getProduct();
+                Integer stock = p.getStockQuantity();
+                if (stock != null && stock < q) {
+                    throw new IllegalStateException("Product out of stock: " + p.getName());
                 }
+
+                item.setQuantity(q);
+                BigDecimal unit = getUnitPriceWithBulk(p, q);
+                item.setUnitPrice(unit);
+                item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
             } else {
+                // COMBO
                 ProductCombo combo = item.getCombo();
                 Integer stock = combo != null ? combo.getStockQuantity() : null;
-                if (stock != null && stock < line.getQuantity()) {
+                if (stock != null && stock < q) {
                     throw new IllegalStateException("Combo out of stock: " + (combo != null ? combo.getName() : ""));
                 }
+
+                item.setQuantity(q);
+                item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             }
 
-            item.setQuantity(line.getQuantity());
-            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             cartItemRepo.save(item);
+
         }
 
         recalcTotals(cart);
@@ -1128,6 +1161,55 @@ public class CartServiceImpl implements CartService {
         cartItemRepo.deleteAll(itemsToCheckout);
 
         return createdOrders;
+    }
+
+    // ================= BULK DISCOUNT HELPERS =================
+
+    /** Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price. */
+    private BigDecimal getBaseUnitPrice(Product p) {
+        if (p == null) return BigDecimal.ZERO;
+        if (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0) {
+            return p.getDiscountPrice();
+        }
+        if (p.getPrice() != null) {
+            return p.getPrice();
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * Áp bulk discount cho product theo tổng quantity.
+     * Nếu quantity nằm trong bất kỳ khoảng [from, to] thì dùng unitPrice của khoảng đó.
+     * Nếu không, trả về base price.
+     */
+    private BigDecimal getUnitPriceWithBulk(Product p, int quantity) {
+        BigDecimal base = getBaseUnitPrice(p);
+        if (p == null || p.getBulkDiscounts() == null || p.getBulkDiscounts().isEmpty()) {
+            return base;
+        }
+
+        BigDecimal best = base;
+        for (Product.BulkDiscount d : p.getBulkDiscounts()) {
+            if (d == null) continue;
+            Integer from = d.getFromQuantity();
+            Integer to = d.getToQuantity();
+            BigDecimal bulkUnit = d.getUnitPrice();
+
+            if (bulkUnit == null) continue;
+            int q = quantity;
+
+            // from null => 1, to null => vô hạn
+            int fromQ = (from == null ? 1 : from);
+            int toQ = (to == null ? Integer.MAX_VALUE : to);
+
+            if (q >= fromQ && q <= toQ) {
+                // Nếu match nhiều khoảng, bạn có thể chọn khoảng có giá thấp nhất.
+                if (best == null || bulkUnit.compareTo(best) < 0) {
+                    best = bulkUnit;
+                }
+            }
+        }
+        return best;
     }
 
 }
