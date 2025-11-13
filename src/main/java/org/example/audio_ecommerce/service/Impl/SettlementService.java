@@ -1,13 +1,19 @@
 package org.example.audio_ecommerce.service.Impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -15,12 +21,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SettlementService {
 
+    private static final Logger log = LoggerFactory.getLogger(SettlementService.class);
     private final PlatformWalletRepository platformWalletRepo;
     private final PlatformTransactionRepository platformTxRepo;
     private final WalletRepository walletRepo;
     private final WalletTransactionRepository walletTxRepo;
     private final StoreWalletRepository storeWalletRepo;
     private final StoreWalletTransactionRepository storeWalletTxRepo;
+    private final StoreOrderRepository storeOrderRepo;
+    private final GhnOrderRepository ghnOrderRepo;
+    private final PlatformFeeRepository platformFeeRepo;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
     public void recordCustomerQrPayment(UUID customerId, UUID orderId, BigDecimal amount) {
@@ -103,57 +114,170 @@ public class SettlementService {
 
     @Transactional
     public void releaseAfterHold(CustomerOrder order) {
-        Map<UUID, BigDecimal> storeTotals = order.getItems().stream()
-                .collect(Collectors.groupingBy(
-                        CustomerOrderItem::getStoreId,
-                        Collectors.mapping(CustomerOrderItem::getLineTotal,
-                                Collectors.reducing(BigDecimal.ZERO, BigDecimal::add))
-                ));
-
-        BigDecimal totalRelease = storeTotals.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<StoreOrder> storeOrders = storeOrderRepo.findAllByCustomerOrder_Id(order.getId());
+        if (storeOrders == null || storeOrders.isEmpty()) {
+            throw new IllegalStateException("No StoreOrders for CustomerOrder " + order.getId());
+        }
 
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
                 .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
-        // platform pending -> done
-        plat.setPendingBalance(plat.getPendingBalance().subtract(totalRelease));
-        plat.setDoneBalance(plat.getDoneBalance().add(totalRelease));
-        plat.setUpdatedAt(java.time.LocalDateTime.now());
-        platformWalletRepo.save(plat);
+        BigDecimal platformFeeRate = getCurrentPlatformFeeRate();
+        LocalDateTime now = LocalDateTime.now();
 
-        // update platform transactions of this order -> DONE
-        List<PlatformTransaction> ptxs = platformTxRepo.findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING);
-        for (PlatformTransaction p : ptxs) {
-            p.setStatus(TransactionStatus.DONE);
-            p.setUpdatedAt(java.time.LocalDateTime.now());
-        }
-        platformTxRepo.saveAll(ptxs);
+        BigDecimal totalProductsAllStores = BigDecimal.ZERO;
+        BigDecimal totalNetPayoutAllStores = BigDecimal.ZERO;
 
-        // move each store pending -> available
-        for (Map.Entry<UUID, BigDecimal> e : storeTotals.entrySet()) {
-            UUID storeId = e.getKey();
-            BigDecimal amount = e.getValue();
+        for (StoreOrder so : storeOrders) {
+            UUID storeId = so.getStore().getStoreId();
 
+            // 2.1 Tổng tiền sản phẩm
+            BigDecimal productsTotal = so.getItems().stream()
+                    .map(StoreOrderItem::getLineTotal)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            totalProductsAllStores = totalProductsAllStores.add(productsTotal);
+
+            // 2.2 Phí vận chuyển
+            BigDecimal actualShipFee = ghnOrderRepo.findByStoreOrderId(so.getId())
+                    .map(GhnOrder::getTotalFee)
+                    .orElse(BigDecimal.ZERO);
+            BigDecimal customerShipFee = Optional.ofNullable(so.getShippingFee()).orElse(BigDecimal.ZERO);
+            BigDecimal extraShip = actualShipFee.subtract(customerShipFee);
+            if (extraShip.compareTo(BigDecimal.ZERO) < 0) {
+                extraShip = BigDecimal.ZERO;
+            }
+
+            // 2.3 Phí nền tảng
+            BigDecimal platformFeeAmount = productsTotal.multiply(platformFeeRate)
+                    .setScale(0, RoundingMode.DOWN);
+
+            BigDecimal totalDeductions = extraShip.add(platformFeeAmount);
+
+            // 2.4 Net payout
+            BigDecimal netPayout = productsTotal.subtract(totalDeductions);
+            if (netPayout.compareTo(BigDecimal.ZERO) < 0) {
+                log.warn("[Settlement] netPayout < 0 → set to 0 | storeOrder={} | products={} | deductions={} | extraShip={} | platformFee={}",
+                        so.getId(), productsTotal, totalDeductions, extraShip, platformFeeAmount);
+                netPayout = BigDecimal.ZERO;
+            }
+            totalNetPayoutAllStores = totalNetPayoutAllStores.add(netPayout);
+
+            // GHI CHI TIẾT VÀO StoreOrder (rất quan trọng cho FE và đối soát)
+            so.setActualShippingFee(actualShipFee);
+            so.setShippingExtraForStore(extraShip);
+            so.setPlatformFeeAmount(platformFeeAmount);
+            so.setNetPayoutToStore(netPayout);
+
+            // Tạo JSON chi tiết để FE hiển thị đẹp
+            try {
+                ObjectNode detail = objectMapper.createObjectNode();
+                detail.put("productsTotal", productsTotal.longValueExact());
+                detail.put("customerShippingFee", customerShipFee.longValueExact());
+                detail.put("actualShippingFee", actualShipFee.longValueExact());
+                detail.put("shippingExtraForStore", extraShip.longValueExact());
+                detail.put("platformFeeRate", platformFeeRate.stripTrailingZeros().toPlainString());
+                detail.put("platformFeeAmount", platformFeeAmount.longValueExact());
+                detail.put("netPayoutToStore", netPayout.longValueExact());
+                detail.put("settledAt", now.toString());
+
+                so.setSettlementDetailJson(objectMapper.writeValueAsString(detail));
+            } catch (Exception e) {
+                log.error("[Settlement] Failed to build settlement_detail_json for storeOrder={}", so.getId(), e);
+                so.setSettlementDetailJson(null); // hoặc fallback string đơn giản
+            }
+
+            // Lưu StoreOrder trước khi cập nhật ví (vì có thể cần đọc lại)
+            storeOrderRepo.save(so);
+
+            // 2.5 Cập nhật StoreWallet
             StoreWallet sw = storeWalletRepo.findByStore_StoreId(storeId)
                     .orElseThrow(() -> new NoSuchElementException("Store wallet not found: " + storeId));
 
-            sw.setPendingBalance(sw.getPendingBalance().subtract(amount));
-            sw.setAvailableBalance(sw.getAvailableBalance().add(amount));
-            sw.setUpdatedAt(java.time.LocalDateTime.now());
+            BigDecimal oldPending = Optional.ofNullable(sw.getPendingBalance()).orElse(BigDecimal.ZERO);
+            BigDecimal oldAvailable = Optional.ofNullable(sw.getAvailableBalance()).orElse(BigDecimal.ZERO);
+
+            sw.setPendingBalance(oldPending.subtract(productsTotal).max(BigDecimal.ZERO));
+            sw.setAvailableBalance(oldAvailable.add(netPayout));
+            sw.setUpdatedAt(now);
             storeWalletRepo.save(sw);
 
-            StoreWalletTransaction stx = StoreWalletTransaction.builder()
+            // 2.6 Giao dịch ví shop
+            storeWalletTxRepo.save(StoreWalletTransaction.builder()
                     .wallet(sw)
                     .type(StoreWalletTransactionType.RELEASE_PENDING)
-                    .amount(amount)
+                    .amount(netPayout)
                     .balanceAfter(sw.getAvailableBalance())
-                    .description("Release after 7 days for order " + order.getId())
                     .orderId(order.getId())
-                    .createdAt(java.time.LocalDateTime.now())
-                    .build();
-            storeWalletTxRepo.save(stx);
+                    .description(String.format(
+                            "Release after hold | storeOrder=%s | net=%s", so.getId(), netPayout))
+                    .createdAt(now)
+                    .build());
+
+            // 2.7 Payout cho shop
+            platformTxRepo.save(PlatformTransaction.builder()
+                    .wallet(plat)
+                    .orderId(order.getId())
+                    .storeId(storeId)
+                    .amount(netPayout)
+                    .type(TransactionType.PAYOUT_STORE)
+                    .status(TransactionStatus.DONE)
+                    .description("Payout to store | storeOrder=" + so.getId())
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .build());
+
+            // 2.8 Phí nền tảng
+            if (platformFeeAmount.compareTo(BigDecimal.ZERO) > 0) {
+                platformTxRepo.save(PlatformTransaction.builder()
+                        .wallet(plat)
+                        .orderId(order.getId())
+                        .storeId(storeId)
+                        .amount(platformFeeAmount)
+                        .type(TransactionType.PLATFORM_FEE)
+                        .status(TransactionStatus.DONE)
+                        .description("Platform fee | storeOrder=" + so.getId())
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build());
+            }
+
+            // 2.9 Phí ship dôi
+            if (extraShip.compareTo(BigDecimal.ZERO) > 0) {
+                platformTxRepo.save(PlatformTransaction.builder()
+                        .wallet(plat)
+                        .orderId(order.getId())
+                        .storeId(storeId)
+                        .amount(extraShip)
+                        .type(TransactionType.SHIPPING_FEE_ADJUST)
+                        .status(TransactionStatus.DONE)
+                        .description("Extra shipping fee charged to store | storeOrder=" + so.getId())
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build());
+            }
         }
+
+        // 3. Cập nhật PlatformWallet tổng
+        plat.setPendingBalance(plat.getPendingBalance().subtract(totalProductsAllStores).max(BigDecimal.ZERO));
+        plat.setDoneBalance(
+                Optional.ofNullable(plat.getDoneBalance()).orElse(BigDecimal.ZERO).add(totalProductsAllStores));
+        plat.setUpdatedAt(now);
+        platformWalletRepo.save(plat);
+
+        // 4. Đánh dấu HOLD → DONE
+        platformTxRepo.findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
+                .forEach(tx -> {
+                    tx.setStatus(TransactionStatus.DONE);
+                    tx.setUpdatedAt(now);
+                });
+        // Nếu repo hỗ trợ saveAll thì tốt hơn
+        // platformTxRepo.saveAll(pendingTxs);
+
+        log.info("[Settlement] SUCCESS | orderId={} | totalProducts={} | totalPayoutToStores={} | stores={}",
+                order.getId(), totalProductsAllStores, totalNetPayoutAllStores, storeOrders.size());
     }
+
 
     @Transactional
     public void refundEntireOrderToCustomerWallet(CustomerOrder order) {
@@ -313,5 +437,13 @@ public class SettlementService {
                 .build();
         walletTxRepo.save(wtx);
     }
+
+    private BigDecimal getCurrentPlatformFeeRate() {
+        return platformFeeRepo.findFirstByIsActiveTrueOrderByEffectiveDateDesc()
+                .map(f -> f.getPercentage()
+                        .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)) // 5.00 → 0.0500
+                .orElse(BigDecimal.ZERO);
+    }
+
 
 }
