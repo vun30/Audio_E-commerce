@@ -334,4 +334,72 @@ public class StoreServiceImpl implements StoreService {
     public Optional<Store> getStoreByEmail(String email) {
         return storeRepository.findByAccount_Email(email);
     }
+
+@Override
+public ResponseEntity<BaseResponse> searchStores(String keyword, int page, int size) {
+
+    if (keyword == null || keyword.isBlank()) {
+        return ResponseEntity.ok(BaseResponse.error("❌ Keyword cannot be empty"));
+    }
+
+    // Chuẩn hóa keyword trước khi lọc
+    keyword = keyword.trim().toLowerCase();
+    String finalKeyword = keyword; // 🔥 cần cho lambda
+
+    Pageable pageable = PageRequest.of(page, size);
+
+    // Lấy danh sách store có chứa keyword (thô)
+    Page<Store> stores = storeRepository.findByStoreNameContainingIgnoreCase(keyword, pageable);
+
+    // 🔥 Lọc sạch: chỉ lấy store bắt đầu bằng keyword
+    List<Store> filtered = stores.getContent().stream()
+            .filter(s -> s.getStoreName() != null &&
+                    s.getStoreName().toLowerCase().startsWith(finalKeyword))
+            .toList();
+
+    // Map dữ liệu trả về
+    List<Map<String, Object>> results = filtered.stream().map(s -> {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("storeId", s.getStoreId());
+        m.put("storeName", s.getStoreName());
+        m.put("logoUrl", s.getLogoUrl());
+        m.put("email", s.getEmail());
+        m.put("phoneNumber", s.getPhoneNumber());
+        m.put("status", s.getStatus());
+        m.put("rating", s.getRating());
+
+        // Default Address
+        if (s.getStoreAddresses() != null && !s.getStoreAddresses().isEmpty()) {
+            var defaultAddress = s.getStoreAddresses().stream()
+                    .filter(a -> Boolean.TRUE.equals(a.getDefaultAddress()))
+                    .findFirst()
+                    .orElse(s.getStoreAddresses().get(0));
+
+            m.put("provinceCode", defaultAddress.getProvinceCode());
+            m.put("districtCode", defaultAddress.getDistrictCode());
+            m.put("wardCode", defaultAddress.getWardCode());
+            m.put("address", defaultAddress.getAddress());
+        }
+
+        return m;
+    }).toList();
+
+    // Build pagination chuẩn
+    Map<String, Object> pagination = Map.of(
+            "pageNumber", page,
+            "pageSize", size,
+            "totalElements", filtered.size(),
+            "totalPages", (int) Math.ceil((double) filtered.size() / size)
+    );
+
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("stores", results);
+    response.put("pagination", pagination);
+
+    return ResponseEntity.ok(BaseResponse.success(
+            "🔍 Kết quả tìm kiếm cửa hàng (prefix match)",
+            response
+    ));
+}
+
 }

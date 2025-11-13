@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.AiQueryRequest;
 import org.example.audio_ecommerce.dto.response.AiQueryResponse;
 import org.example.audio_ecommerce.service.AiQueryService;
+import org.example.audio_ecommerce.util.GeminiClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,6 +19,7 @@ import java.util.Map;
 public class AiQueryController {
 
     private final AiQueryService aiQueryService;
+    private final GeminiClient geminiClient;
 
     // ============================================================
     // ⚙️ ADMIN NẠP SCHEMA TOÀN CỤC
@@ -55,5 +57,11 @@ public class AiQueryController {
     public ResponseEntity<AiQueryResponse> query(@RequestBody AiQueryRequest request) {
         AiQueryResponse response = aiQueryService.handleUserQuery(request);
         return ResponseEntity.ok(response);
+    }
+
+     @PostMapping("/clear-memory")
+    public String clearMemory() {
+        geminiClient.clearAllData();
+        return "🧽 Đã xoá toàn bộ dữ liệu schema và hội thoại khỏi bộ nhớ GeminiClient.";
     }
 }
