@@ -194,7 +194,7 @@ private List<ProductVariantEntity> variants;
     private Boolean isFeatured;
     // 📝 NOTE: Sản phẩm nổi bật | Ví dụ: `true` (hiển thị trang chủ)
 
-    private Double  ratingAverage;
+    private BigDecimal ratingAverage;
     // 📝 NOTE: Điểm TB | Ví dụ: `4.7`
 
     private Integer reviewCount;

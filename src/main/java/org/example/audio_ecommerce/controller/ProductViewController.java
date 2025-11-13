@@ -34,7 +34,7 @@ public class ProductViewController {
             // 🔥 Filter bổ sung
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
-            @RequestParam(required = false) Double minRating,
+            @RequestParam(required = false) BigDecimal minRating,
 
             // Paging
             @RequestParam(defaultValue = "0") int page,
