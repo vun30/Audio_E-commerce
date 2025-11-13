@@ -25,7 +25,7 @@ public interface ProductViewService {
             String wardCode,
             BigDecimal minPrice,
             BigDecimal maxPrice,
-            Double minRating,
+            BigDecimal minRating,
             Pageable pageable
     );
 
