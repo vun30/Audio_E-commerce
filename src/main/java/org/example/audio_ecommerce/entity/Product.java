@@ -86,19 +86,8 @@ public class Product {
     // =========================================================
     // 🧩 PHÂN LOẠI SẢN PHẨM (VARIANT)
     // =========================================================
-    @ElementCollection
-    @CollectionTable(name = "product_variants", joinColumns = @JoinColumn(name = "product_id"))
-    private List<ProductVariant> variants;
-    // 📝 NOTE: Biến thể sản phẩm | Ví dụ: `[{optionName:"Color", optionValue:"Black"}, {optionName:"Capacity", optionValue:"32GB"}]`
-
-    @Embeddable
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ProductVariant {
-        private String optionName; // 📝 Ví dụ: `Color`, `Size`, `Capacity`
-        private String optionValue; // 📝 Ví dụ: `Black`, `M`, `32GB`
-    }
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+private List<ProductVariantEntity> variants;
 
     // =========================================================
     // 📸 HÌNH ẢNH & VIDEO
@@ -205,7 +194,7 @@ public class Product {
     private Boolean isFeatured;
     // 📝 NOTE: Sản phẩm nổi bật | Ví dụ: `true` (hiển thị trang chủ)
 
-    private BigDecimal ratingAverage;
+    private Double  ratingAverage;
     // 📝 NOTE: Điểm TB | Ví dụ: `4.7`
 
     private Integer reviewCount;

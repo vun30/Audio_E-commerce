@@ -25,10 +25,10 @@ public class AiQueryServiceImpl implements AiQueryService {
     private final String productSchema = """
             CREATE TABLE categories (
                 category_id CHAR(36) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL UNIQUE,     -- Tên danh mục: Loa, Micro, DAC, Mixer, Amp, ...
-                slug VARCHAR(255),
                 description TEXT,
                 icon_url VARCHAR(255),
+                name VARCHAR(255) NOT NULL UNIQUE,    -- 🔹 Tên danh mục sản phẩm (ví dụ: "Loa", "Tai Nghe", "Micro", ...)
+                slug VARCHAR(255),
                 sort_order INT
             );
             
@@ -38,134 +38,132 @@ public class AiQueryServiceImpl implements AiQueryService {
                 category_id CHAR(36) NOT NULL,
                 FOREIGN KEY (category_id) REFERENCES categories(category_id),
             
-                -- 🏷️ Thông tin chung
-                name VARCHAR(255),
-                brand_name VARCHAR(255) NOT NULL,
+                -- 🏷️ THÔNG TIN CHUNG
+                name VARCHAR(255),                    -- 🔹 Tên sản phẩm
+                brand_name VARCHAR(255) NOT NULL,     -- ⚠️ TÊN THƯƠNG HIỆU (người dùng nói "hãng", "brand", "hãng sản xuất" → dùng cột này, KHÔNG có cột 'brand')
                 slug VARCHAR(255),
-                short_description TEXT,
-                description LONGTEXT,
-                model VARCHAR(100),
-                color VARCHAR(100),
-                material VARCHAR(100),
-                dimensions VARCHAR(100),
-                weight DECIMAL(10,2),
+                short_description VARCHAR(255),       -- 🔹 Mô tả ngắn
+                description LONGTEXT,                 -- 🔹 Mô tả chi tiết
+                model VARCHAR(255),                   -- 🔹 Mã model
+                color VARCHAR(255),                   -- 🔹 Màu sắc
+                material VARCHAR(255),                -- 🔹 Chất liệu
+                dimensions VARCHAR(255),              -- 🔹 Kích thước
+                weight DECIMAL(38,2),                 -- 🔹 Trọng lượng (kg hoặc g)
             
-                -- 💰 Giá & tồn kho
-                sku VARCHAR(100),
-                price DECIMAL(15,2) NOT NULL,
-                discount_price DECIMAL(15,2),
-                promotion_percent DECIMAL(5,2),
-                price_after_promotion DECIMAL(15,2),
-                price_before_voucher DECIMAL(15,2),
-                voucher_amount DECIMAL(15,2),
-                final_price DECIMAL(15,2),
-                platform_fee_percent DECIMAL(5,2),
-                currency VARCHAR(10),
-                stock_quantity INT,
-                warehouse_location VARCHAR(255),
+                -- 💰 GIÁ & TỒN KHO
+                price DECIMAL(38,2) NOT NULL,         -- ⚠️ GIÁ GỐC (user nói “giá”, “price”, “giá bán” → dùng cột này)
             
-                -- 🚚 Vận chuyển
-                shipping_fee DECIMAL(15,2),
-                province_code VARCHAR(10),
-                district_code VARCHAR(10),
-                ward_code VARCHAR(10),
-                shipping_address VARCHAR(255),
+                -- 📊 TRẠNG THÁI & ĐÁNH GIÁ
+                status ENUM('ACTIVE','BANNED','DELETED','DISCONTINUED','DRAFT','INACTIVE','OUT_OF_STOCK','SUSPENDED','UNLISTED'),
+                is_featured BIT(1),
+                rating_average DECIMAL(38,2),         -- ⚠️ ĐIỂM ĐÁNH GIÁ TRUNG BÌNH (user nói “rating”, “điểm”, “đánh giá” → dùng cột này)
+                review_count INT,                     -- 🔹 Số lượng đánh giá
+                view_count INT,                       -- 🔹 Lượt xem sản phẩm
             
-                -- 📊 Trạng thái & đánh giá
-                status VARCHAR(20),
-                is_featured TINYINT(1),
-                rating_average DECIMAL(3,2),
-                review_count INT,
-                view_count INT,
-            
-                -- 🕒 Thời gian
-                created_at DATETIME,
-                updated_at DATETIME,
-                last_updated_at DATETIME,
-                last_update_interval_days BIGINT,
-                created_by CHAR(36),
-                updated_by CHAR(36),
-            
-                -- ⚙️ Thông số kỹ thuật
-                frequency_response VARCHAR(100),
-                sensitivity VARCHAR(100),
-                impedance VARCHAR(50),
-                power_handling VARCHAR(50),
-                connection_type VARCHAR(100),
-                voltage_input VARCHAR(50),
-                warranty_period VARCHAR(50),
-                warranty_type VARCHAR(100),
-                manufacturer_name VARCHAR(100),
+                -- ⚙️ THÔNG SỐ KỸ THUẬT
+                frequency_response VARCHAR(255),
+                sensitivity VARCHAR(255),
+                impedance VARCHAR(255),
+                power_handling VARCHAR(255),
+                connection_type VARCHAR(255),
+                voltage_input VARCHAR(255),
+                warranty_period VARCHAR(255),         -- 🔹 Thời hạn bảo hành
+                warranty_type VARCHAR(255),
+                manufacturer_name VARCHAR(255),       -- ⚠️ TÊN HÃNG SẢN XUẤT (đừng nhầm với brand_name)
                 manufacturer_address VARCHAR(255),
-                product_condition VARCHAR(50),
-                is_custom_made TINYINT(1),
+                product_condition VARCHAR(255),       -- 🔹 Tình trạng (Mới, Cũ, Refurbished, ...)
+                is_custom_made BIT(1),
             
-                -- 🔊 Loa (Speaker)
-                driver_configuration VARCHAR(100),
-                driver_size VARCHAR(100),
-                enclosure_type VARCHAR(100),
-                coverage_pattern VARCHAR(100),
-                crossover_frequency VARCHAR(100),
-                placement_type VARCHAR(100),
+                -- 🔊 LOA (SPEAKER)
+                driver_configuration VARCHAR(255),
+                driver_size VARCHAR(255),
+                enclosure_type VARCHAR(255),
+                coverage_pattern VARCHAR(255),
+                crossover_frequency VARCHAR(255),
+                placement_type VARCHAR(255),
             
-                -- 🎧 Tai nghe (Headphone)
-                headphone_type VARCHAR(100),
+                -- 🎧 TAI NGHE (HEADPHONE)
+                headphone_type VARCHAR(255),
                 compatible_devices VARCHAR(255),
-                is_sports_model TINYINT(1),
+                is_sports_model BIT(1),
                 headphone_features VARCHAR(255),
-                battery_capacity VARCHAR(50),
-                has_built_in_battery TINYINT(1),
-                is_gaming_headset TINYINT(1),
-                headphone_accessory_type VARCHAR(100),
-                headphone_connection_type VARCHAR(100),
-                plug_type VARCHAR(100),
-                sirim_approved TINYINT(1),
-                sirim_certified TINYINT(1),
-                mcmc_approved TINYINT(1),
+                battery_capacity VARCHAR(255),
+                has_built_in_battery BIT(1),
+                is_gaming_headset BIT(1),
+                headphone_accessory_type VARCHAR(255),
+                headphone_connection_type VARCHAR(255),
+                plug_type VARCHAR(255),
+                sirim_approved BIT(1),
+                sirim_certified BIT(1),
+                mcmc_approved BIT(1),
             
-                -- 🎤 Micro
-                mic_type VARCHAR(100),
-                polar_pattern VARCHAR(100),
-                max_spl VARCHAR(50),
-                mic_output_impedance VARCHAR(50),
-                mic_sensitivity VARCHAR(50),
+                -- 🎤 MICRO
+                mic_type VARCHAR(255),
+                polar_pattern VARCHAR(255),
+                maxspl VARCHAR(255),
+                mic_output_impedance VARCHAR(255),
+                mic_sensitivity VARCHAR(255),
             
-                -- 📻 Ampli / Receiver
-                amplifier_type VARCHAR(100),
-                total_power_output VARCHAR(100),
-                thd VARCHAR(50),
-                snr VARCHAR(50),
+                -- 📻 AMPLI / RECEIVER
+                amplifier_type VARCHAR(255),
+                total_power_output VARCHAR(255),
+                thd VARCHAR(255),
+                snr VARCHAR(255),
                 input_channels INT,
                 output_channels INT,
-                support_bluetooth TINYINT(1),
-                support_wifi TINYINT(1),
-                support_airplay TINYINT(1),
+                support_bluetooth BIT(1),
+                support_wifi BIT(1),
+                support_airplay BIT(1),
             
-                -- 📀 Turntable
-                platter_material VARCHAR(100),
-                motor_type VARCHAR(100),
-                tonearm_type VARCHAR(100),
-                auto_return TINYINT(1),
+                -- 📀 TURNTABLE
+                platter_material VARCHAR(255),
+                motor_type VARCHAR(255),
+                tonearm_type VARCHAR(255),
+                auto_return BIT(1),
             
-                -- 🎛️ DAC / Mixer / Sound Card
-                dac_chipset VARCHAR(100),
-                sample_rate VARCHAR(100),
-                bit_depth VARCHAR(50),
-                balanced_output TINYINT(1),
+                -- 🎛️ DAC / MIXER / SOUND CARD
+                dac_chipset VARCHAR(255),
+                sample_rate VARCHAR(255),
+                bit_depth VARCHAR(255),
+                balanced_output BIT(1),
                 input_interface VARCHAR(255),
                 output_interface VARCHAR(255),
                 channel_count INT,
-                has_phantom_power TINYINT(1),
-                eq_bands VARCHAR(100),
-                fader_type VARCHAR(100),
-                built_in_effects TINYINT(1),
-                usb_audio_interface TINYINT(1),
-                midi_support TINYINT(1)
+                has_phantom_power BIT(1),
+                eq_bands VARCHAR(255),
+                fader_type VARCHAR(255),
+                built_in_effects BIT(1),
+                usb_audio_interface BIT(1),
+                midi_support BIT(1),
+            
+                -- 🧩 CÁC CỘT PHỤ
+                video_url VARCHAR(255)
             );
             
-            -- ⚙️ Các danh mục phổ biến (categories.name):
-            -- "Tai Nghe", "Loa", "Micro", "DAC", "Mixer", "Amp",
-            -- "Turntable", "Sound Card", "DJ Controller", "Combo"
+            -- ⚙️ Ghi chú danh mục thường gặp:
+            -- "Tai Nghe", "Loa", "Micro", "DAC", "Mixer", "Amp", "Turntable", "Sound Card", "DJ Controller", "Combo"
+            
+            -- ⚠️ LƯU Ý ĐẶC BIỆT CHO AI KHI SINH SQL:
+            -- - KHÔNG tự tạo thêm tên cột mới. Chỉ được phép dùng các tên cột đã có trong 2 bảng trên.
+            -- - Nếu câu hỏi của người dùng chứa từ khóa lạ, hãy tìm cột tương đương gần nghĩa nhất trong schema này.
+            -- - Nếu không có cột tương ứng, trả về lỗi hoặc câu SQL trống, KHÔNG tự bịa ra cột mới.
+            --
+            -- 🔍 QUY TẮC ÁNH XẠ TỪ KHÓA → CỘT TƯƠNG ỨNG:
+            --   "brand" / "hãng" / "thương hiệu"         → products.brand_name
+            --   "hãng sản xuất"                          → products.manufacturer_name
+            --   "category" / "loại" / "danh mục"         → categories.name
+            --   "rating" / "điểm đánh giá" / "đánh giá"  → products.rating_average
+            --   "giá" / "price" / "cost" / "giá bán"     → products.price hoặc products.final_price
+            --   "số lượng còn" / "tồn kho"               → products.stock_quantity
+            --   "trạng thái"                             → products.status
+            --   "màu sắc" / "color"                      → products.color
+            --   "bảo hành"                               → products.warranty_period
+            --   "model"                                  → products.model
+            --
+            -- 🚫 KHÔNG DÙNG:
+            --   - 'brand' (phải dùng brand_name)
+            --   - 'categoryName' (phải JOIN categories c ON p.category_id = c.category_id)
+            --   - 'rating_star', 'brand_type', 'price_range' hoặc bất kỳ cột không có trong schema
             """;
 
 
@@ -176,11 +174,20 @@ public class AiQueryServiceImpl implements AiQueryService {
     public String initSchema() {
         try {
             geminiClient.initSchemaGlobal(this.productSchema);
-            return "✅ Product schema (rút gọn) đã nạp toàn cục vào Gemini.";
+
+            return """
+                    ✅ Product schema (rút gọn) đã nạp toàn cục vào Gemini.
+                    ---------------------------------------------
+                    📦 Nội dung schema đã gửi:
+                    %s
+                    ---------------------------------------------
+                    """.formatted(this.productSchema);
+
         } catch (Exception e) {
             return "⚠️ Lỗi khi nạp schema: " + e.getMessage();
         }
     }
+
 
     // ============================================================
     // 💬 SINH SQL TỪ PROMPT — PHÂN BIỆT USER

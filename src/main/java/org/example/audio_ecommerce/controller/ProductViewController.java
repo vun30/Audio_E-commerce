@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
@@ -17,6 +18,9 @@ public class ProductViewController {
 
     private final ProductViewService productViewService;
 
+    // ================================
+    // 🖼️ 1) Thumbnail list + Filters
+    // ================================
     @GetMapping
     public ResponseEntity<BaseResponse> getProductThumbnails(
             @RequestParam(required = false) String status,
@@ -26,23 +30,43 @@ public class ProductViewController {
             @RequestParam(required = false) String provinceCode,
             @RequestParam(required = false) String districtCode,
             @RequestParam(required = false) String wardCode,
+
+            // 🔥 Filter bổ sung
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(required = false) Double minRating,
+
+            // Paging
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
+
         Pageable pageable = PageRequest.of(page, size);
+
         return productViewService.getThumbnailView(
-                status, categoryId, storeId, keyword,
-                provinceCode, districtCode, wardCode, pageable
+                status,
+                categoryId,
+                storeId,
+                keyword,
+                provinceCode,
+                districtCode,
+                wardCode,
+                minPrice,
+                maxPrice,
+                minRating,
+                pageable
         );
     }
 
+    // ================================
+    // 🎯 2) PDP – Active vouchers
+    // ================================
     @GetMapping("/{productId}/vouchers")
-public ResponseEntity<BaseResponse> getProductVouchers(
-        @PathVariable UUID productId,
-        @RequestParam(required = false, defaultValue = "ALL") String type,
-        @RequestParam(required = false) String campaignType
-){
-    return productViewService.getActiveVouchersOfProduct(productId, type, campaignType);
-}
-
+    public ResponseEntity<BaseResponse> getProductVouchers(
+            @PathVariable UUID productId,
+            @RequestParam(required = false, defaultValue = "ALL") String type,
+            @RequestParam(required = false) String campaignType
+    ) {
+        return productViewService.getActiveVouchersOfProduct(productId, type, campaignType);
+    }
 }

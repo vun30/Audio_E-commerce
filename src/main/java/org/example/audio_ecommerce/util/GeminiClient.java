@@ -241,4 +241,10 @@ public class GeminiClient {
         userConversations.clear();
         System.out.println("🧽 Đã xóa toàn bộ hội thoại của người dùng.");
     }
+
+    public synchronized void clearAllData() {
+    this.globalSchemaSession = null;
+    this.userConversations.clear();
+    System.out.println("🧨 ĐÃ XOÁ TOÀN BỘ DỮ LIỆU CŨ (schema + hội thoại) KHỎI BỘ NHỚ LOCAL.");
+}
 }

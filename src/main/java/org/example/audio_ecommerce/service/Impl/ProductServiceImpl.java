@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service.Impl;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ProductRequest;
 import org.example.audio_ecommerce.dto.request.UpdateProductRequest;
+import org.example.audio_ecommerce.dto.request.VariantRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.ProductResponse;
 import org.example.audio_ecommerce.entity.*;
@@ -29,6 +30,7 @@ public class ProductServiceImpl implements ProductService {
     private final StoreRepository storeRepository;
     private final CategoryRepository categoryRepository;
     private final PlatformFeeRepository platformFeeRepository;
+    private final ProductVariantRepository productVariantRepository;
 
     // ============================================================
     // 🔧 Helper: Sinh slug duy nhất
@@ -107,6 +109,22 @@ public class ProductServiceImpl implements ProductService {
         p.setPlatformFeePercent(null);
 
         productRepository.save(p);
+        // ============================
+// 🔄 Lưu biến thể vào bảng riêng
+// ============================
+        if (req.getVariants() != null) {
+            for (VariantRequest v : req.getVariants()) {
+                ProductVariantEntity variant = new ProductVariantEntity();
+                variant.setProduct(p);
+                variant.setOptionName(v.getOptionName());
+                variant.setOptionValue(v.getOptionValue());
+                variant.setVariantPrice(v.getVariantPrice());
+                variant.setVariantStock(v.getVariantStock());
+                variant.setVariantSku(v.getVariantSku());
+                productVariantRepository.save(variant);
+            }
+        }
+
         return ResponseEntity.ok(new BaseResponse<>(201, "✅ Product created successfully", toResponse(p)));
     }
 
@@ -228,7 +246,7 @@ public class ProductServiceImpl implements ProductService {
         p.setStockQuantity(r.getStockQuantity());
         p.setShippingFee(r.getShippingFee());
         p.setSupportedShippingMethodIds(r.getSupportedShippingMethodIds());
-        if (r.getVariants() != null) p.setVariants(r.getVariants());
+
 
         if (r.getBulkDiscounts() != null)
             p.setBulkDiscounts(
@@ -325,7 +343,22 @@ public class ProductServiceImpl implements ProductService {
                 .material(p.getMaterial())
                 .dimensions(p.getDimensions())
                 .weight(p.getWeight())
-                .variants(p.getVariants())
+                // Lấy danh sách biến thể
+                .variants(
+                        productVariantRepository.findAllByProduct_ProductId(p.getProductId())
+                                .stream()
+                                .map(v -> new ProductResponse.VariantResponse(
+                                        v.getId(),
+                                        v.getOptionName(),
+                                        v.getOptionValue(),
+                                        v.getVariantPrice(),
+                                        v.getVariantStock(),
+                                        v.getVariantSku()
+                                ))
+                                .toList()
+                )
+
+
                 .images(p.getImages())
                 .videoUrl(p.getVideoUrl())
                 .sku(p.getSku())
@@ -502,7 +535,7 @@ public class ProductServiceImpl implements ProductService {
         if (r.getWeight() != null) p.setWeight(r.getWeight());
         if (r.getImages() != null) p.setImages(r.getImages());
         if (r.getVideoUrl() != null) p.setVideoUrl(r.getVideoUrl());
-        if (r.getVariants() != null) p.setVariants(r.getVariants());
+
 
         // ============================================================
         // 💰 GIÁ & KHO

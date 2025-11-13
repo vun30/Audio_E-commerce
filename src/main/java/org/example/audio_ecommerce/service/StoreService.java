@@ -56,4 +56,8 @@ public interface StoreService {
      * 🌟 Đặt một địa chỉ làm mặc định
      */
     ResponseEntity<BaseResponse> setDefaultAddress(int index);
+
+    ResponseEntity<BaseResponse> searchStores(String keyword, int page, int size);
+
+
 }

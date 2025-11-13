@@ -5,6 +5,7 @@ import org.example.audio_ecommerce.entity.Product;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +23,9 @@ public interface ProductViewService {
             String provinceCode,
             String districtCode,
             String wardCode,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Double minRating,
             Pageable pageable
     );
 
