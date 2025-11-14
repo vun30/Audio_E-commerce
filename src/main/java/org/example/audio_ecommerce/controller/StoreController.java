@@ -171,4 +171,13 @@ public class StoreController {
         StaffResponse staff = staffService.getStaffById(storeId, staffId);
         return ResponseEntity.ok(new BaseResponse<>(200, "Lấy staff thành công", staff));
     }
+
+      @GetMapping("/search")
+    public ResponseEntity<BaseResponse> searchStores(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return storeService.searchStores(keyword, page, size);
+    }
 }

@@ -85,7 +85,7 @@ public class ProductRequest {
     @Schema(description = "Địa chỉ kho hàng", example = "HCM - Quận 7")
     private String warehouseLocation;
 
-        // =========================================================
+    // =========================================================
     // 🌍 ĐỊA CHỈ HÀNH CHÍNH (CODE TỈNH, QUẬN, XÃ)
     // =========================================================
     @Schema(description = "Mã tỉnh/thành phố", example = "01 Hà Nội")
@@ -115,8 +115,8 @@ public class ProductRequest {
     // =========================================================
 // 🧩 BIẾN THỂ SẢN PHẨM
 // =========================================================
-    @Schema(description = "Danh sách biến thể của sản phẩm (VD: màu sắc, dung lượng, size, ...)")
-    private List<Product.ProductVariant> variants;
+    @Schema(description = "Danh sách biến thể của sản phẩm")
+    private List<VariantRequest> variants;
 
     // ======================
     // 🧮 Mua nhiều giảm giá (Bulk Discounts)

@@ -68,8 +68,32 @@ public class UpdateProductRequest {
     @Schema(description = "Video mô tả sản phẩm", example = "https://youtube.com/xyz123")
     private String videoUrl;
 
-    @Schema(description = "Danh sách biến thể sản phẩm (VD: màu sắc, dung lượng, size...)")
-    private List<Product.ProductVariant> variants;
+     @Schema(description = "Danh sách biến thể sản phẩm (VD: Màu sắc, Size, Dung lượng...)")
+    private List<VariantResponse> variants;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VariantResponse {
+
+        @Schema(description = "ID biến thể", example = "b8d3c8e5-6e11-4a96-b52f-1d84a0f3b2cd")
+        private UUID variantId;
+
+        @Schema(description = "Tên thuộc tính biến thể", example = "Color")
+        private String optionName;
+
+        @Schema(description = "Giá trị biến thể", example = "Black")
+        private String optionValue;
+
+        @Schema(description = "Giá riêng của biến thể", example = "1200000")
+        private BigDecimal variantPrice;
+
+        @Schema(description = "Tồn kho của biến thể", example = "30")
+        private Integer variantStock;
+
+        @Schema(description = "SKU riêng của biến thể (nếu có)", example = "SONY-SPK-001-BLACK")
+        private String variantSku;
+    }
 
     // =========================================================
     // 💰 GIÁ & KHO
@@ -86,7 +110,7 @@ public class UpdateProductRequest {
     @Schema(description = "Địa chỉ kho hàng", example = "HCM - Quận 7")
     private String warehouseLocation;
 
-        // =========================================================
+    // =========================================================
     // 🌍 ĐỊA CHỈ HÀNH CHÍNH (CODE TỈNH, QUẬN, XÃ)
     // =========================================================
     @Schema(description = "Mã tỉnh/thành phố", example = "01 Hà Nội")

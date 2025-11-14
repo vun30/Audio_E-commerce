@@ -17,7 +17,10 @@ public class AccountController {
 
     private final AccountService accountService;
 
-    // ========================= REGISTER =========================
+    // =====================================================
+    // 🧩 REGISTER (theo từng role)
+    // =====================================================
+
     @PostMapping("/register/customer")
     public ResponseEntity<BaseResponse> registerCustomer(@Valid @RequestBody RegisterRequest request) {
         return accountService.registerCustomer(request);
@@ -33,7 +36,15 @@ public class AccountController {
         return accountService.registerAdmin(request);
     }
 
-    // ========================= LOGIN =========================
+    @PostMapping("/register/flatstaff")
+    public ResponseEntity<BaseResponse> registerFlatStaff(@Valid @RequestBody RegisterRequest request) {
+        return accountService.registerFlatStaff(request);
+    }
+
+    // =====================================================
+    // 🔐 LOGIN (theo từng role)
+    // =====================================================
+
     @PostMapping("/login/customer")
     public ResponseEntity<BaseResponse> loginCustomer(@Valid @RequestBody LoginRequest request) {
         return accountService.loginCustomer(request);
@@ -44,21 +55,24 @@ public class AccountController {
         return accountService.loginStore(request);
     }
 
+
     @PostMapping("/login/admin")
     public ResponseEntity<BaseResponse> loginAdmin(@Valid @RequestBody LoginRequest request) {
         return accountService.loginAdmin(request);
     }
 
-    // ========================= REFRESH TOKEN =========================
+    @PostMapping("/login/flatstaff")
+    public ResponseEntity<BaseResponse> loginFlatStaff(@Valid @RequestBody LoginRequest request) {
+        return accountService.loginFlatStaff(request);
+    }
+
+
+    // =====================================================
+    // ♻️ REFRESH TOKEN
+    // =====================================================
+
     @PostMapping("/refresh")
     public ResponseEntity<BaseResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         return accountService.refreshToken(request);
     }
-
-    // controller/AuthController.java
-    @PostMapping("/auth/staff/login")
-    public ResponseEntity<BaseResponse> loginStaff(@RequestBody @Valid LoginRequest request) {
-        return accountService.loginStaff(request);
-    }
-
 }
