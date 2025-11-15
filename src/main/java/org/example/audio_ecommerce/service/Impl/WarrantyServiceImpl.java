@@ -311,6 +311,61 @@ public class WarrantyServiceImpl implements WarrantyService {
         return out;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<LogWarrantyResponse> listLogs(WarrantyLogSearchRequest req) {
+        if (req == null || req.getWarrantyId() == null) {
+            return List.of();
+        }
+
+        UUID warrantyId = req.getWarrantyId();
+
+        // 1) Lấy log theo warrantyId (+ status nếu có)
+        List<LogWarranty> logs;
+        if (req.getStatus() != null) {
+            logs = logWarrantyRepo.findByWarrantyIdAndStatus(warrantyId, req.getStatus());
+        } else {
+            logs = logWarrantyRepo.findByWarrantyId(warrantyId);
+        }
+
+        if (logs.isEmpty()) {
+            return List.of();
+        }
+
+        // 2) Filter theo customerId / storeId (nếu truyền vào)
+        UUID filterCustomerId = req.getCustomerId();
+        UUID filterStoreId = req.getStoreId();
+
+        return logs.stream()
+                .filter(log -> {
+                    Warranty w = log.getWarranty();
+                    if (w == null) return false;
+
+                    // filter theo customer
+                    if (filterCustomerId != null) {
+                        if (w.getCustomer() == null
+                                || w.getCustomer().getId() == null
+                                || !w.getCustomer().getId().equals(filterCustomerId)) {
+                            return false;
+                        }
+                    }
+
+                    // filter theo store
+                    if (filterStoreId != null) {
+                        if (w.getStore() == null
+                                || w.getStore().getStoreId() == null
+                                || !w.getStore().getStoreId().equals(filterStoreId)) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                })
+                .map(this::toLogResponse)
+                .toList();
+    }
+
+
     private WarrantyResponse buildPendingActivationResponse(
             StoreOrderItem item, StoreOrder so, Product p, LocalDate purchaseRef
     ) {
