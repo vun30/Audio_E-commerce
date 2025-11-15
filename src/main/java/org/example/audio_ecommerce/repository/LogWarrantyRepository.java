@@ -9,5 +9,5 @@ import java.util.UUID;
 
 public interface LogWarrantyRepository extends JpaRepository<LogWarranty, UUID> {
     List<LogWarranty> findByWarrantyId(UUID warrantyId);
-    List<LogWarranty> findByStatus(WarrantyLogStatus status);
+    List<LogWarranty> findByWarrantyIdAndStatus(UUID warrantyId, WarrantyLogStatus status);
 }

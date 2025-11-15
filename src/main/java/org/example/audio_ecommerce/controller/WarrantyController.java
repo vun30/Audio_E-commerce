@@ -289,4 +289,38 @@ public class WarrantyController {
         List<WarrantyResponse> data = warrantyService.listByStoreOrderId(storeOrderId);
         return ResponseEntity.ok(BaseResponse.success("OK", data));
     }
+
+    @Operation(
+            summary = "Lấy danh sách log bảo hành",
+            description = """
+        • API dùng chung cho cả khách và cửa hàng.  
+        • Tham số:
+          - `warrantyId` (bắt buộc)  
+          - `customerId` (optional) — nếu gọi từ phía khách.  
+          - `storeId` (optional) — nếu gọi từ phía cửa hàng.  
+          - `status` (optional) — filter theo trạng thái log (OPEN, COMPLETED, ...).  
+        • Nếu truyền cả `customerId` và `storeId` thì log phải match cả hai (thường chỉ nên dùng 1).  
+        """
+    )
+    @GetMapping("/logs")
+    public ResponseEntity<BaseResponse<List<LogWarrantyResponse>>> listLogs(
+            @RequestParam UUID warrantyId,
+
+            @RequestParam(required = false) UUID customerId,
+
+            @RequestParam(required = false) UUID storeId,
+
+            @RequestParam(required = false) WarrantyLogStatus status
+    ) {
+        WarrantyLogSearchRequest req = WarrantyLogSearchRequest.builder()
+                .warrantyId(warrantyId)
+                .customerId(customerId)
+                .storeId(storeId)
+                .status(status)
+                .build();
+
+        List<LogWarrantyResponse> data = warrantyService.listLogs(req);
+        return ResponseEntity.ok(BaseResponse.success("OK", data));
+    }
+
 }
