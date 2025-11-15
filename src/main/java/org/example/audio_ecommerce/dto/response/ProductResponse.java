@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.persistence.Column;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Product;
@@ -54,7 +55,7 @@ public class ProductResponse {
     // =========================================================
     // 🧩 BIẾN THỂ
     // =========================================================
-     @Schema(description = "Danh sách biến thể sản phẩm (VD: Màu sắc, Size, Dung lượng...)")
+    @Schema(description = "Danh sách biến thể sản phẩm (VD: Màu sắc, Size, Dung lượng...)")
     private List<VariantResponse> variants;
 
     @Data
@@ -76,6 +77,9 @@ public class ProductResponse {
 
         @Schema(description = "Tồn kho của biến thể", example = "30")
         private Integer variantStock;
+
+        @Schema(description = "URL hình ảnh của biến thể", example = "https://example.com/images/variant-black.jpg")
+        private String variantUrl;
 
         @Schema(description = "SKU riêng của biến thể (nếu có)", example = "SONY-SPK-001-BLACK")
         private String variantSku;
@@ -102,7 +106,7 @@ public class ProductResponse {
     private String currency;
     private Integer stockQuantity;
     private String warehouseLocation;
-        // =========================================================
+    // =========================================================
     // 🌍 ĐỊA CHỈ HÀNH CHÍNH (CODE TỈNH, QUẬN, XÃ)
     // =========================================================
     @Schema(description = "Mã tỉnh/thành phố", example = "01 Hà Nội")
