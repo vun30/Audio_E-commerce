@@ -87,7 +87,8 @@ public class Product {
     // 🧩 PHÂN LOẠI SẢN PHẨM (VARIANT)
     // =========================================================
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
-private List<ProductVariantEntity> variants;
+    @JsonIgnore
+    private List<ProductVariantEntity> variants;
 
     // =========================================================
     // 📸 HÌNH ẢNH & VIDEO
