@@ -387,7 +387,11 @@ public class CartServiceImpl implements CartService {
             cart.getItems().stream()
                     .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
                     .findFirst()
-                    .ifPresent(itemsToCheckout::add);
+                    .ifPresent(it -> {
+                        // NEW: override giá nếu có biến thể
+                        applyVariantOverrideIfAny(it, req);
+                        itemsToCheckout.add(it);
+                    });
         }
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for checkout");
@@ -947,7 +951,11 @@ public class CartServiceImpl implements CartService {
             cart.getItems().stream()
                     .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
                     .findFirst()
-                    .ifPresent(itemsToCheckout::add);
+                    .ifPresent(it -> {
+                        // NEW: override giá nếu có biến thể
+                        applyVariantOverrideIfAny(it, req);
+                        itemsToCheckout.add(it);
+                    });
         }
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for checkout");
@@ -1210,6 +1218,30 @@ public class CartServiceImpl implements CartService {
             }
         }
         return best;
+    }
+
+    // ================= VARIANT PRICE OVERRIDE HELPER =================
+
+    /**
+     * Nếu CheckoutItemRequest có variantUnitPrice thì:
+     *  - chỉ áp dụng cho PRODUCT (không áp dụng cho COMBO)
+     *  - override unitPrice + lineTotal của CartItem
+     *  - giá này sẽ được dùng để:
+     *      + check COD deposit
+     *      + tính subtotal, voucher, grandTotal ở checkout
+     */
+    private void applyVariantOverrideIfAny(CartItem item, CheckoutItemRequest req) {
+        if (req == null) return;
+        if (req.getVariantUnitPrice() == null) return;       // không có biến thể
+        if (item.getType() != CartItemType.PRODUCT) return;  // combo không dùng variant
+
+        BigDecimal variantPrice = req.getVariantUnitPrice();
+        if (variantPrice == null || variantPrice.compareTo(BigDecimal.ZERO) <= 0) return;
+
+        int qty = item.getQuantity() != null ? item.getQuantity() : 1;
+
+        item.setUnitPrice(variantPrice);
+        item.setLineTotal(variantPrice.multiply(BigDecimal.valueOf(qty)));
     }
 
 }
