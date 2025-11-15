@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.persistence.Column;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Product;
@@ -68,7 +69,7 @@ public class UpdateProductRequest {
     @Schema(description = "Video mô tả sản phẩm", example = "https://youtube.com/xyz123")
     private String videoUrl;
 
-     @Schema(description = "Danh sách biến thể sản phẩm (VD: Màu sắc, Size, Dung lượng...)")
+    @Schema(description = "Danh sách biến thể sản phẩm (VD: Màu sắc, Size, Dung lượng...)")
     private List<VariantResponse> variants;
 
     @Data
@@ -90,6 +91,9 @@ public class UpdateProductRequest {
 
         @Schema(description = "Tồn kho của biến thể", example = "30")
         private Integer variantStock;
+
+        @Schema(description = "URL hình ảnh riêng của biến thể (nếu có)", example = "https://example.com/variant-image.jpg")
+        private String variantUrl;
 
         @Schema(description = "SKU riêng của biến thể (nếu có)", example = "SONY-SPK-001-BLACK")
         private String variantSku;

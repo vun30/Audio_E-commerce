@@ -120,6 +120,7 @@ public class ProductServiceImpl implements ProductService {
                 variant.setOptionValue(v.getOptionValue());
                 variant.setVariantPrice(v.getVariantPrice());
                 variant.setVariantStock(v.getVariantStock());
+                variant.setVariantUrl(v.getVariantUrl());
                 variant.setVariantSku(v.getVariantSku());
                 productVariantRepository.save(variant);
             }
@@ -353,6 +354,7 @@ public class ProductServiceImpl implements ProductService {
                                         v.getOptionValue(),
                                         v.getVariantPrice(),
                                         v.getVariantStock(),
+                                        v.getVariantUrl(),
                                         v.getVariantSku()
                                 ))
                                 .toList()
@@ -478,26 +480,46 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public ResponseEntity<BaseResponse> getProductById(UUID id) {
+public ResponseEntity<BaseResponse> getProductById(UUID id) {
+    try {
         Product p = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("❌ Product not found"));
-        return ResponseEntity.ok(new BaseResponse<>(200, "🔎 Product detail", toResponse(p)));
+
+        return ResponseEntity.ok(
+                new BaseResponse<>(200, "🔎 Product detail", toResponse(p))
+        );
+
+    } catch (Exception e) {
+        System.err.println("❌ [getProductById ERROR] ID = " + id);
+        System.err.println("❌ Error Type: " + e.getClass().getSimpleName());
+        System.err.println("❌ Error Message: " + e.getMessage());
+        e.printStackTrace();
+
+        return ResponseEntity.internalServerError().body(
+                BaseResponse.error("❌ getProductById failed: " + e.getMessage())
+        );
     }
+}
 
     @Override
-    public ResponseEntity<BaseResponse> getAllProducts(
-            String categoryName, UUID storeId, String keyword, int page, int size, ProductStatus status) {
+public ResponseEntity<BaseResponse> getAllProducts(
+        String categoryName,
+        UUID storeId,
+        String keyword,
+        int page,
+        int size,
+        ProductStatus status
+) {
+    try {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Product> products = productRepository.findAll(pageable);
 
-        // Danh sách tên hợp lệ để FE select filter (có thể customize thêm sau)
         List<String> validCategoryNames = List.of(
                 "Tai Nghe", "Loa", "Micro", "DAC", "Mixer", "Amp",
                 "Turntable", "Sound Card", "DJ Controller", "Combo"
         );
 
-        // Chuẩn hóa tên danh mục được gửi từ FE
         final String normalizedCategory =
                 (categoryName != null && !categoryName.isBlank())
                         ? validCategoryNames.stream()
@@ -517,8 +539,27 @@ public class ProductServiceImpl implements ProductService {
                 .map(this::toResponse)
                 .toList();
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Product list filtered successfully", filtered));
+        return ResponseEntity.ok(
+                new BaseResponse<>(200, "📦 Product list filtered successfully", filtered)
+        );
+
+    } catch (Exception e) {
+        System.err.println("❌ [getAllProducts ERROR]");
+        System.err.println("   categoryName = " + categoryName);
+        System.err.println("   storeId      = " + storeId);
+        System.err.println("   keyword      = " + keyword);
+        System.err.println("   page/size    = " + page + "/" + size);
+        System.err.println("   status       = " + status);
+        System.err.println("❌ Error Type: " + e.getClass().getSimpleName());
+        System.err.println("❌ Error Message: " + e.getMessage());
+        e.printStackTrace();
+
+        return ResponseEntity.internalServerError().body(
+                BaseResponse.error("❌ getAllProducts failed: " + e.getMessage())
+        );
     }
+}
+
 
     private void mapUpdateRequestToProduct(Product p, UpdateProductRequest r) {
 

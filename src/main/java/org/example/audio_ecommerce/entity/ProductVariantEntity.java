@@ -31,6 +31,9 @@ public class ProductVariantEntity {
     @Column(nullable = false)
     private Integer variantStock;
 
+    @Column(nullable = false)
+    private String variantUrl;
+
     @Column(unique = false)
     private String variantSku;     // SKU riêng của biến thể
 
