@@ -24,6 +24,7 @@ public interface WarrantyService {
 
     WarrantyReviewResponse review(UUID logId, UUID customerId, WarrantyReviewRequest req);
     List<WarrantyResponse> listByStoreOrderId(UUID storeOrderId);
+    List<LogWarrantyResponse> listLogs(WarrantyLogSearchRequest req);
 
     @lombok.Value
     @lombok.Builder
