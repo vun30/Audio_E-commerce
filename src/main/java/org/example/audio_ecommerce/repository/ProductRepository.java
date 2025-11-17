@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.repository;
 
 import org.example.audio_ecommerce.entity.Product;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.entity.Store;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -96,4 +97,8 @@ Page<Product> findAllWithAdvancedFilters(
         @Param("wardCode") String wardCode,
         Pageable pageable
 );
+
+     @Query("SELECT p.store FROM Product p WHERE p.productId = :productId")
+Optional<Store> findStoreByProductId(UUID productId);
+
 }

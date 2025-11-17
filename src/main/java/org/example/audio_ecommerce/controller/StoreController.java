@@ -111,30 +111,34 @@ public class StoreController {
         return storeService.addStoreAddress(request);
     }
 
-    @Operation(summary = "✏️ Cập nhật địa chỉ theo index (của cửa hàng đang đăng nhập)")
-    @PutMapping("/me/addresses/{index}")
+    @Operation(summary = "✏️ Cập nhật một địa chỉ theo addressId của cửa hàng đang đăng nhập")
+    @PutMapping("/me/addresses/{addressId}")
     public ResponseEntity<BaseResponse> updateStoreAddress(
-            @Parameter(description = "Vị trí index của địa chỉ trong danh sách", example = "0")
-            @PathVariable int index,
-            @Valid @RequestBody StoreAddressRequest request) {
-        return storeService.updateStoreAddress(index, request);
+            @Parameter(description = "UUID của địa chỉ cần cập nhật")
+            @PathVariable UUID addressId,
+            @Valid @RequestBody StoreAddressRequest request
+    ) {
+        return storeService.updateStoreAddress(addressId, request);
     }
 
-    @Operation(summary = "🗑️ Xóa địa chỉ theo index (của cửa hàng đang đăng nhập)")
-    @DeleteMapping("/me/addresses/{index}")
+    @Operation(summary = "🗑️ Xóa một địa chỉ theo addressId của cửa hàng đang đăng nhập")
+    @DeleteMapping("/me/addresses/{addressId}")
     public ResponseEntity<BaseResponse> deleteStoreAddress(
-            @Parameter(description = "Vị trí index của địa chỉ trong danh sách", example = "0")
-            @PathVariable int index) {
-        return storeService.deleteStoreAddress(index);
+            @Parameter(description = "UUID của địa chỉ cần xoá")
+            @PathVariable UUID addressId
+    ) {
+        return storeService.deleteStoreAddress(addressId);
     }
 
-    @Operation(summary = "🌟 Đặt một địa chỉ làm mặc định (của cửa hàng đang đăng nhập)")
-    @PatchMapping("/me/addresses/{index}/default")
+    @Operation(summary = "🌟 Đặt một địa chỉ làm mặc định theo addressId (của cửa hàng đang đăng nhập)")
+    @PatchMapping("/me/addresses/{addressId}/default")
     public ResponseEntity<BaseResponse> setDefaultAddress(
-            @Parameter(description = "Index của địa chỉ cần đặt làm mặc định", example = "0")
-            @PathVariable int index) {
-        return storeService.setDefaultAddress(index);
+            @Parameter(description = "UUID của địa chỉ cần đặt mặc định")
+            @PathVariable UUID addressId
+    ) {
+        return storeService.setDefaultAddress(addressId);
     }
+
 
     @Operation(summary = "Danh sách tất cả staff của cửa hàng")
     @GetMapping("/{storeId}/staff")
@@ -172,7 +176,7 @@ public class StoreController {
         return ResponseEntity.ok(new BaseResponse<>(200, "Lấy staff thành công", staff));
     }
 
-      @GetMapping("/search")
+    @GetMapping("/search")
     public ResponseEntity<BaseResponse> searchStores(
             @RequestParam String keyword,
             @RequestParam(defaultValue = "0") int page,
@@ -180,4 +184,13 @@ public class StoreController {
     ) {
         return storeService.searchStores(keyword, page, size);
     }
+
+    @Operation(summary = "📦 Lấy địa chỉ mặc định của store dựa vào productId")
+    @GetMapping("/address/default-by-product/{productId}")
+    public ResponseEntity<BaseResponse> getDefaultAddressByProduct(
+            @PathVariable UUID productId
+    ) {
+        return storeService.getDefaultAddressByProductId(productId);
+    }
+
 }

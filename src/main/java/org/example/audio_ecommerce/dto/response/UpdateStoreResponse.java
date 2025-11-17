@@ -21,36 +21,38 @@ public class UpdateStoreResponse {
     @Schema(description = "Tên cửa hàng", example = "AudioPro Store")
     private String storeName;
 
-    @Schema(description = "Mô tả cửa hàng", example = "Cửa hàng thiết bị âm thanh cao cấp")
+    @Schema(description = "Mô tả cửa hàng", example = "Cung cấp thiết bị âm thanh cao cấp")
     private String description;
 
-    @Schema(description = "Logo của cửa hàng", example = "https://cdn.example.com/logo.png")
+    @Schema(description = "URL logo cửa hàng", example = "https://cdn.example.com/logo.png")
     private String logoUrl;
 
-    @Schema(description = "Ảnh bìa cửa hàng", example = "https://cdn.example.com/cover.jpg")
+    @Schema(description = "Ảnh bìa của cửa hàng", example = "https://cdn.example.com/cover.jpg")
     private String coverImageUrl;
 
     @Schema(description = "Địa chỉ chính của cửa hàng", example = "123 Nguyễn Trãi, Hà Nội")
     private String address;
 
-    @Schema(description = "Số điện thoại liên hệ", example = "0987654321")
+    @Schema(description = "Số điện thoại cửa hàng", example = "0987654321")
     private String phoneNumber;
 
     @Schema(description = "Email cửa hàng", example = "audiopro@gmail.com")
     private String email;
 
-    // =========================================================
-    // 🏢 DANH SÁCH ĐỊA CHỈ CHI NHÁNH / KHO CỦA CỬA HÀNG
-    // =========================================================
-    @Schema(description = "Danh sách địa chỉ chi nhánh hoặc kho của cửa hàng")
+    @Schema(description = "Danh sách địa chỉ chi nhánh/kho sau khi cập nhật")
     private List<StoreAddressResponse> storeAddresses;
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
+    @Builder
     public static class StoreAddressResponse {
-        @Schema(description = "Địa chỉ mặc định hay ko", example = "true")
-        private Boolean  defaultAddress; // Địa chỉ mặc định
+
+        @Schema(description = "ID địa chỉ", example = "8b8b0a74-1c5e-4f8e-9a0b-123456789abc")
+        private UUID addressId;
+
+        @Schema(description = "Đây có phải địa chỉ mặc định không", example = "true")
+        private Boolean defaultAddress;
 
         @Schema(description = "Mã tỉnh/thành phố", example = "01")
         private String provinceCode;
@@ -66,7 +68,5 @@ public class UpdateStoreResponse {
 
         @Schema(description = "Tọa độ hoặc vị trí GPS", example = "10.776530,106.700981")
         private String addressLocation;
-
-
     }
 }

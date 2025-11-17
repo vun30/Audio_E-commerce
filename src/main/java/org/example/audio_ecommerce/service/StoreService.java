@@ -29,7 +29,7 @@ public interface StoreService {
 
 
     // =========================================================
-    // 🏠 STORE ADDRESS CRUD
+    // 🏠 STORE ADDRESS CRUD (dùng UUID)
     // =========================================================
 
     /**
@@ -43,21 +43,25 @@ public interface StoreService {
     ResponseEntity<BaseResponse> addStoreAddress(StoreAddressRequest req);
 
     /**
-     * ✏️ Cập nhật địa chỉ của cửa hàng theo index
+     * ✏️ Cập nhật địa chỉ theo addressId
      */
-    ResponseEntity<BaseResponse> updateStoreAddress(int index, StoreAddressRequest req);
+    ResponseEntity<BaseResponse> updateStoreAddress(UUID addressId, StoreAddressRequest req);
 
     /**
-     * ❌ Xóa một địa chỉ theo index
+     * ❌ Xóa một địa chỉ theo addressId
      */
-    ResponseEntity<BaseResponse> deleteStoreAddress(int index);
+    ResponseEntity<BaseResponse> deleteStoreAddress(UUID addressId);
 
     /**
-     * 🌟 Đặt một địa chỉ làm mặc định
+     * 🌟 Đặt một địa chỉ làm mặc định theo addressId
      */
-    ResponseEntity<BaseResponse> setDefaultAddress(int index);
+    ResponseEntity<BaseResponse> setDefaultAddress(UUID addressId);
 
+    /**
+     * 🔍 Tìm kiếm store
+     */
     ResponseEntity<BaseResponse> searchStores(String keyword, int page, int size);
 
+    ResponseEntity<BaseResponse> getDefaultAddressByProductId(UUID productId);
 
 }
