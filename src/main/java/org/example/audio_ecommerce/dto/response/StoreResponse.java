@@ -32,7 +32,7 @@ public class StoreResponse {
     @Schema(description = "Ảnh bìa của cửa hàng", example = "https://cdn.example.com/cover.jpg")
     private String coverImageUrl;
 
-    @Schema(description = "Địa chỉ chính của cửa hàng", example = "123 Nguyễn Trãi, Hà Nội")
+    @Schema(description = "Địa chỉ hiển thị bên ngoài", example = "123 Nguyễn Trãi, Hà Nội")
     private String address;
 
     @Schema(description = "Số điện thoại liên hệ", example = "0987654321")
@@ -53,7 +53,7 @@ public class StoreResponse {
     // =========================================================
     // 🏢 DANH SÁCH ĐỊA CHỈ CHI NHÁNH / KHO CỦA CỬA HÀNG
     // =========================================================
-    @Schema(description = "Danh sách địa chỉ chi nhánh hoặc kho của cửa hàng")
+    @Schema(description = "Danh sách địa chỉ chi nhánh/kho của cửa hàng")
     private List<StoreAddressResponse> storeAddresses;
 
     @Data
@@ -61,8 +61,12 @@ public class StoreResponse {
     @AllArgsConstructor
     public static class StoreAddressResponse {
 
-        @Schema(description = "Địa chỉ mặc định hay ko", example = "true")
-        private Boolean  defaultAddress; // Địa chỉ mặc định
+        @Schema(description = "ID địa chỉ chi nhánh/kho",
+                example = "6a3a2e78-1710-4571-9239-c23c7aaf9012")
+        private UUID addressId;
+
+        @Schema(description = "Địa chỉ mặc định hay không", example = "true")
+        private Boolean defaultAddress;
 
         @Schema(description = "Mã tỉnh/thành phố", example = "01")
         private String provinceCode;
@@ -78,7 +82,5 @@ public class StoreResponse {
 
         @Schema(description = "Tọa độ hoặc vị trí GPS", example = "10.776530,106.700981")
         private String addressLocation;
-
-
     }
 }

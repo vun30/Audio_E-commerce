@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
@@ -78,25 +79,12 @@ public class Store {
     // =========================================================
 // 🏢 DANH SÁCH ĐỊA CHỈ CHI NHÁNH / KHO CỦA CỬA HÀNG
 // =========================================================
-    @ElementCollection
-    @CollectionTable(
-            name = "store_addresses",
-            joinColumns = @JoinColumn(name = "store_id")
+    @OneToMany(
+            mappedBy = "store",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY
     )
-    private List<StoreAddress> storeAddresses;
-
-    @Embeddable
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class StoreAddress {
-              // Địa chỉ mặc định
-        private Boolean  defaultAddress;    // Địa chỉ mặc định
-        private String provinceCode;      // 🏙️ Mã tỉnh/thành phố | VD: "01"
-        private String districtCode;      // 🏘️ Mã quận/huyện | VD: "760"
-        private String wardCode;          // 🏡 Mã phường/xã | VD: "26734"
-        private String address;           // 📍 Địa chỉ chi tiết | VD: "123 Nguyễn Trãi, Q1, TP.HCM"
-        private String addressLocation;   // 🌍 Toạ độ hoặc mô tả vị trí | VD: "10.762622,106.660172"
-
-    }
+    @JsonManagedReference
+    private List<StoreAddressEntity> storeAddresses;
 }
