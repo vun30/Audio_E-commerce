@@ -211,16 +211,30 @@ public class StoreServiceImpl implements StoreService {
         if (store.getStoreAddresses() == null || store.getStoreAddresses().isEmpty())
             throw new RuntimeException("❌ Store has no addresses");
 
-        boolean removed = store.getStoreAddresses().removeIf(a -> a.getId().equals(addressId));
+        // 🔍 tìm địa chỉ theo ID
+        StoreAddressEntity target = store.getStoreAddresses().stream()
+                .filter(a -> a.getId().equals(addressId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("❌ Address not found"));
 
-        if (!removed) {
-            throw new RuntimeException("❌ Address not found");
+        // ❌ Không cho phép xóa địa chỉ mặc định
+        if (Boolean.TRUE.equals(target.getDefaultAddress())) {
+            return ResponseEntity.badRequest().body(
+                    new BaseResponse<>(400, "❌ Cannot delete default address", null)
+            );
         }
 
+        // ✔ Nếu hợp lệ → xóa
+        store.getStoreAddresses().remove(target);
+
+        // ✔ Đảm bảo vẫn chỉ có 1 default (không động gì nếu default không bị xóa)
         ensureSingleDefault(store);
+
         storeRepository.save(store);
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "🗑️ Address deleted successfully", store.getStoreAddresses()));
+        return ResponseEntity.ok(
+                new BaseResponse<>(200, "🗑️ Address deleted successfully", store.getStoreAddresses())
+        );
     }
 
     public ResponseEntity<BaseResponse> setDefaultAddress(UUID addressId) {
@@ -472,37 +486,37 @@ public class StoreServiceImpl implements StoreService {
     }
 
     @Override
-public ResponseEntity<BaseResponse> getDefaultAddressByProductId(UUID productId) {
+    public ResponseEntity<BaseResponse> getDefaultAddressByProductId(UUID productId) {
 
-    // 1. Lấy store từ productId
-    Store store = productRepository.findStoreByProductId(productId)
-            .orElseThrow(() -> new RuntimeException("❌ Store not found for this product"));
+        // 1. Lấy store từ productId
+        Store store = productRepository.findStoreByProductId(productId)
+                .orElseThrow(() -> new RuntimeException("❌ Store not found for this product"));
 
-    // 2. Kiểm tra list address
-    if (store.getStoreAddresses() == null || store.getStoreAddresses().isEmpty()) {
-        return ResponseEntity.ok(BaseResponse.error("❌ Store has no addresses"));
+        // 2. Kiểm tra list address
+        if (store.getStoreAddresses() == null || store.getStoreAddresses().isEmpty()) {
+            return ResponseEntity.ok(BaseResponse.error("❌ Store has no addresses"));
+        }
+
+        // 3. Tìm địa chỉ mặc định
+        StoreAddressEntity defaultAddress = store.getStoreAddresses().stream()
+                .filter(a -> Boolean.TRUE.equals(a.getDefaultAddress()))
+                .findFirst()
+                .orElse(store.getStoreAddresses().get(0)); // fallback
+
+        // 4. Build response object
+        Map<String, Object> result = Map.of(
+                "storeId", store.getStoreId(),
+                "productId", productId,
+                "addressId", defaultAddress.getId(),
+                "provinceCode", defaultAddress.getProvinceCode(),
+                "districtCode", defaultAddress.getDistrictCode(),
+                "wardCode", defaultAddress.getWardCode(),
+                "address", defaultAddress.getAddress(),
+                "location", defaultAddress.getAddressLocation()
+        );
+
+        return ResponseEntity.ok(new BaseResponse<>(200, "📦 Default store address retrieved", result));
     }
-
-    // 3. Tìm địa chỉ mặc định
-    StoreAddressEntity defaultAddress = store.getStoreAddresses().stream()
-            .filter(a -> Boolean.TRUE.equals(a.getDefaultAddress()))
-            .findFirst()
-            .orElse(store.getStoreAddresses().get(0)); // fallback
-
-    // 4. Build response object
-    Map<String, Object> result = Map.of(
-            "storeId", store.getStoreId(),
-            "productId", productId,
-            "addressId", defaultAddress.getId(),
-            "provinceCode", defaultAddress.getProvinceCode(),
-            "districtCode", defaultAddress.getDistrictCode(),
-            "wardCode", defaultAddress.getWardCode(),
-            "address", defaultAddress.getAddress(),
-            "location", defaultAddress.getAddressLocation()
-    );
-
-    return ResponseEntity.ok(new BaseResponse<>(200, "📦 Default store address retrieved", result));
-}
 
 
 }
