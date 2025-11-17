@@ -61,11 +61,71 @@ public class ProductServiceImpl implements ProductService {
                 .sum();
     }
 
+
+    // 🔐 Helper: kiểm tra store đang đăng nhập có địa chỉ default hay chưa
+// ============================================================
+    private void ensureStoreHasDefaultAddress() {
+
+        // 1️⃣ Lấy principal từ token
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        UUID accountId = null;
+
+        try {
+            // Token dạng "email:ROLE:UUID"
+            if (principal.contains(":")) {
+                String[] parts = principal.split(":");
+                for (String p : parts) {
+                    try {
+                        accountId = UUID.fromString(p);
+                        break;
+                    } catch (IllegalArgumentException ignored) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        // Nếu không parse được thì fallback lấy email
+        Store store;
+        if (accountId == null) {
+            String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+            store = storeRepository.findByAccount_Email(email)
+                    .orElseThrow(() -> new RuntimeException(
+                            "❌ Store not found for current login (email=" + email + ")"
+                    ));
+
+        } else {
+            UUID finalAccountId = accountId;
+
+            store = storeRepository.findByAccount_Id(finalAccountId)
+                    .orElseThrow(() -> new RuntimeException(
+                            "❌ Store not found for current login (accountId=" + finalAccountId + ")"
+                    ));
+        }
+
+        // 2️⃣ Kiểm tra có địa chỉ hay chưa
+        if (store.getStoreAddresses() == null || store.getStoreAddresses().isEmpty()) {
+            throw new RuntimeException("❌ Store has no addresses. Please add an address first.");
+        }
+
+        // 3️⃣ Kiểm tra có default hay chưa
+        boolean hasDefault = store.getStoreAddresses().stream()
+                .anyMatch(a -> Boolean.TRUE.equals(a.getDefaultAddress()));
+
+        if (!hasDefault) {
+            throw new RuntimeException("❌ Store has NO default address. Please set one default address before performing this action.");
+        }
+    }
+
+
     // ============================================================
     // ➕ CREATE PRODUCT
     // ============================================================
     @Override
     public ResponseEntity<BaseResponse> createProduct(ProductRequest req) {
+
+        ensureStoreHasDefaultAddress();
         try {
             String principal = SecurityContextHolder.getContext().getAuthentication().getName();
             String email = principal.contains(":") ? principal.split(":")[0] : principal;
