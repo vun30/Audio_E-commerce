@@ -35,6 +35,16 @@ public class StoreOrderItem {
     @Column(nullable = false)
     private int quantity;
 
+    // ==== NEW: thông tin variant (nếu là PRODUCT có biến thể) ====
+    @Column(name = "variant_id")
+    private UUID variantId;                 // có thể null nếu không dùng biến thể
+
+    @Column(name = "variant_option_name", length = 100)
+    private String variantOptionName;       // ví dụ: "Color"
+
+    @Column(name = "variant_option_value", length = 255)
+    private String variantOptionValue;      // ví dụ: "Black"
+
     @Column(nullable = false)
     private BigDecimal unitPrice;
 

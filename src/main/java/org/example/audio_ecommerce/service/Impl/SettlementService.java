@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.service.RevenueService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class SettlementService {
     private final StoreOrderRepository storeOrderRepo;
     private final GhnOrderRepository ghnOrderRepo;
     private final PlatformFeeRepository platformFeeRepo;
+    private final RevenueService revenueService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
@@ -255,6 +257,37 @@ public class SettlementService {
                         .createdAt(now)
                         .updatedAt(now)
                         .build());
+            }
+
+            // 🔟 GHI DOANH THU (SHOP + NỀN TẢNG)
+            // Doanh thu shop (net nhận được sau khi trừ phí)
+            revenueService.recordStoreRevenue(
+                    storeId,
+                    so.getId(),
+                    netPayout,
+                    platformFeeAmount,
+                    extraShip,
+                    now.toLocalDate()
+            );
+
+            // Doanh thu nền tảng - phí hoa hồng
+            if (platformFeeAmount.compareTo(BigDecimal.ZERO) > 0) {
+                revenueService.recordPlatformRevenue(
+                        so.getId(),
+                        PlatformRevenueType.COMMISSION,
+                        platformFeeAmount,
+                        now.toLocalDate()
+                );
+            }
+
+            // Doanh thu nền tảng - chênh lệch ship
+            if (extraShip.compareTo(BigDecimal.ZERO) > 0) {
+                revenueService.recordPlatformRevenue(
+                        so.getId(),
+                        PlatformRevenueType.SHIPPING_DIFF,
+                        extraShip,
+                        now.toLocalDate()
+                );
             }
         }
 
