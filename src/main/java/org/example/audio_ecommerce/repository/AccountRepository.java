@@ -16,6 +16,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     boolean existsByPhone(String phoneNumber);
     boolean existsByEmailIgnoreCase(String email);
     Optional<Account> findByEmail(String email);
+    Optional<Account> findByResetPasswordToken(String token);
 
 
 }

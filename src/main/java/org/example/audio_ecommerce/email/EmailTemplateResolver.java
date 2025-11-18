@@ -22,6 +22,7 @@ public class EmailTemplateResolver {
             case KYC_APPROVED -> kycApproved((KycApprovedData) data);   // 👈 cập nhật
             case KYC_REJECTED -> kycRejected((KycRejectedData) data);   // 👈 cập nhật
             case ORDER_CONFIRMED -> orderConfirmed((OrderData) data);
+            case RESET_PASSWORD -> resetPassword((AccountData) data);
             default -> throw new IllegalArgumentException("❌ Template chưa được định nghĩa: " + type);
         };
     }
@@ -138,6 +139,19 @@ public class EmailTemplateResolver {
         return EmailTemplate.builder()
                 .to(data.getEmail())
                 .subject("🛒 Đơn hàng #" + orderCode + " của bạn đã được xác nhận")
+                .content(html)
+                .build();
+    }
+
+    // ==================== RESET PASSWORD ====================
+    private EmailTemplate resetPassword(AccountData data) {
+        Context ctx = new Context();
+        ctx.setVariable("name", data.getName());
+        ctx.setVariable("resetLink", data.getSiteUrl());
+        String html = templateEngine.process("email/reset_password", ctx);
+        return EmailTemplate.builder()
+                .to(data.getEmail())
+                .subject("🔑 Đặt lại mật khẩu tài khoản của bạn")
                 .content(html)
                 .build();
     }

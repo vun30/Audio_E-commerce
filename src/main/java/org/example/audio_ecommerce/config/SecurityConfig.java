@@ -45,6 +45,7 @@ public class SecurityConfig {
                     corsConfiguration.setAllowedHeaders(List.of("*"));
                     corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
                     corsConfiguration.setAllowedOrigins(List.of(
+                            "http://localhost:3000",
                             "http://localhost:5173",
                             "https://conicboulevard.pro.vn",
                             "https://www.conicboulevard.pro.vn",

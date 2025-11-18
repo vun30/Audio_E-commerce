@@ -2,9 +2,7 @@ package org.example.audio_ecommerce.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.request.LoginRequest;
-import org.example.audio_ecommerce.dto.request.RefreshTokenRequest;
-import org.example.audio_ecommerce.dto.request.RegisterRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.service.AccountService;
 import org.springframework.http.ResponseEntity;
@@ -74,5 +72,19 @@ public class AccountController {
     @PostMapping("/refresh")
     public ResponseEntity<BaseResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
         return accountService.refreshToken(request);
+    }
+
+    // =====================================================
+    // 🔑 RESET PASSWORD
+    // =====================================================
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<BaseResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return accountService.forgotPassword(request);
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<BaseResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        return accountService.resetPassword(request);
     }
 }
