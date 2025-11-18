@@ -6,8 +6,12 @@ import lombok.Data;
 
 @Data
 public class CheckoutItemRequest {
-    private UUID id; // product or combo id
+    // PRODUCT: nhận productId / variantId (1 trong 2 có thể null)
+    private UUID productId;
+    private UUID variantId;
+
+    // COMBO: dùng comboId
+    private UUID comboId;
     private String type; // "PRODUCT" or "COMBO"
     private int quantity;
-    private BigDecimal variantUnitPrice; // NEW: giá biến thể mà FE chọn (nếu không có biến thể -> null)
 }
