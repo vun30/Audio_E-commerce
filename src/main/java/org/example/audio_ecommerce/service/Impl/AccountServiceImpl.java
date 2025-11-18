@@ -1,9 +1,11 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.request.ForgotPasswordRequest;
 import org.example.audio_ecommerce.dto.request.LoginRequest;
 import org.example.audio_ecommerce.dto.request.RefreshTokenRequest;
 import org.example.audio_ecommerce.dto.request.RegisterRequest;
+import org.example.audio_ecommerce.dto.request.ResetPasswordRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.email.AccountData;
 import org.example.audio_ecommerce.entity.*;
@@ -22,6 +24,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -44,6 +47,9 @@ public class AccountServiceImpl implements AccountService {
 
     // 👇 thêm dependency EmailService
     private final EmailService emailService;
+
+    @Value("${app.frontend.url:http://localhost:3000}")
+    private String frontendUrl;
 
     // ==================== REGISTER ====================
     @Override
@@ -156,6 +162,8 @@ public class AccountServiceImpl implements AccountService {
                 .description("This store is created automatically and is inactive until KYC is approved.")
                 .status(StoreStatus.INACTIVE)
                 .createdAt(LocalDateTime.now())
+                .email(account.getEmail())
+                .phoneNumber(account.getPhone())
                 .build();
         storeRepository.save(store);
 
@@ -316,6 +324,90 @@ public class AccountServiceImpl implements AccountService {
         } catch (BadCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new BaseResponse<>(401, "Invalid credentials", null));
+        }
+    }
+
+    // ==================== FORGOT PASSWORD ====================
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> forgotPassword(ForgotPasswordRequest request) {
+        try {
+            // Tìm account theo email (không phân biệt role)
+            Account account = repository.findByEmailIgnoreCase(request.getEmail())
+                    .orElseThrow(() -> new UsernameNotFoundException("Email không tồn tại trong hệ thống"));
+
+            // Tạo reset token (UUID)
+            String resetToken = UUID.randomUUID().toString();
+
+            // Set token và thời gian hết hạn (30 phút)
+            account.setResetPasswordToken(resetToken);
+            account.setResetPasswordTokenExpiry(LocalDateTime.now().plusMinutes(30));
+
+            // Lưu vào database
+            repository.save(account);
+
+            // Tạo link reset password
+            String resetLink = frontendUrl + "/reset-password?token=" + resetToken;
+
+            // Gửi email
+            AccountData emailData = new AccountData(
+                    account.getEmail(),
+                    account.getName(),
+                    account.getRole().toString(),
+                    resetLink
+            );
+
+            emailService.sendEmail(EmailTemplateType.RESET_PASSWORD, emailData);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "Email reset password đã được gửi thành công. Vui lòng kiểm tra hộp thư của bạn.", null)
+            );
+
+        } catch (UsernameNotFoundException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new BaseResponse<>(404, ex.getMessage(), null));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new BaseResponse<>(500, "Có lỗi xảy ra khi gửi email: " + ex.getMessage(), null));
+        }
+    }
+
+    // ==================== RESET PASSWORD ====================
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> resetPassword(ResetPasswordRequest request) {
+        try {
+            // Tìm account theo reset token
+            Account account = repository.findByResetPasswordToken(request.getToken())
+                    .orElseThrow(() -> new IllegalArgumentException("Token không hợp lệ hoặc đã hết hạn"));
+
+            // Kiểm tra token có hết hạn chưa
+            if (account.getResetPasswordTokenExpiry() == null ||
+                LocalDateTime.now().isAfter(account.getResetPasswordTokenExpiry())) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new BaseResponse<>(400, "Token đã hết hạn. Vui lòng yêu cầu reset password lại.", null));
+            }
+
+            // Cập nhật password mới
+            account.setPassword(passwordEncoder.encode(request.getNewPassword()));
+
+            // Xóa reset token và expiry
+            account.setResetPasswordToken(null);
+            account.setResetPasswordTokenExpiry(null);
+
+            // Lưu vào database
+            repository.save(account);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "Mật khẩu đã được đặt lại thành công. Bạn có thể đăng nhập với mật khẩu mới.", null)
+            );
+
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new BaseResponse<>(400, ex.getMessage(), null));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new BaseResponse<>(500, "Có lỗi xảy ra khi đặt lại mật khẩu: " + ex.getMessage(), null));
         }
     }
 }

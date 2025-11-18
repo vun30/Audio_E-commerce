@@ -33,6 +33,12 @@ public class Account extends BaseEntity {
     @Column(nullable = false, length = 50)
     private RoleEnum role;
 
+    @Column(length = 255)
+    private String resetPasswordToken;
+
+    @Column
+    private java.time.LocalDateTime resetPasswordTokenExpiry;
+
     @OneToOne(mappedBy = "account", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
     private Store store;
 }

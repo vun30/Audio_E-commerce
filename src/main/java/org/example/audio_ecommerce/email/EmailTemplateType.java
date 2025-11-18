@@ -7,5 +7,6 @@ public enum EmailTemplateType {
     KYC_APPROVED,    // duyệt
     KYC_REJECTED,    // từ chối (kèm lý do)
     ORDER_CONFIRMED,
-    PASSWORD_RESET
+    PASSWORD_RESET,
+    RESET_PASSWORD
 }
