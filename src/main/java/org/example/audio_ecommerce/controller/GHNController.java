@@ -984,5 +984,96 @@ public ResponseEntity<String> createOrder(
                 .body(response.getBody());
     }
 
+    // ==========================================================
+// 1️⃣1️⃣ TÍNH THỜI GIAN GIAO HÀNG DỰ KIẾN (LEADTIME)
+// ==========================================================
+@Operation(
+        summary = "⏱️ Tính thời gian giao hàng dự kiến (Leadtime)",
+        description = """
+                🧭 **Mục đích:**  
+                Tính toán thời gian giao hàng dự kiến dựa trên quận/huyện, phường/xã
+                và service_id của GHN.
+
+                ⚠️ **Lưu ý quan trọng:**  
+                - BE tự động truyền **Token** và **ShopId** từ `application.yml`.  
+                - GHN yêu cầu dùng **POST**.  
+                - Các trường bắt buộc:
+                  
+                  | Field | Kiểu | Bắt buộc | Mô tả |
+                  |-------|------|----------|-------|
+                  | from_district_id | Int | ✔ | Quận gửi |
+                  | from_ward_code   | String | ✔ | Phường gửi |
+                  | to_district_id   | Int | ✔ | Quận nhận |
+                  | to_ward_code     | String | ✔ | Phường nhận |
+                  | service_id       | Int | ✔ | ID dịch vụ (Lấy từ API Get Service) |
+
+                ---
+                ### 🧱 Ví dụ Request:
+                ```json
+                {
+                  "from_district_id": 1750,
+                  "from_ward_code": "1A0706",
+                  "to_district_id": 1750,
+                  "to_ward_code": "511110",
+                  "service_id": 53320
+                }
+                ```
+
+                ---
+                ### 📤 Response thành công:
+                ```json
+                {
+                  "code": 200,
+                  "message": "Success",
+                  "data": {
+                    "leadtime": 1593187200,
+                    "order_date": 1592981718
+                  }
+                }
+                ```
+
+                ---
+                ### ⚠️ Lỗi:
+                ```json
+                {
+                  "code": 400,
+                  "message": "Syntax error: invalid request body",
+                  "data": null
+                }
+                ```
+                """
+)
+@PostMapping("/leadtime")
+public ResponseEntity<String> calculateLeadTime(
+        @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                required = true,
+                description = "Body JSON tính thời gian giao hàng dự kiến",
+                content = @Content(mediaType = "application/json",
+                        schema = @Schema(example = """
+                                {
+                                  "from_district_id": 1750,
+                                  "from_ward_code": "1A0706",
+                                  "to_district_id": 1750,
+                                  "to_ward_code": "511110",
+                                  "service_id": 53320
+                                }
+                                """))
+        )
+        @RequestBody String body
+) {
+    HttpEntity<String> entity = new HttpEntity<>(body, createHeaders(true));
+
+    ResponseEntity<String> response = restTemplate.exchange(
+            BASE_URL + "/v2/shipping-order/leadtime",
+            HttpMethod.POST,
+            entity,
+            String.class
+    );
+
+    return ResponseEntity.status(response.getStatusCode())
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(response.getBody());
+}
+
 
 }

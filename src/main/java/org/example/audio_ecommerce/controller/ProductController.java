@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
-@Tag(name = "Product", description = "📦 API quản lý sản phẩm (Admin & Store)")
+@Tag(name = "📦 Product API", description = "Quản lý sản phẩm dành cho Admin & Store")
 @RestController
 @RequestMapping("/api/products")
 @RequiredArgsConstructor
@@ -24,99 +24,151 @@ public class ProductController {
     private final ProductService productService;
 
     // ============================================================
-    // 📜 Lấy danh sách sản phẩm
+    // 📜 GET: Danh sách sản phẩm (filter + pagination)
     // ============================================================
     @GetMapping
-    @Operation(summary = "Lấy danh sách sản phẩm (lọc theo danh mục, store, keyword, status)")
+    @Operation(
+            summary = "📜 Lấy danh sách sản phẩm",
+            description = """
+                    • Hỗ trợ lọc theo danh mục, store, từ khóa, trạng thái.  
+                    • Hỗ trợ phân trang & sắp xếp mặc định theo ngày tạo.  
+                    • Trả về danh sách sản phẩm dạng `ProductResponse`.  
+                    """
+    )
     public ResponseEntity<BaseResponse> getAllProducts(
+
             @Parameter(
-                    description = "Tên danh mục (chọn từ dropdown)",
-                    schema = @Schema(
-                            allowableValues = {
-                                    "Tai Nghe", "Loa", "Micro", "DAC", "Mixer",
-                                    "Amp", "Turntable", "Sound Card", "DJ Controller", "Combo"
-                            }
-                    )
+                    description = "Tên danh mục (lọc). VD: Loa, Tai Nghe, DAC, Mixer...",
+                    example = "Loa"
             )
             @RequestParam(required = false) String categoryName,
 
-            @RequestParam(required = false) UUID storeId,
+            @Parameter(
+                    description = """
+                            UUID của Store (lọc theo cửa hàng).  
+                            Nếu để rỗng thì bỏ qua filter này.  
+                            """,
+                    example = "b57e964c-2cf1-4ca7-9e8a-82d27d0cbe11"
+            )
+            @RequestParam(required = false) String storeId,
+
+            @Parameter(
+                    description = "Tìm kiếm theo tên sản phẩm",
+                    example = "sony"
+            )
             @RequestParam(required = false) String keyword,
+
+            @Parameter(description = "Trang hiện tại", example = "0")
             @RequestParam(defaultValue = "0") int page,
+
+            @Parameter(description = "Số phần tử mỗi trang", example = "20")
             @RequestParam(defaultValue = "20") int size,
+
+            @Parameter(
+                    description = "Trạng thái sản phẩm",
+                    schema = @Schema(allowableValues = {"ACTIVE", "INACTIVE", "DISCONTINUED"}),
+                    example = "ACTIVE"
+            )
             @RequestParam(required = false) ProductStatus status
     ) {
-        return productService.getAllProducts(categoryName, storeId, keyword, page, size, status);
+
+        // 🔥 FIX UUID RỖNG
+        UUID storeUUID = null;
+        if (storeId != null && !storeId.isBlank()) {
+            try {
+                storeUUID = UUID.fromString(storeId.trim());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(
+                        BaseResponse.error("❌ storeId không đúng định dạng UUID")
+                );
+            }
+        }
+
+        return productService.getAllProducts(
+                categoryName,
+                storeUUID,
+                keyword,
+                page,
+                size,
+                status
+        );
     }
 
     // ============================================================
-    // 🔎 Lấy chi tiết sản phẩm
+    // 🔎 GET: Chi tiết sản phẩm
     // ============================================================
-    @Operation(summary = "🔎 Lấy chi tiết sản phẩm theo ID")
+    @Operation(
+            summary = "🔎 Xem chi tiết sản phẩm",
+            description = "Trả về thông tin đầy đủ của sản phẩm theo productId."
+    )
     @GetMapping("/{productId}")
-    public ResponseEntity<BaseResponse> getProductById(@PathVariable UUID productId) {
+    public ResponseEntity<BaseResponse> getProductById(
+            @Parameter(description = "UUID sản phẩm", example = "8e7e26a8-2b2a-4bc5-a617-40a9e2a6f1f0")
+            @PathVariable UUID productId
+    ) {
         return productService.getProductById(productId);
     }
 
     // ============================================================
-    // ➕ Tạo sản phẩm mới
+    // ➕ POST: Tạo sản phẩm
     // ============================================================
     @Operation(
             summary = "➕ Tạo sản phẩm mới (Store)",
             description = """
-                    • API cho phép **Store** tạo sản phẩm mới lên sàn.  
-                    • `categoryName` chọn 1 trong các giá trị: **Loa**, **Tai Nghe**, **Micro**, **DAC**, **Mixer**, **Amp**, **Turntable**, **Sound Card**, **DJ Controller**, **Combo**.  
-                    • `storeId` được tự động xác định từ tài khoản đăng nhập.  
-                    • `slug` sinh tự động từ `name`.  
-                    • `sku` phải duy nhất trong mỗi cửa hàng.  
-                    • Các trường giá gồm:
-                      - `supportedShippingMethodIds`: dùng api get id từ phương thức vận chuyển đã tạo trước đó.
-                      - `bulkDiscounts`: danh sách khoảng giá mua nhiều (tùy chọn)
-                    • Kết quả trả về: thông tin sản phẩm chi tiết.
+                    • API chỉ dành cho Store đã đăng nhập.  
+                    • `storeId` auto mapping theo user login.  
+                    • `slug` tự sinh từ tên sản phẩm.  
+                    • SKU phải duy nhất trong một store.  
+                    • Trả về thông tin sản phẩm sau khi tạo.  
                     """
     )
     @PostMapping
-    public ResponseEntity<BaseResponse> createProduct(@RequestBody ProductRequest request) {
+    public ResponseEntity<BaseResponse> createProduct(
+            @Parameter(description = "Dữ liệu tạo sản phẩm mới")
+            @RequestBody ProductRequest request
+    ) {
         return productService.createProduct(request);
     }
 
     // ============================================================
-    // ✏️ Cập nhật sản phẩm
+    // ✏️ PUT: Cập nhật sản phẩm
     // ============================================================
     @Operation(
-            summary = "✏️ Cập nhật sản phẩm (Store)",
+            summary = "✏️ Cập nhật sản phẩm",
             description = """
-                    • Cho phép **Store** cập nhật sản phẩm của mình.  
-                    • Có thể thay đổi: 
-                      - `name`, `slug` sẽ tự sinh lại.
-                      - `categoryId` → BE tự map từ ID.
-                      - `bulkDiscounts` → BE tự cập nhật danh sách mức giá mua nhiều.
-                    • Nếu trường nào không nhập → giữ nguyên giá trị cũ.
-                    • Kết quả: sản phẩm sau khi cập nhật thành công.
+                    • Chỉ store sở hữu sản phẩm mới có quyền cập nhật.  
+                    • Các trường null sẽ giữ nguyên.  
+                    • Nếu đổi tên → slug tự cập nhật.  
+                    • Nếu đổi categoryName → BE tự map.  
                     """
     )
     @PutMapping("/{productId}")
     public ResponseEntity<BaseResponse> updateProduct(
+            @Parameter(description = "UUID sản phẩm cần update", example = "13e1be55-8c60-4135-af8e-732c10c81397")
             @PathVariable UUID productId,
+
+            @Parameter(description = "Dữ liệu cập nhật sản phẩm")
             @RequestBody UpdateProductRequest request
     ) {
         return productService.updateProduct(productId, request);
     }
 
     // ============================================================
-    // 🚫 Vô hiệu hóa / Kích hoạt sản phẩm
+    // 🚫 DELETE: Vô hiệu hóa sản phẩm
     // ============================================================
     @Operation(
-            summary = "🚫 Vô hiệu hóa hoặc kích hoạt sản phẩm",
+            summary = "🚫 Vô hiệu hóa sản phẩm",
             description = """
-                    • API này **không xóa sản phẩm khỏi DB**.  
-                    • Chỉ đổi trạng thái giữa:
-                      - **ACTIVE** ↔ **DISCONTINUED**.  
-                    • Dùng khi muốn ẩn tạm thời sản phẩm khỏi gian hàng.
+                    • Không xóa khỏi DB.  
+                    • Chỉ đổi trạng thái sang INACTIVE.  
+                    • Dùng khi shop muốn tạm ẩn sản phẩm.  
                     """
     )
     @DeleteMapping("/{productId}")
-    public ResponseEntity<BaseResponse> disableProduct(@PathVariable UUID productId) {
+    public ResponseEntity<BaseResponse> disableProduct(
+            @Parameter(description = "UUID sản phẩm muốn vô hiệu hóa")
+            @PathVariable UUID productId
+    ) {
         return productService.disableProduct(productId);
     }
 }

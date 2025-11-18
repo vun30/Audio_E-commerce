@@ -23,6 +23,9 @@ public class VariantRequest {
     @Schema(description = "Tồn kho của biến thể", example = "50")
     private Integer variantStock;
 
+    @Schema(description = "URL hình ảnh của biến thể", example = "https://example.com/variant-image.jpg")
+    private String variantUrl;
+
     @Schema(description = "SKU của biến thể", example = "SKU-50-SN001")
     private String variantSku;
 }
