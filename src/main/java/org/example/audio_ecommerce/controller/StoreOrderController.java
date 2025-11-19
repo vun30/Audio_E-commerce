@@ -28,9 +28,10 @@ public class StoreOrderController {
     public PagedResult<StoreOrderDetailResponse> listStoreOrders(
             @PathVariable UUID storeId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "20") String orderCodeKeyword
     ) {
-        return storeOrderService.getOrdersForStore(storeId, page, size);
+        return storeOrderService.getOrdersForStore(storeId, page, size, orderCodeKeyword);
     }
 
     @PatchMapping("/{orderId}/status")

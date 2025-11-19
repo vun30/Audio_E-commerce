@@ -17,6 +17,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class CustomerOrderDetailResponse {
     private UUID id;
+    private String orderCode;
     private OrderStatus status;
     private String message;
     private LocalDateTime createdAt;
@@ -43,6 +44,7 @@ public class CustomerOrderDetailResponse {
     @AllArgsConstructor
     public static class StoreOrderSummary {
         private UUID id;
+        private String orderCode;
         private UUID storeId;
         private String storeName;
         private OrderStatus status;

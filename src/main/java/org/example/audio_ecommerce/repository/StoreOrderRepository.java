@@ -13,6 +13,11 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID> {
     List<StoreOrder> findAllByCustomerOrder_Id(UUID customerOrderId);
     Page<StoreOrder> findByStore_StoreId(UUID storeId, Pageable pageable);
     List<StoreOrder> findAllByStore_StoreId(UUID customerOrderId);
+    // ✅ search chính xác mã
+    Page<StoreOrder> findByStore_StoreIdAndOrderCode(UUID storeId, String orderCode, Pageable pageable);
+
+    // ✅ hoặc search chứa (like %code%) nếu muốn
+    Page<StoreOrder> findByStore_StoreIdAndOrderCodeContainingIgnoreCase(UUID storeId, String keyword, Pageable pageable);
 }
 
     

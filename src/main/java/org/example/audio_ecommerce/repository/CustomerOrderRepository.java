@@ -11,5 +11,10 @@ import java.util.UUID;
 public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UUID> {
     Optional<CustomerOrder> findByExternalOrderCode(String externalOrderCode);
     Page<CustomerOrder> findByCustomer_Id(UUID customerId, Pageable pageable);
+    Page<CustomerOrder> findByCustomer_IdAndOrderCodeContainingIgnoreCase(
+            UUID customerId,
+            String orderCode,
+            Pageable pageable
+    );
 }
 
