@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -20,6 +21,7 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
     private final CustomerOrderRepository customerOrderRepo;
     private final StoreOrderRepository storeOrderRepo;
     private final StoreOrderCancellationRepository cancelRepo;
+    private final CustomerOrderCancellationRepository customerCancelRepo;
     private final SettlementService settlementService;
 
     /** KH hủy toàn bộ nếu CustomerOrder còn PENDING => refund ngay về ví KH, không cần shop duyệt */
@@ -36,6 +38,18 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         if (order.getStatus() != OrderStatus.PENDING) {
             return BaseResponse.error("Order status must be PENDING to cancel immediately");
         }
+
+        // ✅ Log vào bảng customer_order_cancellation (auto APPROVED)
+        LocalDateTime now = LocalDateTime.now();
+        CustomerOrderCancellationRequest coCancel = CustomerOrderCancellationRequest.builder()
+                .customerOrder(order)
+                .reason(reason)
+                .note(note)
+                .status(CancellationRequestStatus.APPROVED)
+                .requestedAt(now)
+                .processedAt(now)
+                .build();
+        customerCancelRepo.save(coCancel);
 
         // Refund toàn bộ (nếu là online đã vào Platform pending)
         settlementService.refundEntireOrderToCustomerWallet(order);
@@ -68,30 +82,45 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
             return BaseResponse.error("Store does not own this order");
         }
 
-        // Phải đang AWAITING_SHIPMENT mới có case shop duyệt
         if (storeOrder.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
             return BaseResponse.error("StoreOrder is not in AWAITING_SHIPMENT");
         }
 
-        // Lấy request gần nhất ở trạng thái REQUESTED (nếu có)
+        LocalDateTime now = LocalDateTime.now();
+
+        // ===== 1) Cập nhật StoreOrderCancellationRequest về APPROVED =====
         var requests = cancelRepo.findAllByStoreOrder_Id(storeOrderId);
-        var req = requests.stream().filter(r -> r.getStatus() == CancellationRequestStatus.REQUESTED)
-                .reduce((first, second) -> second).orElse(null);
+        var req = requests.stream()
+                .filter(r -> r.getStatus() == CancellationRequestStatus.REQUESTED)
+                .reduce((first, second) -> second)
+                .orElse(null);
         if (req != null) {
             req.setStatus(CancellationRequestStatus.APPROVED);
-            req.setProcessedAt(LocalDateTime.now());
+            req.setProcessedAt(now);
             cancelRepo.save(req);
         }
 
-        // 1) Refund phần tiền của storeOrder về ví KH, reverse pending của ví shop & platform
+        // ===== 2) Cập nhật CustomerOrderCancellationRequest tương ứng về APPROVED =====
+        CustomerOrder customerOrder = storeOrder.getCustomerOrder();
+        var customerCancels = customerCancelRepo.findAllByCustomerOrder_Id(customerOrder.getId());
+        var coReq = customerCancels.stream()
+                .filter(c -> c.getStatus() == CancellationRequestStatus.REQUESTED)
+                .reduce((first, second) -> second)
+                .orElse(null);
+        if (coReq != null) {
+            coReq.setStatus(CancellationRequestStatus.APPROVED);
+            coReq.setProcessedAt(now);
+            customerCancelRepo.save(coReq);
+        }
+
+        // ===== 3) Refund phần tiền của storeOrder về ví KH =====
         settlementService.refundStorePartToCustomerWallet(storeOrder);
 
-        // 2) Đánh dấu storeOrder CANCELLED
+        // 4) Đánh dấu storeOrder CANCELLED
         storeOrder.setStatus(OrderStatus.CANCELLED);
         storeOrderRepo.save(storeOrder);
 
-        // 3) Nếu tất cả StoreOrder của CustomerOrder đều CANCELLED -> CustomerOrder CANCELLED
-        CustomerOrder customerOrder = storeOrder.getCustomerOrder();
+        // 5) Nếu tất cả StoreOrder của CustomerOrder đều CANCELLED -> CustomerOrder CANCELLED
         boolean allCancelled = storeOrderRepo.findAllByCustomerOrder_Id(customerOrder.getId())
                 .stream().allMatch(so -> so.getStatus() == OrderStatus.CANCELLED);
         if (allCancelled) {
@@ -101,6 +130,7 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
 
         return BaseResponse.success("Cancellation approved & refunded to wallet");
     }
+
 
     /** Shop từ chối hủy: giữ nguyên tiền/settlement */
     @Override
@@ -112,22 +142,45 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
             return BaseResponse.error("Store does not own this order");
         }
 
+        LocalDateTime now = LocalDateTime.now();
+
+        // ===== 1) Lấy request huỷ phía store-order (bắt buộc phải có) =====
         var requests = cancelRepo.findAllByStoreOrder_Id(storeOrderId);
-        var req = requests.stream().filter(r -> r.getStatus() == CancellationRequestStatus.REQUESTED)
-                .reduce((first, second) -> second).orElse(null);
+        var req = requests.stream()
+                .filter(r -> r.getStatus() == CancellationRequestStatus.REQUESTED)
+                .reduce((first, second) -> second)
+                .orElse(null);
         if (req == null) {
             return BaseResponse.error("No pending cancellation request");
         }
 
         req.setStatus(CancellationRequestStatus.REJECTED);
-        req.setProcessedAt(LocalDateTime.now());
+        req.setProcessedAt(now);
         if (note != null && !note.isBlank()) {
             req.setNote((req.getNote() == null ? "" : req.getNote() + " | ") + "[REJECT] " + note);
         }
         cancelRepo.save(req);
 
+        // ===== 2) Cập nhật CustomerOrderCancellationRequest tương ứng về REJECTED =====
+        CustomerOrder customerOrder = storeOrder.getCustomerOrder();
+        var customerCancels = customerCancelRepo.findAllByCustomerOrder_Id(customerOrder.getId());
+        var coReq = customerCancels.stream()
+                .filter(c -> c.getStatus() == CancellationRequestStatus.REQUESTED)
+                .reduce((first, second) -> second)
+                .orElse(null);
+        if (coReq != null) {
+            coReq.setStatus(CancellationRequestStatus.REJECTED);
+            coReq.setProcessedAt(now);
+            if (note != null && !note.isBlank()) {
+                coReq.setNote((coReq.getNote() == null ? "" : coReq.getNote() + " | ") + "[SHOP_REJECT] " + note);
+            }
+            customerCancelRepo.save(coReq);
+        }
+
+        // Không đụng tới tiền/settlement
         return BaseResponse.success("Cancellation request rejected");
     }
+
 
     @Override
     @Transactional
@@ -160,6 +213,18 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
             return BaseResponse.error("StoreOrder must be AWAITING_SHIPMENT to request cancel");
         }
 
+        LocalDateTime now = LocalDateTime.now();
+
+        // ✅ Log vào bảng customer_order_cancellation (REQUESTED)
+        CustomerOrderCancellationRequest coCancel = CustomerOrderCancellationRequest.builder()
+                .customerOrder(co)
+                .reason(reason)
+                .note(note)
+                .status(CancellationRequestStatus.REQUESTED)
+                .requestedAt(now)
+                .build();
+        customerCancelRepo.save(coCancel);
+
         // Tạo yêu cầu hủy
         StoreOrderCancellationRequest req = StoreOrderCancellationRequest.builder()
                 .storeOrder(target)
@@ -171,6 +236,81 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         cancelRepo.save(req);
 
         return BaseResponse.success("Cancellation request sent to shop for approval");
+    }
+
+    // ========================================================================
+    // ✅ NEW: Customer xem các request hủy liên quan tới 1 CustomerOrder
+    // ========================================================================
+    @Override
+    @Transactional(readOnly = true)
+    public List<StoreOrderCancellationRequest> getCustomerCancellationRequests(
+            UUID customerId,
+            UUID customerOrderId
+    ) {
+        CustomerOrder co = customerOrderRepo.findById(customerOrderId)
+                .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
+
+        if (!co.getCustomer().getId().equals(customerId)) {
+            throw new IllegalArgumentException("Customer does not own this order");
+        }
+
+        // Lấy tất cả store-order thuộc customer-order này
+        var storeOrders = storeOrderRepo.findAllByCustomerOrder_Id(customerOrderId);
+        if (storeOrders == null || storeOrders.isEmpty()) {
+            return java.util.List.of();
+        }
+
+        // Gom tất cả cancellation request của mọi store-order
+        java.util.List<StoreOrderCancellationRequest> result = new java.util.ArrayList<>();
+        for (StoreOrder so : storeOrders) {
+            var requests = cancelRepo.findAllByStoreOrder_Id(so.getId());
+            if (requests != null && !requests.isEmpty()) {
+                result.addAll(requests);
+            }
+        }
+        return result;
+    }
+
+    // ========================================================================
+    // ✅ NEW: Store xem các request hủy của 1 StoreOrder cụ thể
+    // ========================================================================
+    @Override
+    @Transactional(readOnly = true)
+    public List<StoreOrderCancellationRequest> getStoreCancellationRequests(
+            UUID storeId,
+            UUID storeOrderId
+    ) {
+        StoreOrder storeOrder = storeOrderRepo.findById(storeOrderId)
+                .orElseThrow(() -> new NoSuchElementException("StoreOrder not found"));
+
+        if (!storeOrder.getStore().getStoreId().equals(storeId)) {
+            throw new IllegalArgumentException("Store does not own this order");
+        }
+
+        return cancelRepo.findAllByStoreOrder_Id(storeOrderId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CustomerOrderCancellationRequest> getAllCustomerOrderCancellations(UUID customerId) {
+        return customerCancelRepo.findAllByCustomerOrder_Customer_Id(customerId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StoreOrderCancellationRequest> getAllStoreCancellationRequests(UUID storeId) {
+        // Cách 1: dùng repo store-order
+        var storeOrders = storeOrderRepo.findAllByStore_StoreId(storeId);
+        if (storeOrders == null || storeOrders.isEmpty()) return List.of();
+
+        java.util.List<StoreOrderCancellationRequest> result = new java.util.ArrayList<>();
+        for (StoreOrder so : storeOrders) {
+            var requests = cancelRepo.findAllByStoreOrder_Id(so.getId());
+            if (requests != null && !requests.isEmpty()) {
+                result.addAll(requests);
+            }
+        }
+        return result;
     }
 
 }
