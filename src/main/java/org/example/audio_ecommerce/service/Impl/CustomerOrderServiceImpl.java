@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -51,6 +52,21 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .build();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public CustomerOrderDetailResponse getCustomerOrderDetail(UUID customerId, UUID orderId) {
+        CustomerOrder order = customerOrderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
+
+        // ✅ Đảm bảo đơn thuộc về customer đang request
+        if (!order.getCustomer().getId().equals(customerId)) {
+            throw new IllegalArgumentException("Customer does not own this order");
+        }
+
+        return toCustomerOrderDetail(order);
+    }
+
+
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
         List<StoreOrder> storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
 
@@ -60,6 +76,7 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
 
         return CustomerOrderDetailResponse.builder()
                 .id(order.getId())
+                .orderCode(order.getOrderCode())
                 .status(order.getStatus())
                 .message(order.getMessage())
                 .createdAt(order.getCreatedAt())
@@ -85,6 +102,7 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
     private CustomerOrderDetailResponse.StoreOrderSummary toStoreOrderSummary(StoreOrder storeOrder) {
         return CustomerOrderDetailResponse.StoreOrderSummary.builder()
                 .id(storeOrder.getId())
+                .orderCode(storeOrder.getOrderCode())
                 .storeId(storeOrder.getStore().getStoreId())
                 .storeName(storeOrder.getStore().getStoreName())
                 .status(storeOrder.getStatus())

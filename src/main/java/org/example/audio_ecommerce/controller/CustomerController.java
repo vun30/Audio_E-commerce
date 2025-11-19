@@ -105,4 +105,14 @@ public class CustomerController {
                            @PathVariable UUID addressId) {
         customerService.setDefaultAddress(customerId, addressId);
     }
+
+    @GetMapping("/{customerId}/orders/{orderId}")
+    public BaseResponse<CustomerOrderDetailResponse> getCustomerOrderDetail(
+            @PathVariable UUID customerId,
+            @PathVariable UUID orderId
+    ) {
+        CustomerOrderDetailResponse resp = customerOrderService.getCustomerOrderDetail(customerId, orderId);
+        return BaseResponse.success("Fetched customer order detail", resp);
+    }
+
 }

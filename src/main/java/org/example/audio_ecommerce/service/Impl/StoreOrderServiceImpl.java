@@ -107,12 +107,25 @@ public class StoreOrderServiceImpl implements StoreOrderService {
 
     @Override
     @Transactional(readOnly = true)
-    public PagedResult<StoreOrderDetailResponse> getOrdersForStore(UUID storeId, int page, int size) {
+    public PagedResult<StoreOrderDetailResponse> getOrdersForStore(
+            UUID storeId,
+            int page,
+            int size,
+            String orderCodeKeyword   // ✅ thêm tham số filter
+    ) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? 20 : size;
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<StoreOrder> ordersPage = storeOrderRepository.findByStore_StoreId(storeId, pageable);
+        Page<StoreOrder> ordersPage;
+
+        if (orderCodeKeyword != null && !orderCodeKeyword.isBlank()) {
+            ordersPage = storeOrderRepository
+                    .findByStore_StoreIdAndOrderCodeContainingIgnoreCase(storeId, orderCodeKeyword.trim(), pageable);
+        } else {
+            ordersPage = storeOrderRepository.findByStore_StoreId(storeId, pageable);
+        }
+
         List<StoreOrderDetailResponse> items = ordersPage.getContent().stream()
                 .map(this::toDetailResponse)
                 .collect(Collectors.toList());
@@ -125,6 +138,7 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .size(ordersPage.getSize())
                 .build();
     }
+
 
     @Override
     @Transactional(readOnly = true)
@@ -147,6 +161,7 @@ public class StoreOrderServiceImpl implements StoreOrderService {
 
         return StoreOrderDetailResponse.builder()
                 .id(order.getId())
+                .orderCode(order.getOrderCode())
                 .storeId(order.getStore().getStoreId())
                 .storeName(order.getStore().getStoreName())
                 .status(order.getStatus())

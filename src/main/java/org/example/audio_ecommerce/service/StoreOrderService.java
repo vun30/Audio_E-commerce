@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public interface StoreOrderService {
     StoreOrder updateOrderStatus(UUID storeId, UUID orderId, OrderStatus status);
-    PagedResult<StoreOrderDetailResponse> getOrdersForStore(UUID storeId, int page, int size);
+    PagedResult<StoreOrderDetailResponse> getOrdersForStore(UUID storeId, int page, int size, String orderCodeKeyword );
     StoreOrderDetailResponse getOrderDetailForStore(UUID storeId, UUID orderId);
 }
 

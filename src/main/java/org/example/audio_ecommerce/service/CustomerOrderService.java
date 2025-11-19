@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface CustomerOrderService {
     PagedResult<CustomerOrderDetailResponse> getCustomerOrders(UUID customerId, int page, int size);
+    CustomerOrderDetailResponse getCustomerOrderDetail(UUID customerId, UUID orderId);
 }
