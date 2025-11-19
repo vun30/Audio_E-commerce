@@ -14,6 +14,7 @@ import org.example.audio_ecommerce.service.GhnFeeService;
 
 import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
 
+import org.example.audio_ecommerce.service.OrderCodeGeneratorService;
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,7 +43,7 @@ public class CartServiceImpl implements CartService {
     private final VoucherService voucherService;
     private final GhnFeeService ghnFeeService;
     private final ProductVariantRepository productVariantRepo;
-
+    private final OrderCodeGeneratorService orderCodeGeneratorService;
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
     private final CodConfig codConfig;
@@ -513,6 +514,7 @@ public class CartServiceImpl implements CartService {
                     .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
             storeCache.put(storeIdKey, store);
 
+            String orderCode = orderCodeGeneratorService.nextOrderCode();
         // 🔹 Lấy địa chỉ origin của shop
             StoreAddressEntity originAddr = resolveStoreOriginAddress(store);
             String fromDistrictCode = originAddr != null ? originAddr.getDistrictCode() : null;
@@ -556,6 +558,7 @@ public class CartServiceImpl implements CartService {
                     .createdAt(java.time.LocalDateTime.now())
                     .message(message)
                     .status(OrderStatus.PENDING)
+                    .orderCode(orderCode)
                     // snapshot địa chỉ
                     .shipReceiverName(addr.getReceiverName())
                     .shipPhoneNumber(addr.getPhoneNumber())
@@ -609,6 +612,7 @@ public class CartServiceImpl implements CartService {
                     .createdAt(java.time.LocalDateTime.now())
                     .status(OrderStatus.PENDING)
                     .customerOrder(co)
+                    .orderCode(orderCode)
                     // snapshot địa chỉ:
                     .shipReceiverName(co.getShipReceiverName())
                     .shipPhoneNumber(co.getShipPhoneNumber())
@@ -936,6 +940,7 @@ public class CartServiceImpl implements CartService {
     private CustomerOrderResponse toOrderResponse(CustomerOrder order) {
         CustomerOrderResponse resp = new CustomerOrderResponse();
         resp.setId(order.getId());
+        resp.setOrderCode(order.getOrderCode());
         resp.setStatus(order.getStatus().name());
         resp.setMessage(order.getMessage());
         resp.setCreatedAt(order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
@@ -1100,11 +1105,14 @@ public class CartServiceImpl implements CartService {
             BigDecimal shippingFee = BigDecimal.ZERO;
             Integer serviceTypeIdForStore = null; // không dùng
 
+            String orderCode = orderCodeGeneratorService.nextOrderCode();
+
             CustomerOrder co = CustomerOrder.builder()
                     .customer(customer)
                     .createdAt(java.time.LocalDateTime.now())
                     .message(message)
                     .status(OrderStatus.PENDING)
+                    .orderCode(orderCode)
                     // snapshot địa chỉ
                     .shipReceiverName(addr.getReceiverName())
                     .shipPhoneNumber(addr.getPhoneNumber())
@@ -1156,6 +1164,7 @@ public class CartServiceImpl implements CartService {
                     .createdAt(java.time.LocalDateTime.now())
                     .status(OrderStatus.PENDING)
                     .customerOrder(co)
+                    .orderCode(orderCode)
                     .shipReceiverName(co.getShipReceiverName())
                     .shipPhoneNumber(co.getShipPhoneNumber())
                     .shipCountry(co.getShipCountry())
