@@ -10,10 +10,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.entity.CustomerOrderCancellationRequest;
 import org.example.audio_ecommerce.entity.Enum.CancellationReason;
+import org.example.audio_ecommerce.entity.StoreOrderCancellationRequest;
 import org.example.audio_ecommerce.service.OrderCancellationService;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @Tag(name = "Customer Cancellation", description = "Các API khách hàng huỷ đơn hoặc gửi yêu cầu huỷ đơn")
@@ -87,4 +90,48 @@ public class CustomerCancellationController {
                 customerId, customerOrderId, reason, note
         );
     }
+
+    @Operation(
+            summary = "Khách xem các yêu cầu huỷ liên quan tới 1 CustomerOrder",
+            description = """
+                    Lấy danh sách tất cả `StoreOrderCancellationRequest` thuộc các `storeOrder`
+                    của một `customerOrder` (trong tương lai nếu 1 customerOrder có nhiều storeOrder
+                    thì vẫn trả hết).
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy danh sách yêu cầu huỷ thành công",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Đơn không thuộc khách",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy đơn hoặc dữ liệu liên quan",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class)))
+    })
+    @GetMapping("/orders/{customerOrderId}/cancel-requests")
+    public BaseResponse<List<StoreOrderCancellationRequest>> getCancelRequestsForCustomerOrder(
+            @Parameter(description = "ID khách hàng đang thao tác", required = true)
+            @PathVariable UUID customerId,
+            @Parameter(description = "ID đơn hàng của khách (CustomerOrder) cần xem các request huỷ", required = true)
+            @PathVariable UUID customerOrderId
+    ) {
+        var list = cancellationService.getCustomerCancellationRequests(customerId, customerOrderId);
+        return BaseResponse.success("Fetched cancellation requests", list);
+    }
+
+    @Operation(
+            summary = "Khách xem tất cả lịch sử huỷ đơn của mình",
+            description = """
+                    Lấy tất cả bản ghi ở bảng `customer_order_cancellation` cho 1 customer:
+                    - Gồm cả huỷ ngay (PENDING → CANCELLED) và các request huỷ đã gửi.
+                    """
+    )
+    @GetMapping("/cancel-requests")
+    public BaseResponse<List<CustomerOrderCancellationRequest>> getAllCustomerCancelRequests(
+            @Parameter(description = "ID khách hàng", required = true)
+            @PathVariable UUID customerId
+    ) {
+        var list = cancellationService.getAllCustomerOrderCancellations(customerId);
+        return BaseResponse.success("Fetched customer cancellation history", list);
+    }
+
 }

@@ -9,9 +9,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.entity.StoreOrderCancellationRequest;
 import org.example.audio_ecommerce.service.OrderCancellationService;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @Tag(name = "Store Cancellation", description = "Các API xử lý yêu cầu huỷ đơn của shop (duyệt / từ chối)")
@@ -78,4 +80,48 @@ public class StoreCancellationController {
     ) {
         return cancellationService.shopRejectCancel(storeId, storeOrderId, note);
     }
+
+    @Operation(
+            summary = "Shop xem các yêu cầu huỷ của một StoreOrder",
+            description = """
+                    Lấy danh sách tất cả `StoreOrderCancellationRequest` gắn với một `storeOrder`.
+                    Dùng cho màn hình quản lý huỷ đơn của shop.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy danh sách yêu cầu huỷ thành công",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Đơn không thuộc shop",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy đơn hoặc dữ liệu liên quan",
+                    content = @Content(schema = @Schema(implementation = BaseResponse.class)))
+    })
+    @GetMapping("/{storeOrderId}/cancel-requests")
+    public BaseResponse<List<StoreOrderCancellationRequest>> getCancelRequestsForStoreOrder(
+            @Parameter(description = "ID của shop đang thao tác", required = true)
+            @PathVariable UUID storeId,
+            @Parameter(description = "ID đơn của shop (StoreOrder) cần xem request huỷ", required = true)
+            @PathVariable UUID storeOrderId
+    ) {
+        var list = cancellationService.getStoreCancellationRequests(storeId, storeOrderId);
+        return BaseResponse.success("Fetched cancellation requests", list);
+    }
+
+    @Operation(
+            summary = "Shop xem tất cả request huỷ của các đơn thuộc shop",
+            description = """
+                    Lấy tất cả `StoreOrderCancellationRequest` của các `storeOrder` thuộc store.
+                    Dùng cho màn hình quản lý yêu cầu huỷ theo shop.
+                    """
+    )
+    @GetMapping("/cancel-requests")
+    public BaseResponse<List<StoreOrderCancellationRequest>> getAllStoreCancelRequests(
+            @Parameter(description = "ID của shop đang thao tác", required = true)
+            @PathVariable UUID storeId
+    ) {
+        var list = cancellationService.getAllStoreCancellationRequests(storeId);
+        return BaseResponse.success("Fetched store cancellation requests", list);
+    }
+
+
 }

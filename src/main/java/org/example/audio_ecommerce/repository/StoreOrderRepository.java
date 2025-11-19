@@ -12,6 +12,7 @@ import java.util.UUID;
 public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID> {
     List<StoreOrder> findAllByCustomerOrder_Id(UUID customerOrderId);
     Page<StoreOrder> findByStore_StoreId(UUID storeId, Pageable pageable);
+    List<StoreOrder> findAllByStore_StoreId(UUID customerOrderId);
 }
 
     
