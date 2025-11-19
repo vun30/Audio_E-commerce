@@ -393,6 +393,15 @@ public class CartServiceImpl implements CartService {
                 // Nếu không tìm được thì để null (FE tự xử lý hiển thị)
             }
 
+            // ✅ Lấy thông tin variant từ CartItem
+            UUID variantId = ci.getVariantIdOrNull();                    // helper bạn đã có
+            String variantOptionName = ci.getVariantOptionNameSnapshot();
+            String variantOptionValue = ci.getVariantOptionValueSnapshot();
+            String variantUrl = null;
+            if (ci.getVariant() != null) {
+                variantUrl = ci.getVariant().getVariantUrl();
+            }
+
             return CartResponse.Item.builder()
                     .cartItemId(ci.getCartItemId())
                     .type(type)
@@ -405,6 +414,10 @@ public class CartServiceImpl implements CartService {
                     .originProvinceCode(originProvince)
                     .originDistrictCode(originDistrict)
                     .originWardCode(originWard)
+                    .variantId(variantId)
+                    .variantOptionName(variantOptionName)
+                    .variantOptionValue(variantOptionValue)
+                    .variantUrl(variantUrl)
                     .build();
         }).toList();
 
