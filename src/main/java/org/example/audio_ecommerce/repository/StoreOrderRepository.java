@@ -14,3 +14,4 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID> {
     Page<StoreOrder> findByStore_StoreId(UUID storeId, Pageable pageable);
 }
 
+    

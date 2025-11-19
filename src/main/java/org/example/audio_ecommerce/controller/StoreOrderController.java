@@ -70,6 +70,16 @@ public class StoreOrderController {
         );
     }
 
+    // ✅ GET detail: GET /api/v1/store/orders/{orderId}?storeId=...
+    @GetMapping("/{orderId}")
+    public ResponseEntity<StoreOrderDetailResponse> getOrderDetail(
+            @RequestParam UUID storeId,
+            @PathVariable UUID orderId
+    ) {
+        StoreOrderDetailResponse res = storeOrderService.getOrderDetailForStore(storeId, orderId);
+        return ResponseEntity.ok(res);
+    }
+
     private StoreOrderSettlementResponse toSettlementResponse(StoreOrder so) {
         java.math.BigDecimal productsTotal = java.util.Optional.ofNullable(so.getTotalAmount()).orElse(java.math.BigDecimal.ZERO);
         java.math.BigDecimal discountTotal = java.util.Optional.ofNullable(so.getDiscountTotal()).orElse(java.math.BigDecimal.ZERO);

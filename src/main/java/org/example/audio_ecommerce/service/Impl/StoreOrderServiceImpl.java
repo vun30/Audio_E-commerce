@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.PagedResult;
 import org.example.audio_ecommerce.dto.response.StoreOrderDetailResponse;
 import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
+import org.example.audio_ecommerce.dto.response.StoreOrderResponse;
 import org.example.audio_ecommerce.entity.Customer;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.StoreOrder;
@@ -124,6 +125,21 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .size(ordersPage.getSize())
                 .build();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StoreOrderDetailResponse getOrderDetailForStore(UUID storeId, UUID orderId) {
+        StoreOrder order = storeOrderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
+
+        // đảm bảo đơn này thuộc về store đang request
+        if (!order.getStore().getStoreId().equals(storeId)) {
+            throw new IllegalArgumentException("Store does not own this order");
+        }
+
+        return toDetailResponse(order);
+    }
+
 
     private StoreOrderDetailResponse toDetailResponse(StoreOrder order) {
         CustomerOrder customerOrder = order.getCustomerOrder();
