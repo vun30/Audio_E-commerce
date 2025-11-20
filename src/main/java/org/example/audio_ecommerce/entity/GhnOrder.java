@@ -39,8 +39,14 @@ public class GhnOrder {
     @Column(name="expected_delivery_time")
     private LocalDateTime expectedDeliveryTime;
 
+    @Enumerated(EnumType.STRING)
     @Column(name="status", length = 64, nullable = false)
-    private GhnStatus status = GhnStatus.READY_PICKUP;                  // ví dụ: "ready_to_pick", "picking", "delivering", "delivered", ...
+    private GhnStatus status;
+    // ví dụ: "ready_to_pick", "picking", "delivering", "delivered", ...
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
 
     @Column(name="created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -48,5 +54,11 @@ public class GhnOrder {
     @PrePersist
     public void prePersist() {
         if (createdAt == null) createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    public void preUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 }
