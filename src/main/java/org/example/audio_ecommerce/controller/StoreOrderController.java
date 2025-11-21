@@ -29,7 +29,7 @@ public class StoreOrderController {
             @PathVariable UUID storeId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "20") String orderCodeKeyword
+            @RequestParam(required = false) String orderCodeKeyword
     ) {
         return storeOrderService.getOrdersForStore(storeId, page, size, orderCodeKeyword);
     }
