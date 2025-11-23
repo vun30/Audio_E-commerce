@@ -15,8 +15,24 @@ public class UploadService {
     private final Cloudinary cloudinary;
 
     public String uploadImage(MultipartFile file) throws IOException {
-        Map uploadResult = cloudinary.uploader().upload(file.getBytes(),
-                ObjectUtils.asMap("folder", "audio_ecommerce"));
+        Map uploadResult = cloudinary.uploader().upload(
+                file.getBytes(),
+                ObjectUtils.asMap(
+                        "folder", "audio_ecommerce/images",
+                        "resource_type", "image"
+                )
+        );
+        return uploadResult.get("secure_url").toString();
+    }
+
+    public String uploadVideo(MultipartFile file) throws IOException {
+        Map uploadResult = cloudinary.uploader().upload(
+                file.getBytes(),
+                ObjectUtils.asMap(
+                        "folder", "audio_ecommerce/videos",
+                        "resource_type", "video"
+                )
+        );
         return uploadResult.get("secure_url").toString();
     }
 }
