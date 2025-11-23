@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.repository;
 
+import org.example.audio_ecommerce.entity.Account;
 import org.example.audio_ecommerce.entity.Customer;
 import org.example.audio_ecommerce.entity.Enum.CustomerStatus;
 import org.springframework.data.domain.*;
@@ -38,4 +39,5 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
                           Pageable pageable);
 
      Optional<Customer> findByAccount_Email(String email);
+    Optional<Customer> findByAccount(Account account);
 }
