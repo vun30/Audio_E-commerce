@@ -2,9 +2,11 @@ package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.CustomerOrderDetailResponse;
+import org.example.audio_ecommerce.dto.response.CustomerOrderItemResponse;
 import org.example.audio_ecommerce.dto.response.PagedResult;
 import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
 import org.example.audio_ecommerce.entity.CustomerOrder;
+import org.example.audio_ecommerce.entity.CustomerOrderItem;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.example.audio_ecommerce.entity.StoreOrderItem;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
@@ -29,7 +31,6 @@ import java.util.stream.Collectors;
 public class CustomerOrderServiceImpl implements CustomerOrderService {
 
     private final CustomerOrderRepository customerOrderRepository;
-    private final StoreOrderRepository storeOrderRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -52,13 +53,13 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .build();
     }
 
+
     @Override
     @Transactional(readOnly = true)
     public CustomerOrderDetailResponse getCustomerOrderDetail(UUID customerId, UUID orderId) {
         CustomerOrder order = customerOrderRepository.findById(orderId)
                 .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
 
-        // ✅ Đảm bảo đơn thuộc về customer đang request
         if (!order.getCustomer().getId().equals(customerId)) {
             throw new IllegalArgumentException("Customer does not own this order");
         }
@@ -66,13 +67,9 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         return toCustomerOrderDetail(order);
     }
 
-
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
-        List<StoreOrder> storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
 
-        List<CustomerOrderDetailResponse.StoreOrderSummary> storeSummaries = storeOrders.stream()
-                .map(this::toStoreOrderSummary)
-                .collect(Collectors.toList());
+        List<CustomerOrderItemResponse> itemResponses = toCustomerOrderItemResponses(order.getItems());
 
         return CustomerOrderDetailResponse.builder()
                 .id(order.getId())
@@ -95,32 +92,17 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .addressLine(order.getShipAddressLine())
                 .postalCode(order.getShipPostalCode())
                 .note(order.getShipNote())
-                .storeOrders(storeSummaries)
+                .items(itemResponses)
                 .build();
     }
 
-    private CustomerOrderDetailResponse.StoreOrderSummary toStoreOrderSummary(StoreOrder storeOrder) {
-        return CustomerOrderDetailResponse.StoreOrderSummary.builder()
-                .id(storeOrder.getId())
-                .orderCode(storeOrder.getOrderCode())
-                .storeId(storeOrder.getStore().getStoreId())
-                .storeName(storeOrder.getStore().getStoreName())
-                .status(storeOrder.getStatus())
-                .createdAt(storeOrder.getCreatedAt())
-                .totalAmount(defaultBigDecimal(storeOrder.getTotalAmount()))
-                .discountTotal(defaultBigDecimal(storeOrder.getDiscountTotal()))
-                .shippingFee(defaultBigDecimal(storeOrder.getShippingFee()))
-                .grandTotal(defaultBigDecimal(storeOrder.getGrandTotal()))
-                .items(toItemResponses(storeOrder.getItems()))
-                .build();
-    }
-
-    private List<StoreOrderItemResponse> toItemResponses(List<StoreOrderItem> items) {
+    private List<CustomerOrderItemResponse> toCustomerOrderItemResponses(List<CustomerOrderItem> items) {
         if (items == null || items.isEmpty()) {
             return Collections.emptyList();
         }
+
         return items.stream()
-                .map(item -> StoreOrderItemResponse.builder()
+                .map(item -> CustomerOrderItemResponse.builder()
                         .id(item.getId())
                         .type(item.getType())
                         .refId(item.getRefId())
@@ -128,6 +110,11 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                         .quantity(item.getQuantity())
                         .unitPrice(item.getUnitPrice())
                         .lineTotal(item.getLineTotal())
+                        .storeId(item.getStoreId())
+                        // ===== Variant info =====
+                        .variantId(item.getVariantId())
+                        .variantOptionName(item.getVariantOptionName())
+                        .variantOptionValue(item.getVariantOptionValue())
                         .build())
                 .collect(Collectors.toList());
     }
@@ -135,4 +122,5 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
     private BigDecimal defaultBigDecimal(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
     }
+
 }

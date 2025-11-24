@@ -36,23 +36,5 @@ public class CustomerOrderDetailResponse {
     private String addressLine;
     private String postalCode;
     private String note;
-    private List<StoreOrderSummary> storeOrders;
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class StoreOrderSummary {
-        private UUID id;
-        private String orderCode;
-        private UUID storeId;
-        private String storeName;
-        private OrderStatus status;
-        private LocalDateTime createdAt;
-        private BigDecimal totalAmount;
-        private BigDecimal discountTotal;
-        private BigDecimal shippingFee;
-        private BigDecimal grandTotal;
-        private List<StoreOrderItemResponse> items;
-    }
+    private List<CustomerOrderItemResponse> items;
 }
