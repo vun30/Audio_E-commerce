@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -44,6 +46,7 @@ public class CartServiceImpl implements CartService {
     private final GhnFeeService ghnFeeService;
     private final ProductVariantRepository productVariantRepo;
     private final OrderCodeGeneratorService orderCodeGeneratorService;
+    private final PlatformCampaignProductRepository platformCampaignProductRepository;
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
     private final CodConfig codConfig;
@@ -127,12 +130,7 @@ public class CartServiceImpl implements CartService {
                 if (it == null) {
                     int totalQty = qty;
 
-                    BigDecimal unitPrice;
-                    if (variant != null) {
-                        unitPrice = variant.getVariantPrice();     // giá biến thể
-                    } else {
-                        unitPrice = getUnitPriceWithBulk(product, totalQty);  // giá product theo bulk
-                    }
+                    BigDecimal unitPrice = resolveUnitPrice(product, variant, totalQty);
 
                     it = CartItem.builder()
                             .cart(cart)
@@ -153,12 +151,7 @@ public class CartServiceImpl implements CartService {
                 } else {
                     int totalQty = it.getQuantity() + qty;
 
-                    BigDecimal unitPrice;
-                    if (variant != null) {
-                        unitPrice = variant.getVariantPrice();
-                    } else {
-                        unitPrice = getUnitPriceWithBulk(product, totalQty);
-                    }
+                    BigDecimal unitPrice = resolveUnitPrice(product, variant, totalQty);
 
                     it.setQuantity(totalQty);
                     it.setUnitPrice(unitPrice);
@@ -753,15 +746,11 @@ public class CartServiceImpl implements CartService {
             int q = request.getQuantity();
             item.setQuantity(q);
 
-            BigDecimal unit;
-            if (v != null) {
-                unit = v.getVariantPrice();
-            } else {
-                unit = getUnitPriceWithBulk(p, q);
-            }
+            BigDecimal unit = resolveUnitPrice(p, v, q);
 
             item.setUnitPrice(unit);
             item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
+
         } else {
             // COMBO
             ProductCombo combo = item.getCombo();
@@ -1363,6 +1352,86 @@ public class CartServiceImpl implements CartService {
                 .filter(a -> Boolean.TRUE.equals(a.getDefaultAddress()))
                 .findFirst()
                 .orElse(store.getStoreAddresses().get(0)); // fallback: lấy địa chỉ đầu tiên
+    }
+
+    /**
+     * Tính giá base theo variant/product, rồi áp campaign (nếu có).
+     */
+    private BigDecimal resolveUnitPrice(Product product,
+                                        ProductVariantEntity variant,
+                                        int quantity) {
+        if (product == null) return BigDecimal.ZERO;
+
+        // 1) Base price: nếu có variant → lấy variantPrice, không thì lấy theo bulk
+        BigDecimal basePrice;
+        if (variant != null) {
+            basePrice = variant.getVariantPrice();
+        } else {
+            basePrice = getUnitPriceWithBulk(product, quantity);
+        }
+        if (basePrice == null) basePrice = BigDecimal.ZERO;
+
+        // 2) Lấy list campaign active cho product này tại thời điểm hiện tại
+        LocalDateTime now = LocalDateTime.now();
+        List<PlatformCampaignProduct> cps =
+                platformCampaignProductRepository.findAllActiveByProduct(product.getProductId(), now);
+
+        if (cps == null || cps.isEmpty()) {
+            // Không có chiến dịch active → trả giá base
+            return basePrice;
+        }
+
+        // 3) Áp tất cả campaign, chọn giá thấp nhất (giảm nhiều nhất)
+        BigDecimal bestPrice = basePrice;
+        for (PlatformCampaignProduct cp : cps) {
+            BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
+            if (discounted.compareTo(bestPrice) < 0) {
+                bestPrice = discounted;
+            }
+        }
+
+        return bestPrice;
+    }
+
+    /**
+     * Áp giảm giá theo 1 record PlatformCampaignProduct
+     * - Ưu tiên discountPercent, nếu không có thì dùng discountValue
+     * - Có maxDiscountValue thì cap lại.
+     */
+    private BigDecimal applyCampaignDiscount(BigDecimal basePrice,
+                                             PlatformCampaignProduct cp) {
+        if (basePrice == null) return BigDecimal.ZERO;
+        BigDecimal discountAmount = BigDecimal.ZERO;
+
+        // Giảm theo %
+        if (cp.getDiscountPercent() != null && cp.getDiscountPercent() > 0) {
+            discountAmount = basePrice
+                    .multiply(BigDecimal.valueOf(cp.getDiscountPercent()))
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.DOWN);
+        }
+
+        // Nếu không có % mà có giá cố định
+        if ((cp.getDiscountPercent() == null || cp.getDiscountPercent() == 0)
+                && cp.getDiscountValue() != null
+                && cp.getDiscountValue().compareTo(BigDecimal.ZERO) > 0) {
+            discountAmount = cp.getDiscountValue();
+        }
+
+        // Giới hạn maxDiscountValue nếu có
+        if (cp.getMaxDiscountValue() != null
+                && discountAmount.compareTo(cp.getMaxDiscountValue()) > 0) {
+            discountAmount = cp.getMaxDiscountValue();
+        }
+
+        BigDecimal result = basePrice.subtract(discountAmount);
+        if (result.compareTo(BigDecimal.ZERO) < 0) result = BigDecimal.ZERO;
+
+        // Optional: lưu lại original/discounted để report
+        cp.setOriginalPrice(basePrice);
+        cp.setDiscountedPrice(result);
+        // Không bắt buộc save ở đây (tránh N+1), nên mình không gọi repo.save(cp).
+
+        return result;
     }
 
 }
