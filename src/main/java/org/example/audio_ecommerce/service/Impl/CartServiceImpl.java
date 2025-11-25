@@ -47,6 +47,8 @@ public class CartServiceImpl implements CartService {
     private final ProductVariantRepository productVariantRepo;
     private final OrderCodeGeneratorService orderCodeGeneratorService;
     private final PlatformCampaignProductRepository platformCampaignProductRepository;
+    private final NotificationRepository notificationRepo;
+
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
     private final CodConfig codConfig;
@@ -643,9 +645,9 @@ public class CartServiceImpl implements CartService {
             so.setItems(soItems);
             storeOrderRepository.save(so);
 
+            createNewOrderNotifications(co, store);
             // gom cho voucher service
             storeItemsMap.put(storeIdKey, soItems);
-
             createdOrders.add(co);
         }
 
@@ -1504,6 +1506,46 @@ public class CartServiceImpl implements CartService {
                 );
             }
             p.setStockQuantity(stock - totalQty);
+        }
+    }
+
+    /**
+     * Tạo notification khi có đơn hàng mới:
+     * - Cho customer
+     * - Cho store
+     */
+    private void createNewOrderNotifications(CustomerOrder co, Store store) {
+        try {
+            // ==== Notify cho CUSTOMER ====
+            Notification customerNotif = Notification.builder()
+                    .target(NotificationTarget.CUSTOMER)
+                    .targetId(co.getCustomer().getId())
+                    .type(NotificationType.NEW_ORDER)
+                    .title("Đặt hàng thành công")
+                    .message("Đơn hàng " + co.getOrderCode()
+                            + " tại cửa hàng " + store.getStoreName() + " đã được tạo thành công.")
+                    .read(false)
+                    .actionUrl("/customer/orders/" + co.getId()) // FE tuỳ chỉnh route
+                    .build();
+            notificationRepo.save(customerNotif);
+
+            // ==== Notify cho STORE ====
+            String customerName = co.getCustomer() != null ? co.getCustomer().getFullName() : "Khách hàng";
+
+            Notification storeNotif = Notification.builder()
+                    .target(NotificationTarget.STORE)
+                    .targetId(store.getStoreId())
+                    .type(NotificationType.NEW_ORDER)
+                    .title("Bạn có đơn hàng mới")
+                    .message("Bạn có đơn hàng mới " + co.getOrderCode()
+                            + " từ " + customerName + ".")
+                    .read(false)
+                    .actionUrl("/seller/orders/" + co.getId()) // FE tuỳ chỉnh route
+                    .build();
+            notificationRepo.save(storeNotif);
+
+        } catch (Exception e) {
+            log.warn("Failed to create notifications for order {}", co.getId(), e);
         }
     }
 
