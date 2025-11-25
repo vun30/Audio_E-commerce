@@ -1353,7 +1353,6 @@ public class CartServiceImpl implements CartService {
                 .findFirst()
                 .orElse(store.getStoreAddresses().get(0)); // fallback: lấy địa chỉ đầu tiên
     }
-
     /**
      * Tính giá base theo variant/product, rồi áp campaign (nếu có).
      */
