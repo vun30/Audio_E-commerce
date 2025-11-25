@@ -30,10 +30,28 @@ public class ProductComboServiceImpl implements ProductComboService {
     private final StoreRepository storeRepository;
     private final CustomerRepository customerRepository;
 
-    // ================= COMMON ================
+    // ================= COMMON =================
+
     private String getLoginEmail() {
         String principal = SecurityContextHolder.getContext().getAuthentication().getName();
         return principal.contains(":") ? principal.split(":")[0] : principal;
+    }
+
+    private void validateItems(List<ComboItemRequest> items) {
+        if (items == null || items.isEmpty()) {
+            throw new RuntimeException("❌ items trống");
+        }
+        for (ComboItemRequest i : items) {
+            if (i.getQuantity() == null || i.getQuantity() < 1) {
+                throw new RuntimeException("❌ quantity >= 1");
+            }
+            if (i.getVariantId() == null) {
+                throw new RuntimeException("❌ variantId không được null");
+            }
+            if (i.getOptionName() == null || i.getOptionValue() == null) {
+                throw new RuntimeException("❌ optionName / optionValue không được null");
+            }
+        }
     }
 
     private void validateProductsInSameStore(List<Product> products, UUID storeId) {
@@ -45,19 +63,26 @@ public class ProductComboServiceImpl implements ProductComboService {
         List<String> notActive = products.stream()
                 .filter(p -> p.getStatus() != ProductStatus.ACTIVE)
                 .map(Product::getName).toList();
-        if (!notActive.isEmpty()) throw new RuntimeException("❌ sp không ACTIVE: " + String.join(", ", notActive));
+        if (!notActive.isEmpty())
+            throw new RuntimeException("❌ sp không ACTIVE: " + String.join(", ", notActive));
     }
 
-    private Map<UUID, Integer> buildQtyMap(List<ComboItemRequest> items) {
-        if (items == null || items.isEmpty()) throw new RuntimeException("❌ items trống");
-        Map<UUID, Integer> map = new HashMap<>();
-        for (var i : items) {
-            int q = i.getQuantity() == null ? 1 : i.getQuantity();
-            if (q < 1) throw new RuntimeException("❌ quantity >=1");
-            map.put(i.getProductId(), q);
-        }
-        return map;
+    private ComboItem toComboItem(ProductCombo combo, Product p, ComboItemRequest r) {
+        return ComboItem.builder()
+                .combo(combo)
+                .product(p)
+                .variantId(r.getVariantId())
+                .optionName(r.getOptionName())
+                .optionValue(r.getOptionValue())
+                .variantPrice(r.getVariantPrice())
+                .variantStock(r.getVariantStock())
+                .variantUrl(r.getVariantUrl())
+                .variantSku(r.getVariantSku())
+                .quantity(r.getQuantity())
+                .build();
     }
+
+    // =================== VIEW ===================
 
     @Override
     public ResponseEntity<BaseResponse> viewShopCombos(int page, int size, String keyword, Boolean isActive) {
@@ -96,6 +121,7 @@ public class ProductComboServiceImpl implements ProductComboService {
     }
 
 
+
     // =================== SHOP ===================
 
     @Override
@@ -104,9 +130,11 @@ public class ProductComboServiceImpl implements ProductComboService {
         Store store = storeRepository.findByAccount_Email(email)
                 .orElseThrow(() -> new RuntimeException("❌ store not found"));
 
-        Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
-        List<Product> products = productRepository.findAllById(qtyMap.keySet());
-        if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+        validateItems(req.getItems());
+
+        List<UUID> productIds = req.getItems().stream().map(ComboItemRequest::getProductId).toList();
+        List<Product> products = productRepository.findAllById(productIds);
+        if (products.size() != productIds.size()) throw new RuntimeException("❌ productId not exist");
 
         validateProductsInSameStore(products, store.getStoreId());
         validateActive(products);
@@ -132,9 +160,12 @@ public class ProductComboServiceImpl implements ProductComboService {
                 .createdBy(store.getAccount().getId())
                 .build();
 
-        combo.setItems(products.stream()
-                .map(p -> ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build())
-                .toList());
+        combo.setItems(req.getItems().stream().map(r -> {
+            Product p = products.stream()
+                    .filter(x -> x.getProductId().equals(r.getProductId()))
+                    .findFirst().orElseThrow();
+            return toComboItem(combo, p, r);
+        }).toList());
 
         return ResponseEntity.ok(new BaseResponse<>(201, "✅ tạo combo shop", toResponse(comboRepository.save(combo))));
     }
@@ -147,27 +178,39 @@ public class ProductComboServiceImpl implements ProductComboService {
 
         ProductCombo combo = comboRepository.findById(comboId).orElseThrow();
 
-        if (combo.getCreatorType() != ComboCreatorType.SHOP_CREATE || !combo.getCreatorId().equals(store.getStoreId()))
+        if (combo.getCreatorType() != ComboCreatorType.SHOP_CREATE ||
+            !combo.getCreatorId().equals(store.getStoreId())) {
             throw new RuntimeException("❌ không có quyền update");
+        }
 
-        applyCommonUpdate(combo, req);
+        applyUpdate(combo, req);
 
         if (req.getItems() != null) {
-            Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
-            List<Product> products = productRepository.findAllById(qtyMap.keySet());
-            if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+            validateItems(req.getItems());
+
+            List<UUID> productIds = req.getItems().stream().map(ComboItemRequest::getProductId).toList();
+            List<Product> products = productRepository.findAllById(productIds);
+            if (products.size() != productIds.size()) throw new RuntimeException("❌ productId not exist");
+
             validateProductsInSameStore(products, store.getStoreId());
             validateActive(products);
+
             combo.getItems().clear();
-            products.forEach(p -> combo.getItems().add(
-                    ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build()
-            ));
+            req.getItems().forEach(r -> {
+                Product p = products.stream()
+                        .filter(x -> x.getProductId().equals(r.getProductId()))
+                        .findFirst().orElseThrow();
+                combo.getItems().add(toComboItem(combo, p, r));
+            });
         }
 
         combo.setUpdatedAt(LocalDateTime.now());
         combo.setUpdatedBy(store.getAccount().getId());
+
         return ResponseEntity.ok(new BaseResponse<>(200, "✏️ update combo shop", toResponse(comboRepository.save(combo))));
     }
+
+
 
     // =================== CUSTOMER ===================
 
@@ -177,9 +220,11 @@ public class ProductComboServiceImpl implements ProductComboService {
         Customer cus = customerRepository.findByAccount_Email(email).orElseThrow();
         Store store = storeRepository.findById(req.getStoreId()).orElseThrow();
 
-        Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
-        List<Product> products = productRepository.findAllById(qtyMap.keySet());
-        if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+        validateItems(req.getItems());
+
+        List<UUID> productIds = req.getItems().stream().map(ComboItemRequest::getProductId).toList();
+        List<Product> products = productRepository.findAllById(productIds);
+        if (products.size() != productIds.size()) throw new RuntimeException("❌ productId not exist");
 
         validateProductsInSameStore(products, store.getStoreId());
         validateActive(products);
@@ -205,9 +250,12 @@ public class ProductComboServiceImpl implements ProductComboService {
                 .createdBy(cus.getAccount().getId())
                 .build();
 
-        combo.setItems(products.stream()
-                .map(p -> ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build())
-                .toList());
+        combo.setItems(req.getItems().stream().map(r -> {
+            Product p = products.stream()
+                    .filter(x -> x.getProductId().equals(r.getProductId()))
+                    .findFirst().orElseThrow();
+            return toComboItem(combo, p, r);
+        }).toList());
 
         return ResponseEntity.ok(new BaseResponse<>(201, "✅ tạo combo customer", toResponse(comboRepository.save(combo))));
     }
@@ -219,31 +267,43 @@ public class ProductComboServiceImpl implements ProductComboService {
         Customer cus = customerRepository.findByAccount_Email(email).orElseThrow();
 
         ProductCombo combo = comboRepository.findById(comboId).orElseThrow();
-        if (combo.getCreatorType() != ComboCreatorType.CUSTOMER_CREATE || !combo.getCreatorId().equals(cus.getId()))
+        if (combo.getCreatorType() != ComboCreatorType.CUSTOMER_CREATE ||
+            !combo.getCreatorId().equals(cus.getId())) {
             throw new RuntimeException("❌ không có quyền update");
+        }
 
-        applyCommonUpdate(combo, req);
+        applyUpdate(combo, req);
 
         if (req.getItems() != null) {
-            Map<UUID, Integer> qtyMap = buildQtyMap(req.getItems());
-            List<Product> products = productRepository.findAllById(qtyMap.keySet());
-            if (products.size() != qtyMap.size()) throw new RuntimeException("❌ productId not exist");
+            validateItems(req.getItems());
+
+            List<UUID> productIds = req.getItems().stream().map(ComboItemRequest::getProductId).toList();
+            List<Product> products = productRepository.findAllById(productIds);
+            if (products.size() != productIds.size()) throw new RuntimeException("❌ productId not exist");
+
             validateProductsInSameStore(products, combo.getStore().getStoreId());
             validateActive(products);
 
             combo.getItems().clear();
-            products.forEach(p -> combo.getItems().add(
-                    ComboItem.builder().combo(combo).product(p).quantity(qtyMap.get(p.getProductId())).build()
-            ));
+            req.getItems().forEach(r -> {
+                Product p = products.stream()
+                        .filter(x -> x.getProductId().equals(r.getProductId()))
+                        .findFirst().orElseThrow();
+                combo.getItems().add(toComboItem(combo, p, r));
+            });
         }
 
         combo.setUpdatedAt(LocalDateTime.now());
         combo.setUpdatedBy(cus.getAccount().getId());
+
         return ResponseEntity.ok(new BaseResponse<>(200, "✏️ update combo customer", toResponse(comboRepository.save(combo))));
     }
 
-    // ================== UPDATE HELPER SHOP ==================
-    private void applyCommonUpdate(ProductCombo combo, UpdateShopComboRequest req) {
+
+
+    // ================== UPDATE HELPER ==================
+
+    private void applyUpdate(ProductCombo combo, UpdateShopComboRequest req) {
         if (req.getName() != null) combo.setName(req.getName());
         if (req.getShortDescription() != null) combo.setShortDescription(req.getShortDescription());
         if (req.getDescription() != null) combo.setDescription(req.getDescription());
@@ -253,17 +313,13 @@ public class ProductComboServiceImpl implements ProductComboService {
         if (req.getStockQuantity() != null) combo.setStockQuantity(req.getStockQuantity());
         if (req.getShippingAddress() != null) combo.setShippingAddress(req.getShippingAddress());
         if (req.getWarehouseLocation() != null) combo.setWarehouseLocation(req.getWarehouseLocation());
-
         if (req.getProvinceCode() != null) combo.setProvinceCode(req.getProvinceCode());
         if (req.getDistrictCode() != null) combo.setDistrictCode(req.getDistrictCode());
         if (req.getWardCode() != null) combo.setWardCode(req.getWardCode());
-
         if (req.getIsActive() != null) combo.setIsActive(req.getIsActive());
     }
 
-
-    // ================== UPDATE HELPER CUSTOMER ==================
-    private void applyCommonUpdate(ProductCombo combo, UpdateCustomerComboRequest req) {
+    private void applyUpdate(ProductCombo combo, UpdateCustomerComboRequest req) {
         if (req.getName() != null) combo.setName(req.getName());
         if (req.getShortDescription() != null) combo.setShortDescription(req.getShortDescription());
         if (req.getDescription() != null) combo.setDescription(req.getDescription());
@@ -273,13 +329,15 @@ public class ProductComboServiceImpl implements ProductComboService {
         if (req.getStockQuantity() != null) combo.setStockQuantity(req.getStockQuantity());
         if (req.getShippingAddress() != null) combo.setShippingAddress(req.getShippingAddress());
         if (req.getWarehouseLocation() != null) combo.setWarehouseLocation(req.getWarehouseLocation());
-
         if (req.getProvinceCode() != null) combo.setProvinceCode(req.getProvinceCode());
         if (req.getDistrictCode() != null) combo.setDistrictCode(req.getDistrictCode());
         if (req.getWardCode() != null) combo.setWardCode(req.getWardCode());
-
         if (req.getIsActive() != null) combo.setIsActive(req.getIsActive());
     }
+
+
+
+    // ================== RESPONSE MAPPER ==================
 
     private ProductComboResponse toResponse(ProductCombo c) {
         return ProductComboResponse.builder()
@@ -296,7 +354,7 @@ public class ProductComboServiceImpl implements ProductComboService {
                 .shippingAddress(c.getShippingAddress())
                 .warehouseLocation(c.getWarehouseLocation())
                 .stockQuantity(c.getStockQuantity())
-                .storeId(c.getStore().getStoreId())        // <<<< ADD
+                .storeId(c.getStore().getStoreId())
                 .storeName(c.getStore().getStoreName())
                 .creatorType(c.getCreatorType().name())
                 .creatorId(c.getCreatorId())
@@ -307,11 +365,17 @@ public class ProductComboServiceImpl implements ProductComboService {
                         ProductComboResponse.Item.builder()
                                 .productId(ci.getProduct().getProductId())
                                 .productName(ci.getProduct().getName())
+                                .variantId(ci.getVariantId())
+                                .optionName(ci.getOptionName())
+                                .optionValue(ci.getOptionValue())
+                                .variantPrice(ci.getVariantPrice())
+                                .variantStock(ci.getVariantStock())
+                                .variantUrl(ci.getVariantUrl())
+                                .variantSku(ci.getVariantSku())
                                 .quantity(ci.getQuantity())
                                 .build()
                 ).toList())
                 .build();
     }
-
 
 }

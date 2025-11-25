@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Getter
@@ -27,7 +28,34 @@ public class ComboItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    // để sau FE có thể nhập mỗi sp số lượng khác nhau trong combo
+    // ============================
+    // 🆕 THÔNG TIN BIẾN THỂ
+    // ============================
+
+    @Column(name = "variant_id", columnDefinition = "CHAR(36)")
+    private UUID variantId;
+
+    @Column(nullable = false)
+    private String optionName;     // Color, Size...
+
+    @Column(nullable = false)
+    private String optionValue;    // Black, M...
+
+    @Column(nullable = false)
+    private BigDecimal variantPrice;
+
+    @Column(nullable = false)
+    private Integer variantStock;
+
+    @Column(nullable = false)
+    private String variantUrl;
+
+    @Column(unique = false)
+    private String variantSku;
+
+    // ============================
+    // Số lượng của product trong combo
+    // ============================
     @Column(nullable = false)
     private Integer quantity = 1;
 }
