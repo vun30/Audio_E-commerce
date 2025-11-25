@@ -149,7 +149,11 @@ public class ProductReviewServiceImpl implements ProductReviewService {
     // ================== LIST MY ==================
     @Override
     @Transactional(readOnly = true)
-    public Page<ProductReviewResponse> listMyReviews(UUID currentCustomerId, Pageable pageable) {
+    public Page<ProductReviewResponse> listMyReviews(UUID currentCustomerId, ReviewStatus status,Pageable pageable) {
+        if (status == null) {
+            return reviewRepo.findByCustomer_Id(currentCustomerId, pageable)
+                    .map(this::toResponse);
+        }
         return reviewRepo.findByCustomer_Id(currentCustomerId, pageable)
                 .map(this::toResponse);
     }
@@ -224,6 +228,7 @@ public class ProductReviewServiceImpl implements ProductReviewService {
                 .productId(r.getProduct().getProductId())
                 .variantOptionName(r.getVariantOptionName())
                 .variantOptionValue(r.getVariantOptionValue())
+                .status(r.getStatus().name())
                 .media(Optional.ofNullable(r.getMediaList()).orElse(List.of())
                         .stream()
                         .map(m -> ProductReviewResponse.ReviewMediaResponse.builder()

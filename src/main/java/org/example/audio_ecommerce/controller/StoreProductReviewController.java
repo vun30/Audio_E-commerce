@@ -1,4 +1,4 @@
-package org.example.audio_ecommerce.controller.store;
+package org.example.audio_ecommerce.controller;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
