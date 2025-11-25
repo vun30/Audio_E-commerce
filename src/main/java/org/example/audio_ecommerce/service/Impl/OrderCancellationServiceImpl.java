@@ -23,6 +23,8 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
     private final StoreOrderCancellationRepository cancelRepo;
     private final CustomerOrderCancellationRepository customerCancelRepo;
     private final SettlementService settlementService;
+    private final ProductRepository productRepo;
+    private final ProductVariantRepository productVariantRepo;
 
     /** KH hủy toàn bộ nếu CustomerOrder còn PENDING => refund ngay về ví KH, không cần shop duyệt */
     @Override
@@ -57,6 +59,7 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         // Set tất cả StoreOrder -> CANCELLED
         var storeOrders = storeOrderRepo.findAllByCustomerOrder_Id(order.getId());
         for (StoreOrder so : storeOrders) {
+            restockProductsForStoreOrder(so);
             so.setStatus(OrderStatus.CANCELLED);
         }
         storeOrderRepo.saveAll(storeOrders);
@@ -115,6 +118,9 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
 
         // ===== 3) Refund phần tiền của storeOrder về ví KH =====
         settlementService.refundStorePartToCustomerWallet(storeOrder);
+
+        // ✅ 3b) Cộng lại stock cho product/variant tương ứng
+        restockProductsForStoreOrder(storeOrder);
 
         // 4) Đánh dấu storeOrder CANCELLED
         storeOrder.setStatus(OrderStatus.CANCELLED);
@@ -311,6 +317,46 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
             }
         }
         return result;
+    }
+
+    /**
+     * Cộng lại tồn kho cho các item PRODUCT trong 1 StoreOrder khi huỷ.
+     * - Nếu StoreOrderItem có variantId -> +qty vào variant.variantStock và product.stockQuantity
+     * - Nếu không có variantId -> +qty vào product.stockQuantity
+     * COMBO hiện không xử lý stock (có thể bổ sung sau).
+     */
+    private void restockProductsForStoreOrder(StoreOrder storeOrder) {
+        if (storeOrder == null || storeOrder.getItems() == null) return;
+
+        for (StoreOrderItem item : storeOrder.getItems()) {
+            if (item == null) continue;
+
+            // Chỉ xử lý type PRODUCT
+            if (!"PRODUCT".equalsIgnoreCase(item.getType())) {
+                continue;
+            }
+
+            int qty = item.getQuantity();
+            if (qty <= 0) continue;
+
+            // 1) Cộng lại stock cho variant nếu có
+            if (item.getVariantId() != null) {
+                productVariantRepo.findById(item.getVariantId()).ifPresent(variant -> {
+                    Integer vs = variant.getVariantStock();
+                    if (vs == null) vs = 0;
+                    variant.setVariantStock(vs + qty);
+                });
+            }
+
+            // 2) Cộng lại stock cho product (refId là productId)
+            if (item.getRefId() != null) {
+                productRepo.findById(item.getRefId()).ifPresent(product -> {
+                    Integer ps = product.getStockQuantity();
+                    if (ps == null) ps = 0;
+                    product.setStockQuantity(ps + qty);
+                });
+            }
+        }
     }
 
 }
