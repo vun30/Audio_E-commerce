@@ -92,6 +92,7 @@ public class SchemaLoader {
                   variant_price,
                   variant_stock,
                   variant_sku
+                NOTE: Use variant_price when present instead of product base price for price queries.
 
                 ============================
                 TABLE: categories
@@ -103,6 +104,12 @@ public class SchemaLoader {
                   icon_url,
                   slug,
                   sort_order
+
+                ============================
+                PRICE SELECTION HINT
+                Effective price expression for filtering/sorting:
+                COALESCE(product_variants.variant_price, products.final_price, products.discount_price, products.price)
+                ============================
                 """;
     }
 }

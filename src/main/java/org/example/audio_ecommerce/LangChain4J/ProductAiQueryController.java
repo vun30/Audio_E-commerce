@@ -18,10 +18,16 @@ public class ProductAiQueryController {
 
         var result = aiService.searchProduct(question);
 
+        String message = result.isEmpty()
+                ? "Không tìm thấy sản phẩm phù hợp với câu hỏi/điều kiện giá bạn đưa ra"
+                : "Tìm thấy " + result.size() + " sản phẩm phù hợp";
+
         return ResponseEntity.ok(
                 Map.of(
                         "question", question,
-                        "resultProductIds", result
+                        "resultCount", result.size(),
+                        "resultProductIds", result,
+                        "message", message
                 )
         );
     }
