@@ -6,5 +6,7 @@ public enum NotificationType {
     ORDER_CANCELLED,
     NEW_REVIEW,
     STOCK_LOW,
-    WALLET_SETTLED
+    WALLET_SETTLED,
+    WALLET_RELEASE,
+    NEW_REVIEW_REPLY
 }

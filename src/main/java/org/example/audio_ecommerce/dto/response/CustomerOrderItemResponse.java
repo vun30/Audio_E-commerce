@@ -30,4 +30,7 @@ public class CustomerOrderItemResponse {
     private UUID variantId;           // có thể null
     private String variantOptionName; // Color, Size,...
     private String variantOptionValue;// Black, M,...
+
+    private String image;      // ảnh sản phẩm (lấy ảnh đầu tiên)
+    private String variantUrl;
 }

@@ -314,35 +314,57 @@ public class SettlementService {
 
     @Transactional
     public void refundEntireOrderToCustomerWallet(CustomerOrder order) {
-        // Tổng tiền đơn
-        var total = order.getItems().stream()
+        // ===== 0) Tính các khoản =====
+        BigDecimal productsTotal = order.getItems().stream()
                 .map(CustomerOrderItem::getLineTotal)
-                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal shippingTotal = Optional
+                .ofNullable(order.getShippingFeeTotal())
+                .orElse(BigDecimal.ZERO);
+
+        BigDecimal discountTotal = Optional
+                .ofNullable(order.getDiscountTotal())
+                .orElse(BigDecimal.ZERO);
+
+        // KH thực tế đã trả cho đơn này (đã có ship + trừ voucher)
+        BigDecimal refundAmount = productsTotal
+                .add(shippingTotal)
+                .subtract(discountTotal);
+
+        if (refundAmount.compareTo(BigDecimal.ZERO) < 0) {
+            refundAmount = BigDecimal.ZERO;
+        }
 
         // 1) Platform (refund từ platform → customer)
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
                 .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
-        // CHANGED: chặn âm & cộng refundedTotal
-        plat.setPendingBalance(plat.getPendingBalance().subtract(total).max(java.math.BigDecimal.ZERO));
-        plat.setTotalBalance(plat.getTotalBalance().subtract(total));
-        plat.setRefundedTotal(plat.getRefundedTotal().add(total));
+        // Giả định: HOLD chỉ chứa tiền hàng (productsTotal)
+        // → hạ pending theo productsTotal, nhưng totalBalance/refundedTotal theo refundAmount (grand total)
+        BigDecimal oldPending = plat.getPendingBalance();
+        BigDecimal oldTotal = plat.getTotalBalance();
+        BigDecimal oldRefunded = plat.getRefundedTotal();
+
+        plat.setPendingBalance(oldPending.subtract(productsTotal).max(java.math.BigDecimal.ZERO));
+        plat.setTotalBalance(oldTotal.subtract(refundAmount));
+        plat.setRefundedTotal(oldRefunded.add(refundAmount));
         plat.setUpdatedAt(java.time.LocalDateTime.now());
         platformWalletRepo.save(plat);
 
         PlatformTransaction ptx = PlatformTransaction.builder()
                 .wallet(plat)
                 .orderId(order.getId())
-                .amount(total)
+                .amount(refundAmount) // ✅ ghi nhận refund đúng số KH được hoàn (grand total)
                 .type(TransactionType.REFUND)
                 .status(TransactionStatus.DONE)
-                .description("Refund entire order to customer")
+                .description("Refund entire order (grand total) to customer")
                 .createdAt(java.time.LocalDateTime.now())
                 .updatedAt(java.time.LocalDateTime.now())
                 .build();
         platformTxRepo.save(ptx);
 
-        // 2) Gỡ pending từng shop (nếu đã allocate)
+        // 2) Gỡ pending từng shop (nếu đã allocate) – chỉ gỡ phần tiền hàng
         var storeTotals = order.getItems().stream()
                 .collect(java.util.stream.Collectors.groupingBy(
                         CustomerOrderItem::getStoreId,
@@ -351,58 +373,84 @@ public class SettlementService {
                 ));
 
         for (var e : storeTotals.entrySet()) {
-            java.util.UUID storeId = e.getKey();
-            java.math.BigDecimal amount = e.getValue();
+            UUID storeId = e.getKey();
+            BigDecimal amountProducts = e.getValue(); // chỉ tiền hàng của store đó
 
             StoreWallet sw = storeWalletRepo.findByStore_StoreId(storeId)
                     .orElseThrow(() -> new NoSuchElementException("Store wallet not found: " + storeId));
 
-            // CHANGED: chỉ hạ pending, không đụng available; chặn âm
-            sw.setPendingBalance(sw.getPendingBalance().subtract(amount).max(java.math.BigDecimal.ZERO));
-            sw.setUpdatedAt(java.time.LocalDateTime.now());
+            BigDecimal oldStorePending = sw.getPendingBalance();
+
+            // chỉ hạ pending, không đụng available; chặn âm
+            sw.setPendingBalance(oldStorePending.subtract(amountProducts).max(BigDecimal.ZERO));
+            sw.setUpdatedAt(LocalDateTime.now());
             storeWalletRepo.save(sw);
 
-            // CHANGED: type chuẩn là PENDING_REVERSED (không phải RELEASE_PENDING)
             StoreWalletTransaction stx = StoreWalletTransaction.builder()
                     .wallet(sw)
-                    .type(StoreWalletTransactionType.RELEASE_PENDING)
-                    .amount(amount)
+                    .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn có enum riêng
+                    .amount(amountProducts) // ✅ chỉ log phần pending bị reverse
                     .balanceAfter(sw.getAvailableBalance())
-                    .description("Reverse pending due to full order cancel " + order.getId())
+                    .description("Reverse pending (products) due to full order cancel " + order.getId())
                     .orderId(order.getId())
-                    .createdAt(java.time.LocalDateTime.now())
+                    .createdAt(LocalDateTime.now())
                     .build();
             storeWalletTxRepo.save(stx);
         }
 
-        // 3) Cộng ví khách
+        // 3) Cộng ví khách = refundAmount (grand total)
         Wallet wallet = walletRepo.findByCustomer_Id(order.getCustomer().getId())
                 .orElseThrow(() -> new NoSuchElementException("Customer wallet not found"));
-        var oldBalance = wallet.getBalance();                   // CHANGED: chốt số dư trước
-        wallet.setBalance(oldBalance.add(total));
-        wallet.setLastTransactionAt(java.time.LocalDateTime.now());
+        var oldBalance = wallet.getBalance();
+        wallet.setBalance(oldBalance.add(refundAmount));
+        wallet.setLastTransactionAt(LocalDateTime.now());
         walletRepo.save(wallet);
 
         WalletTransaction wtx = WalletTransaction.builder()
                 .wallet(wallet)
-                .amount(total)
+                .amount(refundAmount)
                 .transactionType(WalletTransactionType.REFUND)
                 .status(WalletTransactionStatus.SUCCESS)
-                .description("Refund for order " + order.getId())
-                .balanceBefore(oldBalance)                      // CHANGED
-                .balanceAfter(oldBalance.add(total))            // CHANGED
+                .description("Refund (grand total) for order " + order.getId())
+                .balanceBefore(oldBalance)
+                .balanceAfter(oldBalance.add(refundAmount))
                 .orderId(order.getId())
                 .build();
         walletTxRepo.save(wtx);
     }
 
 
+
     /** Refund một PHẦN theo storeOrder (KH đã thanh toán online, đơn đang AWAITING_SHIPMENT, shop duyệt). */
     @Transactional
     public void refundStorePartToCustomerWallet(StoreOrder storeOrder) {
-        java.math.BigDecimal amount = storeOrder.getItems().stream()
+        // ===== 0) Tính các khoản theo store =====
+        BigDecimal productsTotal = storeOrder.getItems().stream()
                 .map(StoreOrderItem::getLineTotal)
-                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal customerShipFee = Optional
+                .ofNullable(storeOrder.getShippingFee())
+                .orElse(BigDecimal.ZERO);
+
+        BigDecimal storeDiscount = Optional
+                .ofNullable(storeOrder.getStoreVoucherDiscount())
+                .orElse(BigDecimal.ZERO);
+
+        BigDecimal platformDiscount = Optional
+                .ofNullable(storeOrder.getPlatformVoucherDiscount())
+                .orElse(BigDecimal.ZERO);
+
+        // Số tiền KH thực trả cho store này:
+        // sản phẩm + phí ship - (giảm giá shop + giảm giá platform)
+        BigDecimal refundAmount = productsTotal
+                .add(customerShipFee)
+                .subtract(storeDiscount)
+                .subtract(platformDiscount);
+
+        if (refundAmount.compareTo(BigDecimal.ZERO) < 0) {
+            refundAmount = BigDecimal.ZERO;
+        }
 
         CustomerOrder order = storeOrder.getCustomerOrder();
 
@@ -410,62 +458,65 @@ public class SettlementService {
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
                 .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
-        // CHANGED: hạ pending, hạ totalBalance, +refundedTotal, chặn âm pending
-        plat.setPendingBalance(plat.getPendingBalance().subtract(amount).max(java.math.BigDecimal.ZERO));
-        plat.setTotalBalance(plat.getTotalBalance().subtract(amount));
-        plat.setRefundedTotal(plat.getRefundedTotal().add(amount));
-        plat.setUpdatedAt(java.time.LocalDateTime.now());
+        BigDecimal oldPending = plat.getPendingBalance();
+        BigDecimal oldTotal = plat.getTotalBalance();
+        BigDecimal oldRefunded = plat.getRefundedTotal();
+
+        // Giả định HOLD chỉ giữ productsTotal
+        plat.setPendingBalance(oldPending.subtract(productsTotal).max(BigDecimal.ZERO));
+        plat.setTotalBalance(oldTotal.subtract(refundAmount));
+        plat.setRefundedTotal(oldRefunded.add(refundAmount));
+        plat.setUpdatedAt(LocalDateTime.now());
         platformWalletRepo.save(plat);
 
         PlatformTransaction ptx = PlatformTransaction.builder()
                 .wallet(plat)
                 .orderId(order.getId())
-                .amount(amount)
+                .amount(refundAmount) // ✅ đúng số tiền hoàn lại cho KH
                 .type(TransactionType.REFUND)
                 .status(TransactionStatus.DONE)
-                .description("Partial refund for storeOrder " + storeOrder.getId())
-                .createdAt(java.time.LocalDateTime.now())
-                .updatedAt(java.time.LocalDateTime.now())
+                .description("Partial refund (grand total share) for storeOrder " + storeOrder.getId())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
         platformTxRepo.save(ptx);
 
-        // 2) Gỡ hold của shop tương ứng (NEVER lấy tiền từ shop)
+        // 2) Gỡ hold của shop tương ứng – chỉ gỡ phần tiền hàng
         StoreWallet sw = storeWalletRepo.findByStore_StoreId(storeOrder.getStore().getStoreId())
                 .orElseThrow(() -> new NoSuchElementException("Store wallet not found: " + storeOrder.getStore().getStoreId()));
 
-        // CHANGED: chỉ hạ pending, không đụng available; chặn âm
-        sw.setPendingBalance(sw.getPendingBalance().subtract(amount).max(java.math.BigDecimal.ZERO));
-        sw.setUpdatedAt(java.time.LocalDateTime.now());
+        BigDecimal oldStorePending = sw.getPendingBalance();
+        sw.setPendingBalance(oldStorePending.subtract(productsTotal).max(BigDecimal.ZERO));
+        sw.setUpdatedAt(LocalDateTime.now());
         storeWalletRepo.save(sw);
 
-        // CHANGED: dùng PENDING_REVERSED thay vì RELEASE_PENDING
         StoreWalletTransaction stx = StoreWalletTransaction.builder()
                 .wallet(sw)
-                .type(StoreWalletTransactionType.RELEASE_PENDING)
-                .amount(amount)
+                .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn tách enum
+                .amount(productsTotal) // ✅ chỉ phần pending bị reverse
                 .balanceAfter(sw.getAvailableBalance())
-                .description("Reverse pending due to cancellation " + storeOrder.getId())
+                .description("Reverse pending (products) due to cancellation " + storeOrder.getId())
                 .orderId(order.getId())
-                .createdAt(java.time.LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
                 .build();
         storeWalletTxRepo.save(stx);
 
-        // 3) Cộng ví khách
+        // 3) Cộng ví khách = refundAmount (share của store này)
         Wallet wallet = walletRepo.findByCustomer_Id(order.getCustomer().getId())
                 .orElseThrow(() -> new NoSuchElementException("Customer wallet not found"));
-        var oldBalance = wallet.getBalance();                   // CHANGED
-        wallet.setBalance(oldBalance.add(amount));
-        wallet.setLastTransactionAt(java.time.LocalDateTime.now());
+        BigDecimal oldBalance = wallet.getBalance();
+        wallet.setBalance(oldBalance.add(refundAmount));
+        wallet.setLastTransactionAt(LocalDateTime.now());
         walletRepo.save(wallet);
 
         WalletTransaction wtx = WalletTransaction.builder()
                 .wallet(wallet)
-                .amount(amount)
+                .amount(refundAmount)
                 .transactionType(WalletTransactionType.REFUND)
                 .status(WalletTransactionStatus.SUCCESS)
-                .description("Partial refund for storeOrder " + storeOrder.getId())
-                .balanceBefore(oldBalance)                      // CHANGED
-                .balanceAfter(oldBalance.add(amount))           // CHANGED
+                .description("Partial refund (grand total share) for storeOrder " + storeOrder.getId())
+                .balanceBefore(oldBalance)
+                .balanceAfter(oldBalance.add(refundAmount))
                 .orderId(order.getId())
                 .build();
         walletTxRepo.save(wtx);

@@ -6,9 +6,7 @@ import org.example.audio_ecommerce.dto.request.ProductReviewReplyRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewUpdateRequest;
 import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
 import org.example.audio_ecommerce.entity.*;
-import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.Enum.ReviewMediaType;
-import org.example.audio_ecommerce.entity.Enum.ReviewStatus;
+import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ProductReviewService;
 import org.springframework.data.domain.Page;
@@ -29,6 +27,7 @@ public class ProductReviewServiceImpl implements ProductReviewService {
     private final CustomerOrderItemRepository orderItemRepo;
     private final ProductRepository productRepo;
     private final StoreRepository storeRepo;
+    private final NotificationRepository notificationRepo;
 
     // ================== CREATE ==================
     @Override
@@ -93,6 +92,24 @@ public class ProductReviewServiceImpl implements ProductReviewService {
         }
 
         ProductReview saved = reviewRepo.save(review);
+
+        // 🔔 Thông báo cho STORE có review mới
+        try {
+            notificationRepo.save(Notification.builder()
+                    .target(NotificationTarget.STORE)
+                    .targetId(store.getStoreId())
+                    .type(NotificationType.NEW_REVIEW)
+                    .title("Đánh giá mới cho sản phẩm " + product.getName())
+                    .message("Khách hàng " + customer.getFullName()
+                            + " đã đánh giá " + req.getRating() + "★ cho sản phẩm " + product.getName())
+                    .actionUrl("/seller/products/" + product.getProductId() + "/reviews") // FE map route tuỳ bạn
+                    .read(false)
+                    .build()
+            );
+        } catch (Exception e) {
+            // tránh làm fail luôn createReview, chỉ log
+            e.printStackTrace();
+        }
         return toResponse(saved);
     }
 
@@ -195,6 +212,25 @@ public class ProductReviewServiceImpl implements ProductReviewService {
         replyRepo.save(reply);
 
         review.getReplies().add(reply);
+        // 🔔 Thông báo cho CUSTOMER khi shop reply
+        try {
+            Customer customer = review.getCustomer();
+            Product product = review.getProduct();
+
+            notificationRepo.save(Notification.builder()
+                    .target(NotificationTarget.CUSTOMER)
+                    .targetId(customer.getId())
+                    .type(NotificationType.NEW_REVIEW_REPLY) // dùng type mới
+                    .title("Cửa hàng đã phản hồi đánh giá của bạn")
+                    .message("Cửa hàng " + review.getStore().getStoreName()
+                            + " đã trả lời đánh giá cho sản phẩm " + product.getName())
+                    .actionUrl("/customer/products/" + product.getProductId() + "/reviews") // hoặc /customer/orders/{orderId}
+                    .read(false)
+                    .build()
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return toResponse(review);
     }
 

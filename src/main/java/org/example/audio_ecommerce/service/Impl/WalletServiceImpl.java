@@ -18,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Service
@@ -100,7 +101,7 @@ public class WalletServiceImpl implements WalletService {
 
         // cập nhật ví
         wallet.setBalance(after);
-        wallet.setLastTransactionAt(java.time.LocalDateTime.now());
+        wallet.setLastTransactionAt(LocalDateTime.now());
 
         // ghi giao dịch
         WalletTransaction txn = WalletTransaction.builder()
