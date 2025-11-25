@@ -24,6 +24,7 @@ public interface ProductReviewRepository extends JpaRepository<ProductReview, UU
     Page<ProductReview> findByCustomer_IdAndStatus(UUID customerId,
                                                    ReviewStatus status,
                                                    Pageable pageable);
+    Optional<ProductReview> findByProduct_ProductIdAndCustomer_Id(UUID productId, UUID customerId);
 
     Optional<ProductReview> findByProduct_ProductIdAndCustomer_IdAndStatus(
             UUID productId, UUID customerId, ReviewStatus status);

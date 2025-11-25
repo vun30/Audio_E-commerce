@@ -209,8 +209,7 @@ public class ProductReviewServiceImpl implements ProductReviewService {
     @Override
     @Transactional(readOnly = true)
     public ProductReviewResponse getMyReviewForProduct(UUID currentCustomerId, UUID productId) {
-        return reviewRepo.findByProduct_ProductIdAndCustomer_IdAndStatus(
-                        productId, currentCustomerId, ReviewStatus.VISIBLE)
+        return reviewRepo.findByProduct_ProductIdAndCustomer_Id(productId, currentCustomerId)
                 .map(this::toResponse)
                 .orElse(null);
     }
