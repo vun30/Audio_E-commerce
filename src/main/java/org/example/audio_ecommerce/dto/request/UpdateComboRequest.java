@@ -12,28 +12,28 @@ import java.util.UUID;
 @Builder
 public class UpdateComboRequest {
 
-    // ⚙️ Danh mục — BE sẽ tự động giữ/đặt lại theo "Combo"
+    // ⚙️ Danh mục — BE giữ theo category COMBO, FE không cần gửi
     private UUID categoryId;
 
-    // 📦 Thông tin cơ bản của combo
+    // 📦 Thông tin cơ bản
     private String name;
     private String shortDescription;
     private String description;
 
-    // 📸 Media (ảnh & video)
+    // 📸 Media
     private List<String> images;
     private String videoUrl;
 
-    // ⚖️ Giao hàng
+    // ⚖️ Giao hàng & tồn kho
     private BigDecimal weight;
     private Integer stockQuantity;
     private String shippingAddress;
     private String warehouseLocation;
 
-    // 💰 Giá combo & trạng thái
+    // 💰 Giá combo và trạng thái
     private BigDecimal comboPrice;
     private Boolean isActive;
 
-    // 🧩 Danh sách sản phẩm con (cập nhật lại combo)
-    private List<UUID> includedProductIds;
+    // 🧩 DANH SÁCH ITEM MỚI — FULL VARIANT DATA
+    private List<ComboItemRequest> items;
 }
