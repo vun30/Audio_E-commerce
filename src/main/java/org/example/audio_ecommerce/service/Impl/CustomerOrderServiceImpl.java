@@ -7,6 +7,7 @@ import org.example.audio_ecommerce.dto.response.PagedResult;
 import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.CustomerOrderItem;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.example.audio_ecommerce.entity.StoreOrderItem;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
@@ -34,12 +35,20 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
 
     @Override
     @Transactional(readOnly = true)
-    public PagedResult<CustomerOrderDetailResponse> getCustomerOrders(UUID customerId, int page, int size) {
+    public PagedResult<CustomerOrderDetailResponse> getCustomerOrders(UUID customerId, OrderStatus status, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? 20 : size;
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<CustomerOrder> orderPage = customerOrderRepository.findByCustomer_Id(customerId, pageable);
+        Page<CustomerOrder> orderPage;
+
+        if (status != null) {
+            // 👇 lọc theo status
+            orderPage = customerOrderRepository.findByCustomer_IdAndStatus(customerId, status, pageable);
+        } else {
+            // 👇 lấy tất cả
+            orderPage = customerOrderRepository.findByCustomer_Id(customerId, pageable);
+        }
         List<CustomerOrderDetailResponse> items = orderPage.getContent().stream()
                 .map(this::toCustomerOrderDetail)
                 .collect(Collectors.toList());

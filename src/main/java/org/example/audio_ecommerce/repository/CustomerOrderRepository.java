@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.repository;
 
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.example.audio_ecommerce.entity.CustomerOrder;
@@ -16,5 +17,8 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
             String orderCode,
             Pageable pageable
     );
+    Page<CustomerOrder> findByCustomer_IdAndStatus(UUID customerId,
+                                                   OrderStatus status,
+                                                   Pageable pageable);
 }
 
