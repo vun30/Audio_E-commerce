@@ -459,6 +459,8 @@ public class CartServiceImpl implements CartService {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
 
+        // ✅ Trừ tồn kho theo items chuẩn bị checkout
+        deductStockForCartItems(itemsToCheckout);
 
         // 2) Group theo store
         Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
@@ -1029,7 +1031,7 @@ public class CartServiceImpl implements CartService {
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
-
+        deductStockForCartItems(itemsToCheckout);
 
         // 2) Group theo store
         Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
@@ -1431,6 +1433,78 @@ public class CartServiceImpl implements CartService {
         // Không bắt buộc save ở đây (tránh N+1), nên mình không gọi repo.save(cp).
 
         return result;
+    }
+
+    /**
+     * Trừ tồn kho cho list CartItem khi checkout thành công.
+     * - PRODUCT + variant: trừ cả variantStock và product.stockQuantity
+     * - PRODUCT không variant: trừ product.stockQuantity
+     * (COMBO hiện tại không đụng tới stockProducts, chỉ check stock combo ở chỗ khác)
+     */
+    private void deductStockForCartItems(List<CartItem> items) {
+        if (items == null || items.isEmpty()) return;
+
+        // Dùng map để tránh trừ trùng 1 product/variant nhiều lần nếu có nhiều CartItem
+        Map<UUID, Integer> productQtyMap = new HashMap<>();
+        Map<UUID, Integer> variantQtyMap = new HashMap<>();
+
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) {
+                continue; // bỏ qua COMBO
+            }
+
+            int qty = item.getQuantity();
+            if (qty <= 0) continue;
+
+            Product p = item.getProduct();
+            productQtyMap.merge(p.getProductId(), qty, Integer::sum);
+
+            ProductVariantEntity v = item.getVariant();
+            if (v != null) {
+                variantQtyMap.merge(v.getId(), qty, Integer::sum);
+            }
+        }
+
+        // 1) Trừ variant.stock
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT) continue;
+            ProductVariantEntity v = item.getVariant();
+            if (v == null) continue;
+
+            int totalQty = variantQtyMap.getOrDefault(v.getId(), 0);
+            if (totalQty <= 0) continue;
+
+            Integer stock = v.getVariantStock();
+            if (stock == null) stock = 0;
+
+            if (stock < totalQty) {
+                throw new IllegalStateException(
+                        "Variant out of stock when checkout: "
+                                + v.getOptionName() + " " + v.getOptionValue()
+                );
+            }
+            v.setVariantStock(stock - totalQty);
+            // Không cần gọi save riêng, JPA dirty checking sẽ tự flush vì đang trong @Transactional
+        }
+
+        // 2) Trừ product.stockQuantity
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) continue;
+
+            Product p = item.getProduct();
+            int totalQty = productQtyMap.getOrDefault(p.getProductId(), 0);
+            if (totalQty <= 0) continue;
+
+            Integer stock = p.getStockQuantity();
+            if (stock == null) stock = 0;
+
+            if (stock < totalQty) {
+                throw new IllegalStateException(
+                        "Product out of stock when checkout: " + p.getName()
+                );
+            }
+            p.setStockQuantity(stock - totalQty);
+        }
     }
 
 }
