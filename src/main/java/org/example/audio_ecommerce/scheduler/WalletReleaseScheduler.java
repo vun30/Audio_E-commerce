@@ -2,13 +2,12 @@ package org.example.audio_ecommerce.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.audio_ecommerce.entity.CustomerOrder;
-import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
-import org.example.audio_ecommerce.entity.Enum.TransactionType;
-import org.example.audio_ecommerce.entity.PlatformTransaction;
+import org.example.audio_ecommerce.entity.*;
+import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
+import org.example.audio_ecommerce.repository.NotificationRepository;
 import org.example.audio_ecommerce.repository.PlatformTransactionRepository;
+import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.example.audio_ecommerce.service.Impl.SettlementService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -26,9 +25,10 @@ public class WalletReleaseScheduler {
     private final PlatformTransactionRepository platformTransactionRepository;
     private final CustomerOrderRepository customerOrderRepository;
     private final SettlementService settlementService;
+    private final NotificationRepository notificationRepo;
+    private final StoreOrderRepository storeOrderRepository;
 
-
-      //Chạy mỗi ngày lúc 01:00 sáng (prod)
+    //Chạy mỗi ngày lúc 01:00 sáng (prod)
       //Cron test mỗi phút: "0 */1 * * * ?" (đang dùng để debug)
 
     @Scheduled(cron = "0 */1 * * * ?")
@@ -108,4 +108,53 @@ public class WalletReleaseScheduler {
 
         log.info("🏁 [Scheduler] Hoàn tất quét release. Đã xử lý {} giao dịch.", processed);
     }
+
+    private void notifyReleaseSuccess(CustomerOrder order) {
+        try {
+            // Lấy storeOrder đầu tiên của CustomerOrder
+            StoreOrder so = storeOrderRepository.findAllByCustomerOrder_Id(order.getId())
+                    .stream()
+                    .findFirst()
+                    .orElse(null);
+
+            if (so == null) {
+                log.warn("Không tìm thấy StoreOrder cho CustomerOrder {}", order.getId());
+                return;
+            }
+
+            Store store = so.getStore();
+
+            // ===== Notify cho STORE =====
+            notificationRepo.save(Notification.builder()
+                    .target(NotificationTarget.STORE)
+                    .targetId(store.getStoreId())
+                    .type(NotificationType.WALLET_RELEASE) // nhớ có enum này
+                    .title("Tiền đã được giải phóng")
+                    .message("Đơn hàng " + order.getOrderCode() +
+                            " đã qua thời gian giữ tiền, số tiền tạm giữ đã được chuyển vào ví cửa hàng.")
+                    .actionUrl("/seller/orders/" + so.getId()) // hoặc customerOrderId tuỳ FE
+                    .read(false)
+                    .build()
+            );
+
+            // ===== Notify cho CUSTOMER =====
+            notificationRepo.save(Notification.builder()
+                    .target(NotificationTarget.CUSTOMER)
+                    .targetId(order.getCustomer().getId())
+                    .type(NotificationType.WALLET_RELEASE)
+                    .title("Đơn hàng đã hoàn tất")
+                    .message("Đơn hàng " + order.getOrderCode() +
+                            " đã hoàn tất, tiền giữ trên hệ thống đã được xử lý.")
+                    .actionUrl("/customer/orders/" + order.getId())
+                    .read(false)
+                    .build()
+            );
+
+        } catch (Exception e) {
+            log.error("❌ Lỗi tạo notification release cho order {}: {}",
+                    order.getId(), e.getMessage(), e);
+        }
+    }
+
+
 }

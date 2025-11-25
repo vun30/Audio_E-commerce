@@ -5,12 +5,11 @@ import org.example.audio_ecommerce.dto.response.CustomerOrderDetailResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderItemResponse;
 import org.example.audio_ecommerce.dto.response.PagedResult;
 import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
-import org.example.audio_ecommerce.entity.CustomerOrder;
-import org.example.audio_ecommerce.entity.CustomerOrderItem;
+import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.StoreOrder;
-import org.example.audio_ecommerce.entity.StoreOrderItem;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
+import org.example.audio_ecommerce.repository.ProductRepository;
+import org.example.audio_ecommerce.repository.ProductVariantRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.example.audio_ecommerce.service.CustomerOrderService;
 import org.springframework.data.domain.Page;
@@ -32,6 +31,8 @@ import java.util.stream.Collectors;
 public class CustomerOrderServiceImpl implements CustomerOrderService {
 
     private final CustomerOrderRepository customerOrderRepository;
+    private final ProductRepository productRepo;
+    private final ProductVariantRepository productVariantRepo;
 
     @Override
     @Transactional(readOnly = true)
@@ -111,22 +112,53 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         }
 
         return items.stream()
-                .map(item -> CustomerOrderItemResponse.builder()
-                        .id(item.getId())
-                        .type(item.getType())
-                        .refId(item.getRefId())
-                        .name(item.getName())
-                        .quantity(item.getQuantity())
-                        .unitPrice(item.getUnitPrice())
-                        .lineTotal(item.getLineTotal())
-                        .storeId(item.getStoreId())
-                        // ===== Variant info =====
-                        .variantId(item.getVariantId())
-                        .variantOptionName(item.getVariantOptionName())
-                        .variantOptionValue(item.getVariantOptionValue())
-                        .build())
+                .map(item -> {
+                    // ====== TÍNH image & variantUrl ======
+                    String image = null;
+                    String variantUrl = null;
+
+                    if ("PRODUCT".equalsIgnoreCase(item.getType())) {
+                        Product product = null;
+
+                        // Có variantId → lấy variant, rồi lấy product từ variant
+                        if (item.getVariantId() != null) {
+                            ProductVariantEntity v = productVariantRepo.findById(item.getVariantId())
+                                    .orElse(null);
+                            if (v != null) {
+                                variantUrl = v.getVariantUrl();
+                                product = v.getProduct();
+                            }
+                        } else if (item.getRefId() != null) {
+                            // Không có variant → dùng productId (refId)
+                            product = productRepo.findById(item.getRefId()).orElse(null);
+                        }
+
+                        if (product != null && product.getImages() != null && !product.getImages().isEmpty()) {
+                            image = product.getImages().get(0); // lấy ảnh đầu tiên
+                        }
+                    }
+
+                    return CustomerOrderItemResponse.builder()
+                            .id(item.getId())
+                            .type(item.getType())
+                            .refId(item.getRefId())
+                            .name(item.getName())
+                            .quantity(item.getQuantity())
+                            .unitPrice(item.getUnitPrice())
+                            .lineTotal(item.getLineTotal())
+                            .storeId(item.getStoreId())
+                            // Variant info
+                            .variantId(item.getVariantId())
+                            .variantOptionName(item.getVariantOptionName())
+                            .variantOptionValue(item.getVariantOptionValue())
+                            // 🔥 MỚI
+                            .image(image)
+                            .variantUrl(variantUrl)
+                            .build();
+                })
                 .collect(Collectors.toList());
     }
+
 
     private BigDecimal defaultBigDecimal(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;

@@ -25,6 +25,7 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
     private final SettlementService settlementService;
     private final ProductRepository productRepo;
     private final ProductVariantRepository productVariantRepo;
+    private final NotificationRepository notificationRepo;
 
     /** KH hủy toàn bộ nếu CustomerOrder còn PENDING => refund ngay về ví KH, không cần shop duyệt */
     @Override
@@ -67,6 +68,38 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         // CustomerOrder -> CANCELLED
         order.setStatus(OrderStatus.CANCELLED);
         customerOrderRepo.save(order);
+
+        // ========== 🔔 NOTIFICATION ==========
+
+        // 🔔 Cho CUSTOMER: đơn đã bị huỷ
+        Notification customerNotif = Notification.builder()
+                .target(NotificationTarget.CUSTOMER)
+                .targetId(order.getCustomer().getId())
+                .type(NotificationType.ORDER_CANCELLED)
+                .title("Đơn hàng " + order.getOrderCode() + " đã được huỷ")
+                .message(buildCustomerCancelMessage(order, reason, note))
+                .read(false)
+                .actionUrl("/customer/orders/" + order.getId())
+                .build();
+        notificationRepo.save(customerNotif);
+
+        // (tuỳ bạn) 🔔 Cho từng STORE: đơn của shop đã bị huỷ trước khi giao
+        for (StoreOrder so : storeOrders) {
+            Store store = so.getStore();
+            if (store == null) continue;
+
+            Notification storeNotif = Notification.builder()
+                    .target(NotificationTarget.STORE)
+                    .targetId(store.getStoreId())
+                    .type(NotificationType.ORDER_CANCELLED)
+                    .title("Đơn hàng " + order.getOrderCode() + " đã bị khách huỷ")
+                    .message(buildStoreCancelMessage(order, reason, note))
+                    .read(false)
+                    .actionUrl("/seller/orders/" + so.getId())
+                    .build();
+            notificationRepo.save(storeNotif);
+        }
+
 
         // Optionally: log reason/note ở một bảng riêng (omitted)
         return BaseResponse.success("Order cancelled & refunded to wallet");
@@ -241,6 +274,22 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
                 .build();
         cancelRepo.save(req);
 
+        // ========== 🔔 NOTIFICATION cho STORE: có yêu cầu huỷ cần duyệt ==========
+        Store store = target.getStore();
+        if (store != null) {
+            Notification storeNotif = Notification.builder()
+                    .target(NotificationTarget.STORE)
+                    .targetId(store.getStoreId())
+                    .type(NotificationType.ORDER_CANCELLED) // hoặc thêm ORDER_CANCEL_REQUEST nếu muốn tách type
+                    .title("Yêu cầu huỷ đơn " + co.getOrderCode())
+                    .message(buildStoreApproveNeededMessage(co, reason, note))
+                    .read(false)
+                    .actionUrl("/seller/orders/" + target.getId()) // FE mở màn đơn để bấm duyệt / từ chối
+                    .build();
+            notificationRepo.save(storeNotif);
+        }
+
+
         return BaseResponse.success("Cancellation request sent to shop for approval");
     }
 
@@ -357,6 +406,45 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
                 });
             }
         }
+    }
+
+    private String buildCustomerCancelMessage(CustomerOrder order,
+                                              CancellationReason reason,
+                                              String note) {
+        StringBuilder sb = new StringBuilder("Đơn hàng của bạn đã được huỷ thành công.");
+        if (reason != null) {
+            sb.append(" Lý do: ").append(reason.name());
+        }
+        if (note != null && !note.isBlank()) {
+            sb.append(" Ghi chú: ").append(note);
+        }
+        return sb.toString();
+    }
+
+    private String buildStoreCancelMessage(CustomerOrder order,
+                                           CancellationReason reason,
+                                           String note) {
+        StringBuilder sb = new StringBuilder("Khách hàng đã huỷ đơn hàng trước khi xử lý giao.");
+        if (reason != null) {
+            sb.append(" Lý do: ").append(reason.name());
+        }
+        if (note != null && !note.isBlank()) {
+            sb.append(" Ghi chú: ").append(note);
+        }
+        return sb.toString();
+    }
+
+    private String buildStoreApproveNeededMessage(CustomerOrder co,
+                                                  CancellationReason reason,
+                                                  String note) {
+        StringBuilder sb = new StringBuilder("Khách hàng đã yêu cầu huỷ đơn hàng, vui lòng xem xét duyệt.");
+        if (reason != null) {
+            sb.append(" Lý do: ").append(reason.name());
+        }
+        if (note != null && !note.isBlank()) {
+            sb.append(" Ghi chú: ").append(note);
+        }
+        return sb.toString();
     }
 
 }
