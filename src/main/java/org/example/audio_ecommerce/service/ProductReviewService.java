@@ -4,6 +4,7 @@ import org.example.audio_ecommerce.dto.request.ProductReviewCreateRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewReplyRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewUpdateRequest;
 import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
+import org.example.audio_ecommerce.entity.Enum.ReviewStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -19,7 +20,7 @@ public interface ProductReviewService {
     void deleteReview(UUID currentCustomerId, UUID reviewId);
 
     // customer tự xem các review của mình (tất cả)
-    Page<ProductReviewResponse> listMyReviews(UUID currentCustomerId, Pageable pageable);
+    Page<ProductReviewResponse> listMyReviews(UUID currentCustomerId, ReviewStatus status, Pageable pageable);
 
     // public trên trang product
     Page<ProductReviewResponse> listProductReviews(UUID productId, Pageable pageable);

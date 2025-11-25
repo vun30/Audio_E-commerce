@@ -20,7 +20,7 @@ public class ProductReviewResponse {
     private UUID customerId;
     private String customerName;
     private String customerAvatarUrl;
-
+    private String status;
     // product info
     private UUID productId;
 

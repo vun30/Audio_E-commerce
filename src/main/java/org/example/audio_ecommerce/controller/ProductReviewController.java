@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ProductReviewCreateRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewUpdateRequest;
 import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
+import org.example.audio_ecommerce.entity.Enum.ReviewStatus;
 import org.example.audio_ecommerce.service.ProductReviewService;
 import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.data.domain.Page;
@@ -51,13 +52,14 @@ public class ProductReviewController {
     // ===== CUSTOMER: list các review của chính mình =====
     @GetMapping("/me")
     public Page<ProductReviewResponse> listMyReviews(
+            @RequestParam(required = false) ReviewStatus status,  // 👈 NEW
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
 
         UUID customerId = securityUtils.getCurrentCustomerId();
         Pageable pageable = PageRequest.of(page, size);
 
-        return reviewService.listMyReviews(customerId, pageable);
+        return reviewService.listMyReviews(customerId, status, pageable);
     }
 
     // ===== PUBLIC: get all review cho 1 sản phẩm =====
