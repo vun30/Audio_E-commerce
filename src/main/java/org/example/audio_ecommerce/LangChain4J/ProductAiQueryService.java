@@ -33,8 +33,11 @@ public class ProductAiQueryService {
 
         List<Map<String, Object>> rows = sqlExecutor.runSelect(sql);
 
-        return rows.stream()
+        List<UUID> ids = rows.stream()
                 .map(r -> UUID.fromString(r.get("product_id").toString()))
+                .distinct()
                 .toList();
+
+        return ids;
     }
 }
