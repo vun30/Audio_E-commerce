@@ -1,0 +1,13 @@
+// service/ChatService.java
+package org.example.audio_ecommerce.service;
+
+import org.example.audio_ecommerce.dto.request.ChatMessageRequest;
+import org.example.audio_ecommerce.dto.response.ChatMessageResponse;
+
+import java.util.List;
+import java.util.UUID;
+
+public interface ChatService {
+    ChatMessageResponse sendMessage(UUID customerId, UUID storeId, ChatMessageRequest req);
+    List<ChatMessageResponse> getMessages(UUID customerId, UUID storeId, int limit);
+}
