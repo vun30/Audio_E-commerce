@@ -1,10 +1,8 @@
 package org.example.audio_ecommerce.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.persistence.Column;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
-import org.example.audio_ecommerce.entity.Product;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -119,15 +117,12 @@ public class UpdateProductRequest {
     // =========================================================
     @Schema(description = "Mã tỉnh/thành phố", example = "01 Hà Nội")
     private String provinceCode;
-    // 📝 NOTE: Mã tỉnh/thành phố | Ví dụ: "01" (Hà Nội), "79" (TP.HCM)
 
     @Schema(description = "Mã quận/huyện", example = "760")
     private String districtCode;
-    // 📝 NOTE: Mã quận/huyện | Ví dụ: "760" (Quận 1)
 
     @Schema(description = "Mã phường/xã", example = "26734")
     private String wardCode;
-    // 📝 NOTE: Mã phường/xã | Ví dụ: "26734" (Phường Bến Nghé)
 
     @Schema(description = "Địa chỉ giao hàng / xuất kho")
     private String shippingAddress;
@@ -148,13 +143,8 @@ public class UpdateProductRequest {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BulkDiscountRequest {
-        @Schema(description = "Số lượng tối thiểu", example = "5")
         private Integer fromQuantity;
-
-        @Schema(description = "Số lượng tối đa", example = "10")
         private Integer toQuantity;
-
-        @Schema(description = "Giá khi mua trong khoảng", example = "900000")
         private BigDecimal unitPrice;
     }
 
@@ -256,4 +246,42 @@ public class UpdateProductRequest {
     private Boolean builtInEffects;
     private Boolean usbAudioInterface;
     private Boolean midiSupport;
+
+    // =========================================================
+    // ⭐⭐⭐ BIẾN THỂ — SHOPEE LOGIC ⭐⭐⭐
+    // =========================================================
+
+    @Schema(description = "Danh sách biến thể mới cần thêm")
+    private List<VariantToAdd> variantsToAdd;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VariantToAdd {
+        private String optionName;
+        private String optionValue;
+        private BigDecimal variantPrice;
+        private Integer variantStock;
+        private String variantUrl;
+        private String variantSku;
+    }
+
+    @Schema(description = "Danh sách biến thể cần cập nhật")
+    private List<VariantToUpdate> variantsToUpdate;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class VariantToUpdate {
+        private UUID variantId;
+        private String optionName;
+        private String optionValue;
+        private BigDecimal variantPrice;
+        private Integer variantStock;
+        private String variantUrl;
+        private String variantSku;
+    }
+
+    @Schema(description = "Danh sách ID biến thể cần xoá")
+    private List<UUID> variantsToDelete;
 }

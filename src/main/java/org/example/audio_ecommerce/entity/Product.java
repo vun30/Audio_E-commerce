@@ -204,6 +204,11 @@ public class Product {
     private Integer viewCount;
     // 📝 NOTE: Lượt xem | Ví dụ: `24567`
 
+     private Integer sellCount;
+    // 📝 NOTE: Lượt bán | Ví dụ: `1345`
+
+    // =========================================================
+
     private LocalDateTime createdAt; // 📝 Ví dụ: 2025-01-15T10:30:00
     private LocalDateTime updatedAt; // 📝 Ví dụ: 2025-01-16T14:22:00
     private LocalDateTime lastUpdatedAt;    // thời điểm update gần nhất trước đó
