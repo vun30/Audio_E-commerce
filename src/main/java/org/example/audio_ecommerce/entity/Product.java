@@ -108,7 +108,7 @@ public class Product {
     private String sku;
     // 📝 NOTE: Mã SKU duy nhất | Ví dụ: `JBL-CHG5-BLK-32`
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private BigDecimal price;
     // 📝 NOTE: Giá gốc | Ví dụ: `3500000` (3.5 triệu VND)
 
