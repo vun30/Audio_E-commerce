@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ProductReviewCreateRequest;
+import org.example.audio_ecommerce.dto.request.ProductReviewCreateSimpleRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewUpdateRequest;
 import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
 import org.example.audio_ecommerce.entity.Enum.ReviewStatus;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.UUID;
 
 @Tag(name = "Review Customer", description = "CRUD review sản phẩm bởi customer và get review công khai của product đó")
@@ -79,4 +81,24 @@ public class ProductReviewController {
         UUID customerId = securityUtils.getCurrentCustomerId();
         return reviewService.getMyReviewForProduct(customerId, productId);
     }
+
+    @PostMapping("/product/{productId}/me")
+    public ProductReviewResponse createReviewForProduct(
+            @PathVariable UUID productId,
+            @RequestParam UUID orderId,
+            @Valid @RequestBody ProductReviewCreateSimpleRequest req
+    ) {
+        UUID customerId = securityUtils.getCurrentCustomerId();
+        return reviewService.createReviewForProduct(customerId, productId, orderId, req);
+    }
+
+    @GetMapping("/product/{productId}/me/status")
+    public Map<String, Object> checkStatus(
+            @PathVariable UUID productId,
+            @RequestParam UUID orderId
+    ) {
+        UUID customerId = securityUtils.getCurrentCustomerId();
+        return reviewService.checkMyReviewStatus(customerId, productId, orderId);
+    }
+
 }

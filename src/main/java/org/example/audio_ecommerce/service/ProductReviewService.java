@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.request.ProductReviewCreateRequest;
+import org.example.audio_ecommerce.dto.request.ProductReviewCreateSimpleRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewReplyRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewUpdateRequest;
 import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
@@ -8,6 +9,7 @@ import org.example.audio_ecommerce.entity.Enum.ReviewStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Map;
 import java.util.UUID;
 
 public interface ProductReviewService {
@@ -33,4 +35,8 @@ public interface ProductReviewService {
 
     // customer xem review của mình trên 1 sản phẩm cụ thể
     ProductReviewResponse getMyReviewForProduct(UUID currentCustomerId, UUID productId);
+
+    ProductReviewResponse createReviewForProduct(UUID currentCustomerId, UUID productId, UUID orderId, ProductReviewCreateSimpleRequest req);
+
+    Map<String, Object> checkMyReviewStatus(UUID currentCustomerId, UUID productId, UUID orderId);
 }

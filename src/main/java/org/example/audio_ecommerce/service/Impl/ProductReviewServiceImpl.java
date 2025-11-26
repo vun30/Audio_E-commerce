@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ProductReviewCreateRequest;
+import org.example.audio_ecommerce.dto.request.ProductReviewCreateSimpleRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewReplyRequest;
 import org.example.audio_ecommerce.dto.request.ProductReviewUpdateRequest;
 import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
@@ -233,6 +234,90 @@ public class ProductReviewServiceImpl implements ProductReviewService {
         }
         return toResponse(review);
     }
+
+    @Override
+    @Transactional
+    public ProductReviewResponse createReviewForProduct(UUID currentCustomerId, UUID productId, UUID orderId, ProductReviewCreateSimpleRequest req) {
+
+        // tìm order item từ orderId + productId
+        CustomerOrderItem item = orderItemRepo
+                .findByCustomerOrder_IdAndRefIdAndType(orderId, productId, "PRODUCT")
+                .orElseThrow(() -> new NoSuchElementException("Không tìm thấy sản phẩm này trong đơn"));
+
+        CustomerOrder order = item.getCustomerOrder();
+        if (!order.getCustomer().getId().equals(currentCustomerId)) {
+            throw new IllegalStateException("Không thể review đơn hàng của người khác");
+        }
+
+        if (order.getStatus() != OrderStatus.DELIVERY_SUCCESS) {
+            throw new IllegalStateException("Chỉ được review khi đơn đã DELIVERY_SUCCESS");
+        }
+
+        // check đã review chưa
+        reviewRepo.findByOrderItem_IdAndCustomer_Id(item.getId(), currentCustomerId)
+                .ifPresent(r -> {
+                    throw new IllegalStateException("Bạn đã review sản phẩm này trong đơn hàng này rồi");
+                });
+
+        Product product = productRepo.findById(productId)
+                .orElseThrow(() -> new NoSuchElementException("Product not found"));
+
+        Store store = product.getStore();
+
+        ProductReview review = ProductReview.builder()
+                .customer(order.getCustomer())
+                .product(product)
+                .store(store)
+                .orderItem(item)
+                .rating(req.getRating())
+                .content(req.getContent())
+                .status(ReviewStatus.VISIBLE)
+                .variantOptionName(item.getVariantOptionName())
+                .variantOptionValue(item.getVariantOptionValue())
+                .build();
+
+        if (req.getMedia() != null) {
+            List<ProductReviewMedia> mediaList = req.getMedia().stream()
+                    .map(m -> ProductReviewMedia.builder()
+                            .review(review)
+                            .type(ReviewMediaType.valueOf(m.getType().toUpperCase()))
+                            .url(m.getUrl())
+                            .build())
+                    .toList();
+
+            review.setMediaList(mediaList);
+        }
+
+        ProductReview saved = reviewRepo.save(review);
+        return toResponse(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> checkMyReviewStatus(UUID currentCustomerId, UUID productId, UUID orderId) {
+
+        CustomerOrderItem item = orderItemRepo
+                .findByCustomerOrder_IdAndRefIdAndType(orderId, productId, "PRODUCT")
+                .orElseThrow(() -> new NoSuchElementException("Không tìm thấy sản phẩm trong đơn"));
+
+        Optional<ProductReview> reviewOpt =
+                reviewRepo.findByOrderItem_IdAndCustomer_Id(item.getId(), currentCustomerId);
+
+        Map<String, Object> result = new HashMap<>();
+
+        if (reviewOpt.isPresent()) {
+            result.put("hasReviewed", true);
+            result.put("message", "Sản phẩm trong đơn hàng này đã được review");
+            result.put("review", toResponse(reviewOpt.get()));
+        } else {
+            result.put("hasReviewed", false);
+            result.put("message", "Bạn chưa review sản phẩm này");
+            result.put("review", null);
+        }
+
+        return result;
+    }
+
 
     @Override
     @Transactional(readOnly = true)
