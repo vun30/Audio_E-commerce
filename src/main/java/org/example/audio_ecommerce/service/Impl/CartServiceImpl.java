@@ -652,8 +652,8 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher theo shop + platform cho từng shop
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
+        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -1197,8 +1197,8 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
+        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 

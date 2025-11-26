@@ -1,14 +1,20 @@
 // service/Impl/VoucherServiceImpl.java
 package org.example.audio_ecommerce.service.Impl;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.PlatformVoucherUse;
 import org.example.audio_ecommerce.dto.request.StoreVoucherUse;
+import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.dto.response.PlatformVoucherUsageResponse;
+import org.example.audio_ecommerce.dto.response.ShopVoucherUsageResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.entity.Enum.VoucherType;
 import org.example.audio_ecommerce.repository.PlatformCampaignProductRepository;
+import org.example.audio_ecommerce.repository.PlatformCampaignProductUsageRepository;
 import org.example.audio_ecommerce.repository.ShopVoucherRepository;
+import org.example.audio_ecommerce.repository.ShopVoucherUsageRepository;
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 
@@ -19,9 +25,12 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class VoucherServiceImpl implements VoucherService {
     private final ShopVoucherRepository voucherRepo;
     private final PlatformCampaignProductRepository campaignProductRepo;
+    private final ShopVoucherUsageRepository shopVoucherUsageRepo;
+    private final PlatformCampaignProductUsageRepository platformUsageRepo;
 
     @Override
     public Map<UUID, BigDecimal> computeDiscountByStore(List<StoreVoucherUse> input,
@@ -109,6 +118,7 @@ public class VoucherServiceImpl implements VoucherService {
 
     @Override
     public PlatformVoucherResult computePlatformDiscounts(
+            UUID customerId,
             List<PlatformVoucherUse> platformVouchers,
             Map<UUID, List<StoreOrderItem>> storeItemsMap
     ) {
@@ -121,6 +131,24 @@ public class VoucherServiceImpl implements VoucherService {
             var cpOpt = campaignProductRepo.findUsableById(use.getCampaignProductId());
             if (cpOpt.isEmpty()) continue;
             var cp = cpOpt.get();
+
+            // ✅ CHECK remainingUsage
+            if (cp.getRemainingUsage() != null && cp.getRemainingUsage() <= 0) {
+                continue;
+            }
+
+            // ✅ CHECK usagePerUser theo customer
+            if (customerId != null && cp.getUsagePerUser() != null && cp.getUsagePerUser() > 0) {
+                PlatformCampaignProductUsage usage = platformUsageRepo
+                        .findByCampaignProduct_IdAndCustomer_Id(cp.getId(), customerId)
+                        .orElse(null);
+
+                int usedCount = usage != null ? usage.getUsedCount() : 0;
+                if (usedCount >= cp.getUsagePerUser()) {
+                    // user này hết lượt dùng voucher này
+                    continue;
+                }
+            }
 
             // 1) gom tất cả StoreOrderItem liên quan đến product này
             Map<UUID, BigDecimal> eligibleSubtotalByStore = new HashMap<>();
@@ -176,6 +204,35 @@ public class VoucherServiceImpl implements VoucherService {
                     ? cp.getCampaign().getCode()
                     : String.valueOf(cp.getId());
             out.platformDiscountMap.merge(key, rawDiscount, BigDecimal::add);
+
+            // ✅ trừ remainingUsage
+            if (cp.getRemainingUsage() != null && cp.getRemainingUsage() > 0) {
+                cp.setRemainingUsage(cp.getRemainingUsage() - 1);
+            }
+
+            // ✅ update usage per customer
+            if (customerId != null) {
+                PlatformCampaignProductUsage usage = platformUsageRepo
+                        .findByCampaignProduct_IdAndCustomer_Id(cp.getId(), customerId)
+                        .orElseGet(() -> {
+                            Customer c = new Customer();
+                            c.setId(customerId); // id từ BaseEntity
+
+                            return PlatformCampaignProductUsage.builder()
+                                    .campaignProduct(cp)
+                                    .customer(c)
+                                    .usedCount(0)
+                                    .build();
+                        });
+
+
+                int newCount = usage.getUsedCount() + 1;
+                usage.setUsedCount(newCount);
+                LocalDateTime now = LocalDateTime.now();
+                if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(now);
+                usage.setLastUsedAt(now);
+                platformUsageRepo.save(usage);
+            }
         }
 
         return out;
@@ -211,7 +268,7 @@ public class VoucherServiceImpl implements VoucherService {
     }
 
     @Override
-    public StoreVoucherResult computeDiscountByStoreWithDetail(List<StoreVoucherUse> input,
+    public StoreVoucherResult computeDiscountByStoreWithDetail(UUID customerId,List<StoreVoucherUse> input,
                                                                Map<UUID, List<StoreOrderItem>> storeItems) {
         StoreVoucherResult out = new StoreVoucherResult();
         if (input == null || input.isEmpty()) return out;
@@ -240,6 +297,18 @@ public class VoucherServiceImpl implements VoucherService {
                 if (v.getEndTime()!=null && now.isAfter(v.getEndTime())) continue;
                 if (v.getRemainingUsage()!=null && v.getRemainingUsage()<=0) continue;
 
+                if (customerId != null && v.getUsagePerUser() != null && v.getUsagePerUser() > 0) {
+                    ShopVoucherUsage usage = shopVoucherUsageRepo
+                            .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
+                            .orElse(null);
+
+                    int usedCount = usage != null ? usage.getUsedCount() : 0;
+                    if (usedCount >= v.getUsagePerUser()) {
+                        // user này hết lượt dùng voucher này
+                        continue;
+                    }
+                }
+
                 BigDecimal eligibleSubtotal = eligibleSubtotal(v, items);
                 if (v.getMinOrderValue()!=null && eligibleSubtotal.compareTo(v.getMinOrderValue())<0) continue;
 
@@ -252,9 +321,36 @@ public class VoucherServiceImpl implements VoucherService {
                     applied = applied.add(discount);
                     // ✅ lưu chi tiết theo mã
                     detail.merge(code, discount, BigDecimal::add);
-                    if (v.getRemainingUsage()!=null && v.getRemainingUsage()>0) {
-                        v.setRemainingUsage(v.getRemainingUsage()-1);
+
+                    // ✅ trừ remainingUsage
+                    if (v.getRemainingUsage() != null && v.getRemainingUsage() > 0) {
+                        v.setRemainingUsage(v.getRemainingUsage() - 1);
                     }
+
+                    // ✅ update usage per customer
+                    if (customerId != null) {
+                        ShopVoucherUsage usage = shopVoucherUsageRepo
+                                .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
+                                .orElseGet(() -> {
+                                    Customer c = new Customer();
+                                    c.setId(customerId);
+
+                                    return ShopVoucherUsage.builder()
+                                            .voucher(v)
+                                            .customer(c)
+                                            .usedCount(0)
+                                            .build();
+                                });
+
+
+                        int newCount = usage.getUsedCount() + 1;
+                        usage.setUsedCount(newCount);
+                        LocalDateTime nowL = LocalDateTime.now();
+                        if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(nowL);
+                        usage.setLastUsedAt(nowL);
+                        shopVoucherUsageRepo.save(usage);
+                    }
+
                 }
             }
             if (applied.signum()>0) {
@@ -262,6 +358,169 @@ public class VoucherServiceImpl implements VoucherService {
             }
         }
         return out;
+    }
+
+    @Override
+    public BaseResponse<Map<String, Object>> getShopVoucherUsage(
+            UUID storeId,
+            UUID voucherId,
+            UUID customerId,
+            LocalDateTime from,
+            LocalDateTime to,
+            int page,
+            int size
+    ) {
+        List<ShopVoucherUsage> all = shopVoucherUsageRepo.findAll();
+
+        List<ShopVoucherUsage> filtered = all.stream()
+                .filter(u -> storeId == null
+                        || (u.getVoucher() != null
+                        && u.getVoucher().getShop() != null
+                        && storeId.equals(u.getVoucher().getShop().getStoreId())))
+                .filter(u -> voucherId == null
+                        || (u.getVoucher() != null
+                        && voucherId.equals(u.getVoucher().getId())))
+                .filter(u -> customerId == null
+                        || (u.getCustomer() != null
+                        && customerId.equals(u.getCustomer().getId())))
+                .filter(u -> {
+                    if (from == null && to == null) return true;
+                    LocalDateTime t = u.getLastUsedAt() != null ? u.getLastUsedAt() : u.getFirstUsedAt();
+                    if (t == null) return false;
+                    if (from != null && t.isBefore(from)) return false;
+                    if (to != null && t.isAfter(to)) return false;
+                    return true;
+                })
+                .sorted(Comparator.comparing(
+                        (ShopVoucherUsage u) ->
+                                u.getLastUsedAt() != null ? u.getLastUsedAt() : u.getFirstUsedAt()
+                ).reversed())
+                .toList();
+
+        int total = filtered.size();
+        int fromIdx = Math.min(page * size, total);
+        int toIdx = Math.min(fromIdx + size, total);
+        List<ShopVoucherUsage> pageList = filtered.subList(fromIdx, toIdx);
+
+        List<ShopVoucherUsageResponse> content = pageList.stream()
+                .map(u -> {
+                    ShopVoucher v = u.getVoucher();
+                    Store store = v != null ? v.getShop() : null;
+                    Customer c = u.getCustomer();
+
+                    return ShopVoucherUsageResponse.builder()
+                            .id(u.getId())
+                            .voucherId(v != null ? v.getId() : null)
+                            .voucherCode(v != null ? v.getCode() : null)
+                            .voucherTitle(v != null ? v.getTitle() : null)
+                            .storeId(store != null ? store.getStoreId() : null)
+                            .storeName(store != null ? store.getStoreName() : null)
+                            .customerId(c != null ? c.getId() : null)
+                            .customerName(c != null ? c.getFullName() : null)
+                            .customerEmail(c != null ? c.getEmail() : null)
+                            .usedCount(u.getUsedCount())
+                            .firstUsedAt(u.getFirstUsedAt())
+                            .lastUsedAt(u.getLastUsedAt())
+                            .build();
+                })
+                .toList();
+
+        Map<String, Object> data = Map.of(
+                "page", page,
+                "size", size,
+                "totalElements", total,
+                "content", content
+        );
+
+        return BaseResponse.success("✅ Danh sách lịch sử sử dụng shop voucher", data);
+    }
+
+    @Override
+    public BaseResponse<Map<String, Object>> getPlatformVoucherUsage(
+            UUID campaignId,
+            UUID campaignProductId,
+            UUID storeId,
+            UUID customerId,
+            LocalDateTime from,
+            LocalDateTime to,
+            int page,
+            int size
+    ) {
+        List<PlatformCampaignProductUsage> all = platformUsageRepo.findAll();
+
+        List<PlatformCampaignProductUsage> filtered = all.stream()
+                .filter(u -> campaignId == null
+                        || (u.getCampaignProduct() != null
+                        && u.getCampaignProduct().getCampaign() != null
+                        && campaignId.equals(u.getCampaignProduct().getCampaign().getId())))
+                .filter(u -> campaignProductId == null
+                        || (u.getCampaignProduct() != null
+                        && campaignProductId.equals(u.getCampaignProduct().getId())))
+                .filter(u -> storeId == null
+                        || (u.getCampaignProduct() != null
+                        && u.getCampaignProduct().getStore() != null
+                        && storeId.equals(u.getCampaignProduct().getStore().getStoreId())))
+                .filter(u -> customerId == null
+                        || (u.getCustomer() != null
+                        && customerId.equals(u.getCustomer().getId())))
+                .filter(u -> {
+                    if (from == null && to == null) return true;
+                    LocalDateTime t = u.getLastUsedAt() != null ? u.getLastUsedAt() : u.getFirstUsedAt();
+                    if (t == null) return false;
+                    if (from != null && t.isBefore(from)) return false;
+                    if (to != null && t.isAfter(to)) return false;
+                    return true;
+                })
+                .sorted(Comparator.comparing(
+                        (PlatformCampaignProductUsage u) ->
+                                u.getLastUsedAt() != null ? u.getLastUsedAt() : u.getFirstUsedAt()
+                ).reversed())
+                .toList();
+
+        int total = filtered.size();
+        int fromIdx = Math.min(page * size, total);
+        int toIdx = Math.min(fromIdx + size, total);
+        List<PlatformCampaignProductUsage> pageList = filtered.subList(fromIdx, toIdx);
+
+        List<PlatformVoucherUsageResponse> content = pageList.stream()
+                .map(u -> {
+                    PlatformCampaignProduct cp = u.getCampaignProduct();
+                    PlatformCampaign cpn = cp != null ? cp.getCampaign() : null;
+                    Product prod = cp != null ? cp.getProduct() : null;
+                    Store store = cp != null ? cp.getStore() : null;
+                    Customer cus = u.getCustomer();
+
+                    return PlatformVoucherUsageResponse.builder()
+                            .id(u.getId())
+                            .campaignId(cpn != null ? cpn.getId() : null)
+                            .campaignCode(cpn != null ? cpn.getCode() : null)
+                            .campaignName(cpn != null ? cpn.getName() : null)
+                            .campaignType(cpn != null && cpn.getCampaignType() != null
+                                    ? cpn.getCampaignType().name()
+                                    : null)
+                            .campaignProductId(cp != null ? cp.getId() : null)
+                            .productId(prod != null ? prod.getProductId() : null)
+                            .productName(prod != null ? prod.getName() : null)
+                            .storeId(store != null ? store.getStoreId() : null)
+                            .storeName(store != null ? store.getStoreName() : null)
+                            .customerId(cus != null ? cus.getId() : null)
+                            .customerName(cus != null ? cus.getFullName() : null)
+                            .customerEmail(cus != null ? cus.getEmail() : null)
+                            .usedCount(u.getUsedCount())
+                            .firstUsedAt(u.getFirstUsedAt())
+                            .lastUsedAt(u.getLastUsedAt())
+                            .build();
+                })
+                .toList();
+
+        Map<String, Object> data = Map.of(
+                "page", page,
+                "size", size,
+                "totalElements", total,
+                "content", content
+        );
+
+        return BaseResponse.success("✅ Danh sách lịch sử sử dụng platform voucher", data);
     }
 
 }
