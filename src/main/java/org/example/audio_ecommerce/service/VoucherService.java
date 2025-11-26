@@ -2,9 +2,11 @@ package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.request.PlatformVoucherUse;
 import org.example.audio_ecommerce.dto.request.StoreVoucherUse;
+import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.StoreOrderItem;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.*;
 
 public interface VoucherService {
@@ -14,13 +16,14 @@ public interface VoucherService {
     );
 
     StoreVoucherResult computeDiscountByStoreWithDetail(
+            UUID customerId,
             List<StoreVoucherUse> vouchersInput,
             Map<UUID, List<StoreOrderItem>> storeItems
     );
 
     // a) Tổng giảm theo từng store (để phân bổ xuống StoreOrder)
     // b) Mapping <voucherCodeOrId, amount> cho toàn đơn (để trả response + lưu JSON)
-    PlatformVoucherResult computePlatformDiscounts(List<PlatformVoucherUse> platformVouchers,
+    PlatformVoucherResult computePlatformDiscounts(UUID customerId, List<PlatformVoucherUse> platformVouchers,
                                                    Map<UUID, List<StoreOrderItem>> storeItemsMap);
 
     class PlatformVoucherResult {
@@ -78,4 +81,25 @@ public interface VoucherService {
             return json;
         }
     }
+
+    BaseResponse<Map<String, Object>> getShopVoucherUsage(
+            UUID storeId,
+            UUID voucherId,
+            UUID customerId,
+            LocalDateTime from,
+            LocalDateTime to,
+            int page,
+            int size
+    );
+
+    BaseResponse<Map<String, Object>> getPlatformVoucherUsage(
+            UUID campaignId,
+            UUID campaignProductId,
+            UUID storeId,
+            UUID customerId,
+            LocalDateTime from,
+            LocalDateTime to,
+            int page,
+            int size
+    );
 }
