@@ -150,5 +150,27 @@ public class WalletController {
             @Valid @org.springframework.web.bind.annotation.RequestBody WalletTxnRequest req) {
         return walletService.refund(customerId, req);
     }
+
+    @Operation(
+            summary = "Lấy thông tin ví của khách hàng",
+            description = "Trả về thông tin ví: số dư hiện tại, trạng thái, currency, thời gian giao dịch gần nhất."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Lấy ví thành công",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = WalletResponse.class))
+            ),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy ví của customer")
+    })
+    @GetMapping
+    public WalletResponse getWallet(
+            @Parameter(description = "ID khách hàng (UUID)", required = true)
+            @PathVariable UUID customerId
+    ) {
+        return walletService.getByCustomer(customerId);
+    }
+
 }
 
