@@ -4,6 +4,7 @@ package org.example.audio_ecommerce.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ChatMessageRequest;
+import org.example.audio_ecommerce.dto.response.ChatConversationResponse;
 import org.example.audio_ecommerce.dto.response.ChatMessageResponse;
 import org.example.audio_ecommerce.service.ChatService;
 import org.springframework.web.bind.annotation.*;
@@ -36,5 +37,23 @@ public class ChatController {
             @RequestParam(defaultValue = "50") int limit
     ) {
         return chatService.getMessages(customerId, storeId, limit);
+    }
+
+    // ============= NEW: tất cả conversations của 1 customer =============
+
+    @GetMapping("/customers/{customerId}/conversations")
+    public List<ChatConversationResponse> getCustomerConversations(
+            @PathVariable UUID customerId
+    ) {
+        return chatService.getCustomerConversations(customerId);
+    }
+
+    // ============= NEW: tất cả conversations của 1 store =============
+
+    @GetMapping("/stores/{storeId}/conversations")
+    public List<ChatConversationResponse> getStoreConversations(
+            @PathVariable UUID storeId
+    ) {
+        return chatService.getStoreConversations(storeId);
     }
 }
