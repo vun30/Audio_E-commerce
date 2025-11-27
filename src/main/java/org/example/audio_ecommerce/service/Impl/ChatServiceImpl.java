@@ -6,6 +6,7 @@ import com.google.cloud.firestore.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.request.ChatMessageRequest;
+import org.example.audio_ecommerce.dto.response.ChatConversationResponse;
 import org.example.audio_ecommerce.dto.response.ChatMessageResponse;
 import org.example.audio_ecommerce.service.ChatService;
 import org.springframework.stereotype.Service;
@@ -109,5 +110,70 @@ public class ChatServiceImpl implements ChatService {
             log.error("Error fetching chat messages", e);
             throw new RuntimeException("Failed to fetch messages");
         }
+    }
+    @Override
+    public List<ChatConversationResponse> getCustomerConversations(UUID customerId) {
+        CollectionReference convRef = firestore.collection("conversations");
+        try {
+            Query query = convRef
+                    .whereEqualTo("customerId", customerId.toString())
+                    .orderBy("lastMessageTime", Query.Direction.DESCENDING);
+
+            ApiFuture<QuerySnapshot> future = query.get();
+            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+
+            List<ChatConversationResponse> result = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : docs) {
+                result.add(toConversationResponse(doc));
+            }
+            return result;
+        } catch (InterruptedException | ExecutionException e) {
+            Thread.currentThread().interrupt();
+            log.error("Error fetching conversations by customer", e);
+            throw new RuntimeException("Failed to fetch conversations");
+        }
+    }
+
+    // =============== NEW: list conversation theo store ===============
+
+    @Override
+    public List<ChatConversationResponse> getStoreConversations(UUID storeId) {
+        CollectionReference convRef = firestore.collection("conversations");
+        try {
+            Query query = convRef
+                    .whereEqualTo("storeId", storeId.toString())
+                    .orderBy("lastMessageTime", Query.Direction.DESCENDING);
+
+            ApiFuture<QuerySnapshot> future = query.get();
+            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+
+            List<ChatConversationResponse> result = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : docs) {
+                result.add(toConversationResponse(doc));
+            }
+            return result;
+        } catch (InterruptedException | ExecutionException e) {
+            Thread.currentThread().interrupt();
+            log.error("Error fetching conversations by store", e);
+            throw new RuntimeException("Failed to fetch conversations");
+        }
+    }
+
+    // =============== Helper mapper ===============
+
+    private ChatConversationResponse toConversationResponse(DocumentSnapshot doc) {
+        String id = doc.getId();
+        String customerIdStr = doc.getString("customerId");
+        String storeIdStr = doc.getString("storeId");
+        String lastMessage = doc.getString("lastMessage");
+        Timestamp ts = doc.getTimestamp("lastMessageTime");
+
+        return ChatConversationResponse.builder()
+                .id(id)
+                .customerId(customerIdStr != null ? UUID.fromString(customerIdStr) : null)
+                .storeId(storeIdStr != null ? UUID.fromString(storeIdStr) : null)
+                .lastMessage(lastMessage)
+                .lastMessageTime(ts != null ? ts.toDate().toInstant() : null)
+                .build();
     }
 }
