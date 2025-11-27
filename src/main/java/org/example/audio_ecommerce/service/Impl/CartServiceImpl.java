@@ -100,6 +100,13 @@ public class CartServiceImpl implements CartService {
                     if (productId != null && !product.getProductId().equals(productId)) {
                         throw new IllegalArgumentException("Variant not belong to product");
                     }
+
+                    if (!isProductSellable(product)) {
+                        throw new IllegalStateException(
+                                "Product is not available: " + product.getName()
+                                        + " (status=" + product.getStatus() + ")"
+                        );
+                    }
                 } else {
                     // không có variant => bắt buộc phải có productId
                     if (productId == null) {
@@ -107,6 +114,13 @@ public class CartServiceImpl implements CartService {
                     }
                     product = productRepo.findById(productId)
                             .orElseThrow(() -> new NoSuchElementException("Product not found: " + productId));
+
+                    if (!isProductSellable(product)) {
+                        throw new IllegalStateException(
+                                "Product is not available: " + product.getName()
+                                        + " (status=" + product.getStatus() + ")"
+                        );
+                    }
                 }
 
                 // check tồn kho
@@ -1446,6 +1460,22 @@ public class CartServiceImpl implements CartService {
     private void deductStockForCartItems(List<CartItem> items) {
         if (items == null || items.isEmpty()) return;
 
+        // ✅ Bước 0: kiểm tra trạng thái sản phẩm trước khi trừ stock
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) {
+                continue; // bỏ qua COMBO, hoặc item không có product
+            }
+            Product p = item.getProduct();
+
+            // Sản phẩm đã bị ẩn / xoá / ngừng bán
+            if (!isProductSellable(p)) {
+                throw new IllegalStateException(
+                        "Product is not available for checkout: " + p.getName()
+                                + " (status=" + p.getStatus() + ")"
+                );
+            }
+        }
+
         // Dùng map để tránh trừ trùng 1 product/variant nhiều lần nếu có nhiều CartItem
         Map<UUID, Integer> productQtyMap = new HashMap<>();
         Map<UUID, Integer> variantQtyMap = new HashMap<>();
@@ -1549,4 +1579,8 @@ public class CartServiceImpl implements CartService {
         }
     }
 
+    private boolean isProductSellable(Product p) {
+        if (p == null) return false;
+        return p.getStatus() == ProductStatus.ACTIVE;
+    }
 }
