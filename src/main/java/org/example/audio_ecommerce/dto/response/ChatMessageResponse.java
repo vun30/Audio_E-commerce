@@ -6,6 +6,7 @@ import org.example.audio_ecommerce.entity.Enum.ChatMessageType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -18,7 +19,7 @@ public class ChatMessageResponse {
     private String content;
 
     private ChatMessageType messageType;   // "TEXT", "IMAGE", "VIDEO"
-    private String mediaUrl;      // nếu là media thì frontend render chỗ này
+    private List<MediaItem> mediaUrl;      // nếu là media thì frontend render chỗ này
 
     private Instant createdAt;
     private Boolean read;
@@ -27,4 +28,11 @@ public class ChatMessageResponse {
     private String productName;
     private String productImage;
     private BigDecimal productPrice;
+
+    @Data
+    @Builder
+    public static class MediaItem {
+        private String url;
+        private String type;
+    }
 }

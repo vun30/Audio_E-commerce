@@ -56,4 +56,14 @@ public class ChatController {
     ) {
         return chatService.getStoreConversations(storeId);
     }
+
+    @PostMapping("/conversations/{customerId}/{storeId}/read")
+    public void markRead(
+            @PathVariable UUID customerId,
+            @PathVariable UUID storeId,
+            @RequestParam String viewerId // id của người đang xem tin nhắn
+    ) {
+        chatService.markMessagesAsRead(customerId, storeId, viewerId);
+    }
+
 }
