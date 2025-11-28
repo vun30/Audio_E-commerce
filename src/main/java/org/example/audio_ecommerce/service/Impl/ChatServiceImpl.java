@@ -44,7 +44,9 @@ public class ChatServiceImpl implements ChatService {
         data.put("createdAt", Timestamp.now());
         data.put("read", false);
         data.put("type", req.getMessageType().name());
-
+        if (req.getMessageType() == ChatMessageType.IMAGE) {
+            data.put("mediaUrl", req.getMediaUrl());
+        }
         if (req.getMessageType() == ChatMessageType.PRODUCT) {
             if (req.getProductId() != null) {
                 data.put("productId", req.getProductId().toString());
