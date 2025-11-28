@@ -13,4 +13,5 @@ public interface ChatService {
     List<ChatMessageResponse> getMessages(UUID customerId, UUID storeId, int limit);
     List<ChatConversationResponse> getCustomerConversations(UUID customerId);
     List<ChatConversationResponse> getStoreConversations(UUID storeId);
+    void markMessagesAsRead(UUID customerId, UUID storeId, String viewerId);
 }
