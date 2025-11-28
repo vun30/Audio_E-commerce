@@ -8,9 +8,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.request.ChatMessageRequest;
 import org.example.audio_ecommerce.dto.response.ChatConversationResponse;
 import org.example.audio_ecommerce.dto.response.ChatMessageResponse;
+import org.example.audio_ecommerce.entity.Enum.ChatMessageType;
 import org.example.audio_ecommerce.service.ChatService;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -41,6 +43,16 @@ public class ChatServiceImpl implements ChatService {
         data.put("content", req.getContent());
         data.put("createdAt", Timestamp.now());
         data.put("read", false);
+        data.put("type", req.getMessageType().name());
+
+        if (req.getMessageType() == ChatMessageType.PRODUCT) {
+            if (req.getProductId() != null) {
+                data.put("productId", req.getProductId().toString());
+            }
+            data.put("productName", req.getProductName());
+            data.put("productImage", req.getProductImage());
+            data.put("productPrice", req.getProductPrice() != null ? req.getProductPrice().toPlainString() : null);
+        }
 
         try {
             // tạo message
@@ -64,6 +76,11 @@ public class ChatServiceImpl implements ChatService {
                     .content(req.getContent())
                     .createdAt(Instant.now())
                     .read(false)
+                    .messageType(req.getMessageType())
+                    .productId(req.getProductId())
+                    .productName(req.getProductName())
+                    .productImage(req.getProductImage())
+                    .productPrice(req.getProductPrice())
                     .build();
         } catch (InterruptedException | ExecutionException e) {
             Thread.currentThread().interrupt();
@@ -92,6 +109,23 @@ public class ChatServiceImpl implements ChatService {
             List<ChatMessageResponse> result = new ArrayList<>();
             for (QueryDocumentSnapshot doc : docs) {
                 Timestamp ts = doc.getTimestamp("createdAt");
+
+                String typeStr = doc.getString("type");
+                ChatMessageType type = null;
+                if (typeStr != null) {
+                    try {
+                        type = ChatMessageType.valueOf(typeStr);
+                    } catch (IllegalArgumentException ignored) {}
+                }
+
+                String productIdStr = doc.getString("productId");
+
+                String productPriceStr = doc.getString("productPrice");
+                BigDecimal productPrice = null;
+                if (productPriceStr != null) {
+                    productPrice = new BigDecimal(productPriceStr);
+                }
+
                 result.add(ChatMessageResponse.builder()
                         .id(doc.getId())
                         .senderId(doc.getString("senderId"))
@@ -99,6 +133,11 @@ public class ChatServiceImpl implements ChatService {
                         .content(doc.getString("content"))
                         .createdAt(ts != null ? ts.toDate().toInstant() : null)
                         .read(Boolean.TRUE.equals(doc.getBoolean("read")))
+                        .messageType(type)
+                        .productId(productIdStr != null ? UUID.fromString(productIdStr) : null)
+                        .productName(doc.getString("productName"))
+                        .productImage(doc.getString("productImage"))
+                        .productPrice(productPrice)
                         .build());
             }
 
