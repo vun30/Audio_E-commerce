@@ -196,9 +196,9 @@ public class ChatServiceImpl implements ChatService {
                 .collection("messages");
 
         try {
+            // Lấy tất cả tin chưa đọc
             List<QueryDocumentSnapshot> docs = messagesRef
                     .whereEqualTo("read", false)
-                    .whereNotEqualTo("senderId", viewerId)
                     .get()
                     .get()
                     .getDocuments();
@@ -206,15 +206,23 @@ public class ChatServiceImpl implements ChatService {
             WriteBatch batch = firestore.batch();
 
             for (QueryDocumentSnapshot doc : docs) {
-                batch.update(doc.getReference(), "read", true);
+
+                // Chỉ mark READ những tin của đối phương
+                String senderId = doc.getString("senderId");
+
+                if (senderId != null && !senderId.equals(viewerId)) {
+                    batch.update(doc.getReference(), "read", true);
+                }
             }
 
             batch.commit();
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to mark messages as read", e);
+            log.error("Error marking messages as read", e);
+            throw new RuntimeException("Failed to mark messages as read");
         }
     }
+
 
     @Override
     public List<ChatConversationResponse> getCustomerConversations(UUID customerId) {
