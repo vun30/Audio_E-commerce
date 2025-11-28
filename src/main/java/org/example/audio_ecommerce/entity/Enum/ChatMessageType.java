@@ -4,6 +4,7 @@ public enum ChatMessageType {
     TEXT,
     PRODUCT,
     IMAGE,
-    VIDEO
+    VIDEO,
+    MIXED
     // sau này thêm: IMAGE, ORDER, SYSTEM...
 }

@@ -30,6 +30,7 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     public ChatMessageResponse sendMessage(UUID customerId, UUID storeId, ChatMessageRequest req) {
+
         String conversationId = buildConversationId(customerId, storeId);
 
         CollectionReference messagesRef = firestore
@@ -44,24 +45,37 @@ public class ChatServiceImpl implements ChatService {
         data.put("createdAt", Timestamp.now());
         data.put("read", false);
         data.put("type", req.getMessageType().name());
-        if (req.getMessageType() == ChatMessageType.IMAGE) {
-            data.put("mediaUrl", req.getMediaUrl());
-        }
-        if (req.getMessageType() == ChatMessageType.PRODUCT) {
-            if (req.getProductId() != null) {
-                data.put("productId", req.getProductId().toString());
+
+        // ========== MULTI MEDIA ==========
+        if (req.getMessageType() == ChatMessageType.IMAGE || req.getMessageType() == ChatMessageType.MIXED) {
+            if (req.getMediaUrl() != null) {
+                List<Map<String, Object>> mediaData = new ArrayList<>();
+
+                for (ChatMessageRequest.MediaItem item : req.getMediaUrl()) {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("url", item.getUrl());
+                    m.put("type", item.getType());
+                    mediaData.add(m);
+                }
+                data.put("mediaUrl", mediaData);
             }
+        }
+
+        // ========== PRODUCT ==========
+        if (req.getMessageType() == ChatMessageType.PRODUCT) {
+            if (req.getProductId() != null)
+                data.put("productId", req.getProductId().toString());
+
             data.put("productName", req.getProductName());
             data.put("productImage", req.getProductImage());
-            data.put("productPrice", req.getProductPrice() != null ? req.getProductPrice().toPlainString() : null);
+            data.put("productPrice",
+                    req.getProductPrice() != null ? req.getProductPrice().toPlainString() : null);
         }
 
         try {
-            // tạo message
-            ApiFuture<DocumentReference> future = messagesRef.add(data);
-            DocumentReference docRef = future.get();
+            DocumentReference docRef = messagesRef.add(data).get();
 
-            // update thông tin conversation (metadata)
+            // UPDATE conversation metadata
             Map<String, Object> convMeta = new HashMap<>();
             convMeta.put("customerId", customerId.toString());
             convMeta.put("storeId", storeId.toString());
@@ -71,6 +85,17 @@ public class ChatServiceImpl implements ChatService {
                     .document(conversationId)
                     .set(convMeta, SetOptions.merge());
 
+            // Build mediaList response
+            List<ChatMessageResponse.MediaItem> mediaList = null;
+            if (req.getMediaUrl() != null) {
+                mediaList = req.getMediaUrl().stream().map(m ->
+                        ChatMessageResponse.MediaItem.builder()
+                                .url(m.getUrl())
+                                .type(m.getType())
+                                .build()
+                ).toList();
+            }
+
             return ChatMessageResponse.builder()
                     .id(docRef.getId())
                     .senderId(req.getSenderId())
@@ -79,21 +104,22 @@ public class ChatServiceImpl implements ChatService {
                     .createdAt(Instant.now())
                     .read(false)
                     .messageType(req.getMessageType())
-                    .mediaUrl(req.getMediaUrl())
+                    .mediaUrl(mediaList)
                     .productId(req.getProductId())
                     .productName(req.getProductName())
                     .productImage(req.getProductImage())
                     .productPrice(req.getProductPrice())
                     .build();
-        } catch (InterruptedException | ExecutionException e) {
+
+        } catch (Exception e) {
             Thread.currentThread().interrupt();
-            log.error("Error sending chat message", e);
-            throw new RuntimeException("Failed to send message");
+            throw new RuntimeException("Failed to send message", e);
         }
     }
 
     @Override
     public List<ChatMessageResponse> getMessages(UUID customerId, UUID storeId, int limit) {
+
         String conversationId = buildConversationId(customerId, storeId);
 
         CollectionReference messagesRef = firestore
@@ -102,31 +128,36 @@ public class ChatServiceImpl implements ChatService {
                 .collection("messages");
 
         try {
-            Query query = messagesRef
+            List<QueryDocumentSnapshot> docs = messagesRef
                     .orderBy("createdAt", Query.Direction.DESCENDING)
-                    .limit(limit);
-
-            ApiFuture<QuerySnapshot> future = query.get();
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
+                    .limit(limit)
+                    .get()
+                    .get()
+                    .getDocuments();
 
             List<ChatMessageResponse> result = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : docs) {
-                Timestamp ts = doc.getTimestamp("createdAt");
 
-                String typeStr = doc.getString("type");
-                ChatMessageType type = null;
-                if (typeStr != null) {
-                    try {
-                        type = ChatMessageType.valueOf(typeStr);
-                    } catch (IllegalArgumentException ignored) {}
+            for (QueryDocumentSnapshot doc : docs) {
+
+                // Parse media list
+                List<Map<String, Object>> mediaData =
+                        (List<Map<String, Object>>) doc.get("mediaUrl");
+
+                List<ChatMessageResponse.MediaItem> mediaList = new ArrayList<>();
+                if (mediaData != null) {
+                    for (Map<String, Object> m : mediaData) {
+                        mediaList.add(ChatMessageResponse.MediaItem.builder()
+                                .url((String) m.get("url"))
+                                .type((String) m.get("type"))
+                                .build());
+                    }
                 }
 
-                String productIdStr = doc.getString("productId");
-
-                String productPriceStr = doc.getString("productPrice");
-                BigDecimal productPrice = null;
-                if (productPriceStr != null) {
-                    productPrice = new BigDecimal(productPriceStr);
+                // Parse product price
+                BigDecimal price = null;
+                String priceStr = doc.getString("productPrice");
+                if (priceStr != null) {
+                    price = new BigDecimal(priceStr);
                 }
 
                 result.add(ChatMessageResponse.builder()
@@ -134,89 +165,92 @@ public class ChatServiceImpl implements ChatService {
                         .senderId(doc.getString("senderId"))
                         .senderType(doc.getString("senderType"))
                         .content(doc.getString("content"))
-                        .createdAt(ts != null ? ts.toDate().toInstant() : null)
+                        .createdAt(doc.getTimestamp("createdAt").toDate().toInstant())
                         .read(Boolean.TRUE.equals(doc.getBoolean("read")))
-                        .messageType(type)
-                        .mediaUrl(doc.getString("mediaUrl"))
-                        .productId(productIdStr != null ? UUID.fromString(productIdStr) : null)
+                        .messageType(ChatMessageType.valueOf(doc.getString("type")))
+                        .mediaUrl(mediaList)
+                        .productId(doc.getString("productId") != null ?
+                                UUID.fromString(doc.getString("productId")) : null)
                         .productName(doc.getString("productName"))
                         .productImage(doc.getString("productImage"))
-                        .productPrice(productPrice)
+                        .productPrice(price)
                         .build());
             }
 
-            // đảo lại cho đúng thứ tự cũ (từ cũ đến mới)
             Collections.reverse(result);
             return result;
-        } catch (InterruptedException | ExecutionException e) {
-            Thread.currentThread().interrupt();
-            log.error("Error fetching chat messages", e);
-            throw new RuntimeException("Failed to fetch messages");
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch messages", e);
         }
     }
+
+    @Override
+    public void markMessagesAsRead(UUID customerId, UUID storeId, String viewerId) {
+
+        String conversationId = buildConversationId(customerId, storeId);
+
+        CollectionReference messagesRef = firestore
+                .collection("conversations")
+                .document(conversationId)
+                .collection("messages");
+
+        try {
+            List<QueryDocumentSnapshot> docs = messagesRef
+                    .whereEqualTo("read", false)
+                    .whereNotEqualTo("senderId", viewerId)
+                    .get()
+                    .get()
+                    .getDocuments();
+
+            WriteBatch batch = firestore.batch();
+
+            for (QueryDocumentSnapshot doc : docs) {
+                batch.update(doc.getReference(), "read", true);
+            }
+
+            batch.commit();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to mark messages as read", e);
+        }
+    }
+
     @Override
     public List<ChatConversationResponse> getCustomerConversations(UUID customerId) {
-        CollectionReference convRef = firestore.collection("conversations");
-        try {
-            Query query = convRef
-                    .whereEqualTo("customerId", customerId.toString())
-                    .orderBy("lastMessageTime", Query.Direction.DESCENDING);
-
-            ApiFuture<QuerySnapshot> future = query.get();
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-
-            List<ChatConversationResponse> result = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : docs) {
-                result.add(toConversationResponse(doc));
-            }
-            return result;
-        } catch (InterruptedException | ExecutionException e) {
-            Thread.currentThread().interrupt();
-            log.error("Error fetching conversations by customer", e);
-            throw new RuntimeException("Failed to fetch conversations");
-        }
+        return getConversationList("customerId", customerId.toString());
     }
-
-    // =============== NEW: list conversation theo store ===============
 
     @Override
     public List<ChatConversationResponse> getStoreConversations(UUID storeId) {
-        CollectionReference convRef = firestore.collection("conversations");
-        try {
-            Query query = convRef
-                    .whereEqualTo("storeId", storeId.toString())
-                    .orderBy("lastMessageTime", Query.Direction.DESCENDING);
-
-            ApiFuture<QuerySnapshot> future = query.get();
-            List<QueryDocumentSnapshot> docs = future.get().getDocuments();
-
-            List<ChatConversationResponse> result = new ArrayList<>();
-            for (QueryDocumentSnapshot doc : docs) {
-                result.add(toConversationResponse(doc));
-            }
-            return result;
-        } catch (InterruptedException | ExecutionException e) {
-            Thread.currentThread().interrupt();
-            log.error("Error fetching conversations by store", e);
-            throw new RuntimeException("Failed to fetch conversations");
-        }
+        return getConversationList("storeId", storeId.toString());
     }
 
-    // =============== Helper mapper ===============
+    private List<ChatConversationResponse> getConversationList(String field, String id) {
+        try {
+            List<QueryDocumentSnapshot> docs = firestore.collection("conversations")
+                    .whereEqualTo(field, id)
+                    .orderBy("lastMessageTime", Query.Direction.DESCENDING)
+                    .get()
+                    .get()
+                    .getDocuments();
 
-    private ChatConversationResponse toConversationResponse(DocumentSnapshot doc) {
-        String id = doc.getId();
-        String customerIdStr = doc.getString("customerId");
-        String storeIdStr = doc.getString("storeId");
-        String lastMessage = doc.getString("lastMessage");
-        Timestamp ts = doc.getTimestamp("lastMessageTime");
+            List<ChatConversationResponse> result = new ArrayList<>();
 
-        return ChatConversationResponse.builder()
-                .id(id)
-                .customerId(customerIdStr != null ? UUID.fromString(customerIdStr) : null)
-                .storeId(storeIdStr != null ? UUID.fromString(storeIdStr) : null)
-                .lastMessage(lastMessage)
-                .lastMessageTime(ts != null ? ts.toDate().toInstant() : null)
-                .build();
+            for (QueryDocumentSnapshot doc : docs) {
+                result.add(ChatConversationResponse.builder()
+                        .id(doc.getId())
+                        .customerId(UUID.fromString(doc.getString("customerId")))
+                        .storeId(UUID.fromString(doc.getString("storeId")))
+                        .lastMessage(doc.getString("lastMessage"))
+                        .lastMessageTime(doc.getTimestamp("lastMessageTime").toDate().toInstant())
+                        .build());
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch conversation list");
+        }
     }
 }

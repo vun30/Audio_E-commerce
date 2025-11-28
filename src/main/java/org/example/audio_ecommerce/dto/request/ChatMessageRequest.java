@@ -5,6 +5,7 @@ import lombok.Data;
 import org.example.audio_ecommerce.entity.Enum.ChatMessageType;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -19,10 +20,16 @@ public class ChatMessageRequest {
     @NotNull
     private ChatMessageType messageType;   // "TEXT", "IMAGE", "VIDEO"
 
-    private String mediaUrl;      // URL hình/video (Cloudinary)
+    private List<MediaItem> mediaUrl;      // URL hình/video (Cloudinary)
 
     private UUID productId;
     private String productName;
     private String productImage;
     private BigDecimal productPrice;
+
+    @Data
+    public static class MediaItem {
+        private String url;
+        private String type; // "image" | "video"
+    }
 }
