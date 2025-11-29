@@ -1,7 +1,7 @@
-// service/Impl/PayOSEcomServiceImpl.java
 package org.example.audio_ecommerce.service.Impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.mail.MessagingException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,11 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import vn.payos.PayOS;
-import vn.payos.type.CheckoutResponseData;
-import vn.payos.type.ItemData;
-import vn.payos.type.PaymentData;
-import vn.payos.type.Webhook;
-import vn.payos.type.WebhookData;
+import vn.payos.model.v2.paymentRequests.CreatePaymentLinkRequest;
+import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
+import vn.payos.model.v2.paymentRequests.PaymentLinkItem;
+import vn.payos.model.webhooks.WebhookData;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
@@ -38,6 +37,7 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class PayOSEcomServiceImpl implements PayOSEcomService {
+
     private static final DateTimeFormatter PAID_AT_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
     private final PayOS payOS;
     private final CustomerOrderRepository customerOrderRepository;
@@ -60,6 +60,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
             String cancelUrl,
             long batchOrderCode
     ) {
+
         if (orderIds == null || orderIds.isEmpty()) {
             throw new IllegalArgumentException("orderIds is empty");
         }
@@ -72,63 +73,52 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
                 .map(o -> o.getGrandTotal() == null ? BigDecimal.ZERO : o.getGrandTotal())
                 .reduce(BigDecimal.ZERO, BigDecimal::add))
                 .setScale(0, java.math.RoundingMode.DOWN);
-        int amountVnd = payAmount.intValueExact();
+        long amountVnd = payAmount.longValueExact();
 
-        String desc = cutUtf8Bytes(asciiNoMarks(description != null ? description : "Group orders"), 20);
-        String itemName = cutUtf8Bytes(asciiNoMarks("Group#" + batchOrderCode), 20);
-
+        // v2 không giới hạn 20 bytes như v1 → nhưng cứ sanitize cho chắc
+        String desc = asciiNoMarks(description != null ? description : "Group orders");
         try {
-            ItemData item = ItemData.builder()
-                    .name(itemName)
+            PaymentLinkItem item = PaymentLinkItem.builder()
+                    .name("Group#" + batchOrderCode)
                     .price(amountVnd)
                     .quantity(1)
                     .build();
 
-            PaymentData paymentData = PaymentData.builder()
-                    .orderCode(batchOrderCode)  // <- 1 code cho cả nhóm
+            CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
+                    .orderCode(batchOrderCode)   // 1 code cho cả nhóm
                     .amount(amountVnd)
                     .description(desc)
                     .returnUrl(returnUrl)
                     .cancelUrl(cancelUrl)
-                    .item(item)
+                    .item(item)                  // mẫu demo dùng .item(...) (không phải .items(...))
                     .build();
 
-            CheckoutResponseData res = payOS.createPaymentLink(paymentData);
+            CreatePaymentLinkResponse res = payOS.paymentRequests().create(paymentData);
 
-            // GẮN batchCode vào JSON của từng order, nhưng KHÔNG đụng externalOrderCode Eᵢ
+            // GẮN batchCode vào JSON của từng order, KHÔNG đụng externalOrderCode riêng (Eᵢ)
             for (CustomerOrder order : orders) {
-                // Optional: nếu order CHƯA có externalOrderCode riêng thì sinh luôn ở đây:
-                if (order.getExternalOrderCode() == null || order.getExternalOrderCode().isBlank()) {
-                    long perOrderCode = System.currentTimeMillis() + new java.util.Random().nextInt(999);
-                    order.setExternalOrderCode(String.valueOf(perOrderCode)); // Eᵢ riêng
+                if (!StringUtils.hasText(order.getExternalOrderCode())) {
+                    order.setExternalOrderCode(String.valueOf(generateOrderCode()));
                 }
-
-                // Nhúng batch vào platformVoucherDetailJson
                 String json = order.getPlatformVoucherDetailJson();
-                com.fasterxml.jackson.databind.node.ObjectNode node;
-                if (json != null && !json.isBlank()) {
-                    node = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(json);
-                } else {
-                    node = mapper.createObjectNode();
-                }
+                ObjectNode node = StringUtils.hasText(json) ? (ObjectNode) mapper.readTree(json) : mapper.createObjectNode();
                 node.put("__payos_batch_code", String.valueOf(batchOrderCode));
                 order.setPlatformVoucherDetailJson(mapper.writeValueAsString(node));
 
-                // Đánh dấu chờ thanh toán (tuỳ flow)
                 order.setStatus(OrderStatus.PENDING);
                 order.setCreatedAt(LocalDateTime.now());
                 if (order.getPaymentMethod() != PaymentMethod.ONLINE) {
-                    order.setPaymentMethod(PaymentMethod.ONLINE); // đảm bảo gắn ONLINE
+                    order.setPaymentMethod(PaymentMethod.ONLINE);
                 }
                 customerOrderRepository.save(order);
             }
 
             CheckoutOnlineResponse out = new CheckoutOnlineResponse();
-            out.setCustomerOrderId(orders.get(0).getId()); // tuỳ bạn, có thể null
+            out.setCustomerOrderId(orders.get(0).getId());
             out.setAmount(payAmount);
             out.setPayOSOrderCode(batchOrderCode);
-            out.setCheckoutUrl(res.getCheckoutUrl());
-            out.setQrCode(res.getQrCode());
+            out.setCheckoutUrl(res.getCheckoutUrl()); // theo demo
+            out.setQrCode(null);                       // demo không trả QR trực tiếp
             out.setStatus(OrderStatus.PENDING.name());
             return out;
 
@@ -137,33 +127,34 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         }
     }
 
-
+    /**
+     * Webhook: nhận raw body (String/Object), để SDK verify → trả về WebhookData (package vn.payos.model.webhooks).
+     */
     @Override
     @Transactional
-    public void confirmWebhook(Webhook webhook) {
-        try { log.info("[PayOS Webhook] raw={}", mapper.writeValueAsString(webhook)); } catch (Exception ignore) {}
+    public void confirmWebhook(WebhookData verified) {
+        try { log.info("[PayOS Webhook] parsed={}", verified); } catch (Exception ignore) {}
 
-        WebhookData data = webhook.getData();
-        if (data == null || data.getOrderCode() == null) {
-            log.error("[PayOS Webhook] data/orderCode null. webhook={}", webhook);
+        if (verified == null || verified.getOrderCode() == null) {
+            log.error("[PayOS Webhook] orderCode null. webhook={}", verified);
             return;
         }
-        Long batchCode = data.getOrderCode();
-        String resultCode = webhook.getCode();
-        Boolean success = webhook.getSuccess();
-        String desc = webhook.getDesc();
 
-        // Tìm tất cả order có JSON chứa __payos_batch_code = batchCode
-        // Nếu bạn chưa có repo method, dùng findAll rồi filter bằng code dưới (đơn giản, nhưng tốt nhất là thêm method custom query JSON).
-        List<CustomerOrder> all = customerOrderRepository.findAll(); // hoặc custom query tốt hơn
+        Long batchCode = verified.getOrderCode();
+        String resultCode = verified.getCode();                 // "00" = success
+        boolean success = "00".equals(resultCode);
+        String desc = verified.getDesc() != null ? verified.getDesc() : verified.getDescription();
+
+        // Tìm các order có __payos_batch_code = batchCode
+        List<CustomerOrder> all = customerOrderRepository.findAll();
         List<CustomerOrder> orders = new ArrayList<>();
         for (CustomerOrder o : all) {
             String json = o.getPlatformVoucherDetailJson();
-            if (json == null || json.isBlank()) continue;
+            if (!StringUtils.hasText(json)) continue;
             try {
                 var node = mapper.readTree(json);
-                if (node.has("__payos_batch_code") &&
-                        String.valueOf(batchCode).equals(node.get("__payos_batch_code").asText())) {
+                if (node.has("__payos_batch_code")
+                        && String.valueOf(batchCode).equals(node.get("__payos_batch_code").asText())) {
                     orders.add(o);
                 }
             } catch (Exception ignored) {}
@@ -186,7 +177,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
             return;
         }
 
-        if (Boolean.TRUE.equals(success) && "00".equals(resultCode)) {
+        if (success) {
             for (CustomerOrder order : orders) {
                 BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
                 if (amount == null) amount = BigDecimal.ZERO;
@@ -201,7 +192,8 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
                 }
                 settlementService.allocateToStoresPending(order);
 
-                order.setStatus(OrderStatus.PENDING); // hoặc CONFIRMED
+                // tuỳ flow
+                order.setStatus(OrderStatus.PENDING);
                 order.setCreatedAt(LocalDateTime.now());
                 customerOrderRepository.save(order);
 
@@ -220,6 +212,8 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
     }
 
 
+
+    /* ================= helpers ================= */
 
     private void sendPaymentSuccessEmail(CustomerOrder order, BigDecimal amount) {
         if (order.getCustomer() == null || !StringUtils.hasText(order.getCustomer().getEmail())) {
@@ -280,13 +274,9 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
     }
 
     private void addIfHasText(List<String> parts, String value) {
-        if (!StringUtils.hasText(value)) {
-            return;
-        }
+        if (!StringUtils.hasText(value)) return;
         String sanitized = value.trim();
-        if (!parts.contains(sanitized)) {
-            parts.add(sanitized);
-        }
+        if (!parts.contains(sanitized)) parts.add(sanitized);
     }
 
     private static String asciiNoMarks(String s) {
@@ -296,6 +286,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         return normalized.replaceAll("[^\\x20-\\x7E]", "");
     }
 
+    @SuppressWarnings("unused")
     private static String cutUtf8Bytes(String s, int maxBytes) {
         byte[] b = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         if (b.length <= maxBytes) return s;

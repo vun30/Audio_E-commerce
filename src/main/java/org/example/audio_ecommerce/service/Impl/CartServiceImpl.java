@@ -14,12 +14,15 @@ import org.example.audio_ecommerce.service.GhnFeeService;
 
 import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
 
+import org.example.audio_ecommerce.service.OrderCodeGeneratorService;
 import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -41,6 +44,10 @@ public class CartServiceImpl implements CartService {
     private final StoreRepository storeRepo;
     private final VoucherService voucherService;
     private final GhnFeeService ghnFeeService;
+    private final ProductVariantRepository productVariantRepo;
+    private final OrderCodeGeneratorService orderCodeGeneratorService;
+    private final PlatformCampaignProductRepository platformCampaignProductRepository;
+    private final NotificationRepository notificationRepo;
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -51,76 +58,152 @@ public class CartServiceImpl implements CartService {
     public CartResponse addItems(UUID customerId, AddCartItemsRequest request) {
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
-        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
-                .orElseGet(() -> cartRepo.save(Cart.builder().customer(customer).status(CartStatus.ACTIVE).build()));
 
-        // Dùng key (type + refId) để merge
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseGet(() -> cartRepo.save(Cart.builder()
+                        .customer(customer)
+                        .status(CartStatus.ACTIVE)
+                        .build()));
+
+        // Map để merge các item trùng (type + refId)
         Map<String, CartItem> existingMap = new HashMap<>();
         for (CartItem it : Optional.ofNullable(cart.getItems()).orElseGet(ArrayList::new)) {
             String key = key(it.getType(), it.getReferenceId());
             existingMap.put(key, it);
         }
-        if (cart.getItems() == null) cart.setItems(new ArrayList<>());
+
+        if (cart.getItems() == null) {
+            cart.setItems(new ArrayList<>());
+        }
 
         for (var line : request.getItems()) {
             CartItemType type = CartItemType.valueOf(line.getType().toUpperCase(Locale.ROOT));
-            UUID refId = line.getId();
             int qty = Math.max(1, line.getQuantity());
 
             if (type == CartItemType.PRODUCT) {
-                Product p = productRepo.findById(refId)
-                        .orElseThrow(() -> new NoSuchElementException("Product not found: " + refId));
 
-                // kiểm tồn đơn giản (nếu set)
-                if (p.getStockQuantity() != null && p.getStockQuantity() < qty) {
-                    throw new IllegalStateException("Product out of stock: " + p.getName());
+                UUID productId = line.getProductId();
+                UUID variantId = line.getVariantId();
+
+                ProductVariantEntity variant = null;
+                Product product = null;
+
+                // Ưu tiên variantId: nếu có variantId thì tìm variant, lấy product từ đó
+                if (variantId != null) {
+                    variant = productVariantRepo.findById(variantId)
+                            .orElseThrow(() -> new NoSuchElementException("Variant not found: " + variantId));
+                    product = variant.getProduct();
+                    if (product == null) {
+                        throw new IllegalStateException("Variant has no product: " + variantId);
+                    }
+                    // nếu FE truyền cả productId thì validate cho chắc
+                    if (productId != null && !product.getProductId().equals(productId)) {
+                        throw new IllegalArgumentException("Variant not belong to product");
+                    }
+
+                    if (!isProductSellable(product)) {
+                        throw new IllegalStateException(
+                                "Product is not available: " + product.getName()
+                                        + " (status=" + product.getStatus() + ")"
+                        );
+                    }
+                } else {
+                    // không có variant => bắt buộc phải có productId
+                    if (productId == null) {
+                        throw new IllegalArgumentException("Either productId or variantId must be provided for PRODUCT");
+                    }
+                    product = productRepo.findById(productId)
+                            .orElseThrow(() -> new NoSuchElementException("Product not found: " + productId));
+
+                    if (!isProductSellable(product)) {
+                        throw new IllegalStateException(
+                                "Product is not available: " + product.getName()
+                                        + " (status=" + product.getStatus() + ")"
+                        );
+                    }
                 }
 
-                BigDecimal unit = (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
-                        ? p.getDiscountPrice() : (p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO);
+                // check tồn kho
+                if (variant != null) {
+                    Integer vStock = variant.getVariantStock();
+                    if (vStock != null && vStock < qty) {
+                        throw new IllegalStateException("Variant out of stock: "
+                                + variant.getOptionName() + " " + variant.getOptionValue());
+                    }
+                } else {
+                    Integer pStock = product.getStockQuantity();
+                    if (pStock != null && pStock < qty) {
+                        throw new IllegalStateException("Product out of stock: " + product.getName());
+                    }
+                }
 
-                String k = key(type, p.getProductId());
+                UUID refId = product.getProductId();   // KEY chính cho PRODUCT
+                UUID keyVariantId = (variant != null ? variant.getId() : null);
+                String k = key(type, refId, keyVariantId);
+
                 CartItem it = existingMap.get(k);
+
                 if (it == null) {
+                    int totalQty = qty;
+
+                    BigDecimal unitPrice = resolveUnitPrice(product, variant, totalQty);
+
                     it = CartItem.builder()
                             .cart(cart)
                             .type(type)
-                            .product(p)
-                            .quantity(qty)
-                            .unitPrice(unit)
-                            .lineTotal(unit.multiply(BigDecimal.valueOf(qty)))
-                            .nameSnapshot(p.getName())
-                            .imageSnapshot(firstImage(p.getImages()))
+                            .product(product)
+                            .variant(variant)
+                            .quantity(totalQty)
+                            .unitPrice(unitPrice)
+                            .lineTotal(unitPrice.multiply(BigDecimal.valueOf(totalQty)))
+                            .nameSnapshot(product.getName())
+                            .imageSnapshot(firstImage(product.getImages()))
+                            .variantOptionNameSnapshot(variant != null ? variant.getOptionName() : null)
+                            .variantOptionValueSnapshot(variant != null ? variant.getOptionValue() : null)
                             .build();
+
                     cart.getItems().add(it);
                     existingMap.put(k, it);
                 } else {
-                    it.setQuantity(it.getQuantity() + qty);
-                    it.setUnitPrice(unit); // cập nhật theo giá hiện tại
-                    it.setLineTotal(unit.multiply(BigDecimal.valueOf(it.getQuantity())));
+                    int totalQty = it.getQuantity() + qty;
+
+                    BigDecimal unitPrice = resolveUnitPrice(product, variant, totalQty);
+
+                    it.setQuantity(totalQty);
+                    it.setUnitPrice(unitPrice);
+                    it.setLineTotal(unitPrice.multiply(BigDecimal.valueOf(totalQty)));
                 }
-            } else {
-                ProductCombo c = comboRepo.findById(refId)
-                        .orElseThrow(() -> new NoSuchElementException("Combo not found: " + refId));
+
+            } else if (type == CartItemType.COMBO) {
+                UUID comboId = line.getComboId();
+                if (comboId == null) {
+                    // fallback: nếu bạn muốn dùng field cũ line.getId() thì có thể thêm vào
+                    throw new IllegalArgumentException("comboId is required for COMBO");
+                }
+
+                ProductCombo c = comboRepo.findById(comboId)
+                        .orElseThrow(() -> new NoSuchElementException("Combo not found: " + comboId));
 
                 if (c.getStockQuantity() != null && c.getStockQuantity() < qty) {
                     throw new IllegalStateException("Combo out of stock: " + c.getName());
                 }
 
-// ---- NEW: tính giá combo từ products ----
+                // Tính giá combo
                 BigDecimal comboUnitPrice = c.getItems().stream()
                         .map(ci -> {
-                            Product p = ci.getProduct();
-                            BigDecimal base = (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
-                                    ? p.getDiscountPrice()
-                                    : p.getPrice();
-                            return base.multiply(BigDecimal.valueOf(ci.getQuantity())); // quantity trong combo item
+                            Product cp = ci.getProduct();
+                            BigDecimal base = (cp.getDiscountPrice() != null && cp.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0)
+                                    ? cp.getDiscountPrice()
+                                    : cp.getPrice();
+                            return base.multiply(BigDecimal.valueOf(ci.getQuantity()));
                         })
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+                UUID refId = c.getComboId();
+                String k = key(type, refId, null);
 
-                String k = key(type, c.getComboId());
                 CartItem it = existingMap.get(k);
+
                 if (it == null) {
                     it = CartItem.builder()
                             .cart(cart)
@@ -135,17 +218,19 @@ public class CartServiceImpl implements CartService {
                     cart.getItems().add(it);
                     existingMap.put(k, it);
                 } else {
-                    it.setQuantity(it.getQuantity() + qty);
+                    int newQty = it.getQuantity() + qty;
+                    it.setQuantity(newQty);
                     it.setUnitPrice(comboUnitPrice);
-                    it.setLineTotal(comboUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
+                    it.setLineTotal(comboUnitPrice.multiply(BigDecimal.valueOf(newQty)));
                 }
             }
         }
 
         recalcTotals(cart);
         cartRepo.save(cart);
-        // Không cần save item riêng vì cascade ALL đã lo, nhưng giữ cho chắc:
-        cartItemRepo.saveAll(cart.getItems());
+        // cascade ALL nên không cần save riêng items, nhưng giữ lại nếu muốn chắc chắn
+        // cartItemRepo.saveAll(cart.getItems());
+
         return toResponse(cart);
     }
 
@@ -173,15 +258,15 @@ public class CartServiceImpl implements CartService {
         List<CartItem> itemsToCheckout = new ArrayList<>();
         for (CheckoutItemRequest req : Optional.ofNullable(reqItems).orElse(List.of())) {
             CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
-            UUID refId = req.getId();
             cart.getItems().stream()
-                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
+                    .filter(it -> it.getType() == type && matchesCartItem(it, req))
                     .findFirst()
                     .ifPresent(itemsToCheckout::add);
         }
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for COD eligibility check");
         }
+
 
         // 2) Group theo store và tính subtotal từng store
         Map<UUID, StoreSubtotal> subtotalByStore = new HashMap<>();
@@ -318,6 +403,15 @@ public class CartServiceImpl implements CartService {
                 // Nếu không tìm được thì để null (FE tự xử lý hiển thị)
             }
 
+            // ✅ Lấy thông tin variant từ CartItem
+            UUID variantId = ci.getVariantIdOrNull();                    // helper bạn đã có
+            String variantOptionName = ci.getVariantOptionNameSnapshot();
+            String variantOptionValue = ci.getVariantOptionValueSnapshot();
+            String variantUrl = null;
+            if (ci.getVariant() != null) {
+                variantUrl = ci.getVariant().getVariantUrl();
+            }
+
             return CartResponse.Item.builder()
                     .cartItemId(ci.getCartItemId())
                     .type(type)
@@ -330,6 +424,10 @@ public class CartServiceImpl implements CartService {
                     .originProvinceCode(originProvince)
                     .originDistrictCode(originDistrict)
                     .originWardCode(originWard)
+                    .variantId(variantId)
+                    .variantOptionName(variantOptionName)
+                    .variantOptionValue(variantOptionValue)
+                    .variantUrl(variantUrl)
                     .build();
         }).toList();
 
@@ -368,15 +466,17 @@ public class CartServiceImpl implements CartService {
         List<CartItem> itemsToCheckout = new ArrayList<>();
         for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
             CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
-            UUID refId = req.getId();
             cart.getItems().stream()
-                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
+                    .filter(it -> it.getType() == type && matchesCartItem(it, req))
                     .findFirst()
                     .ifPresent(itemsToCheckout::add);
         }
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
+
+        // ✅ Trừ tồn kho theo items chuẩn bị checkout
+        deductStockForCartItems(itemsToCheckout);
 
         // 2) Group theo store
         Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
@@ -387,29 +487,6 @@ public class CartServiceImpl implements CartService {
             if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
             itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
         }
-
-//        // 2b) (tuỳ chọn) enforce COD deposit theo shop
-//        if (enforceCodDeposit) {
-//            BigDecimal ratio = codConfig.getCodDepositRatio();
-//            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-//                UUID storeIdKey = entry.getKey();
-//                BigDecimal storeSubtotal = entry.getValue().stream()
-//                        .map(CartItem::getLineTotal)
-//                        .filter(Objects::nonNull)
-//                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-//
-//                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
-//                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
-//                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
-//                        .orElse(BigDecimal.ZERO);
-//
-//                if (deposit.compareTo(required) < 0) {
-//                    throw new IllegalStateException(
-//                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
-//                                    + " required=" + required + " deposit=" + deposit);
-//                }
-//            }
-//        }
 
         // 3) Lấy địa chỉ
         CustomerAddress addr;
@@ -448,11 +525,27 @@ public class CartServiceImpl implements CartService {
                     .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
             storeCache.put(storeIdKey, store);
 
-            // 4a) Tính phí GHN cho shop này
+            String orderCode = orderCodeGeneratorService.nextOrderCode();
+        // 🔹 Lấy địa chỉ origin của shop
+            StoreAddressEntity originAddr = resolveStoreOriginAddress(store);
+            String fromDistrictCode = originAddr != null ? originAddr.getDistrictCode() : null;
+            String fromWardCode = originAddr != null ? originAddr.getWardCode() : null;
+
+        // 4a) Tính phí GHN cho shop này
             Integer serviceTypeIdForStore = Optional.ofNullable(serviceTypeIds)
                     .map(m -> m.get(storeIdKey))
                     .orElse(5);
-            var reqGHN = buildForStoreShipment(entry.getValue(), toDistrictId, toWardCode, serviceTypeIdForStore);
+
+            var reqGHN = buildForStoreShipment(
+                    entry.getValue(),
+                    toDistrictId,          // Integer
+                    toWardCode,
+                    fromDistrictCode,      // String
+                    fromWardCode,          // String// String
+                    serviceTypeIdForStore  // Integer
+            );
+
+
             // === LOG REQUEST JSON ===
             try {
                 String jsonReq = new com.fasterxml.jackson.databind.ObjectMapper()
@@ -476,6 +569,7 @@ public class CartServiceImpl implements CartService {
                     .createdAt(java.time.LocalDateTime.now())
                     .message(message)
                     .status(OrderStatus.PENDING)
+                    .orderCode(orderCode)
                     // snapshot địa chỉ
                     .shipReceiverName(addr.getReceiverName())
                     .shipPhoneNumber(addr.getPhoneNumber())
@@ -500,6 +594,9 @@ public class CartServiceImpl implements CartService {
                         .refId(ci.getReferenceId())
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
+                        .variantId(ci.getVariantIdOrNull())
+                        .variantOptionName(ci.getVariantOptionNameSnapshot())
+                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
                         .storeId(storeIdKey)
@@ -526,6 +623,7 @@ public class CartServiceImpl implements CartService {
                     .createdAt(java.time.LocalDateTime.now())
                     .status(OrderStatus.PENDING)
                     .customerOrder(co)
+                    .orderCode(orderCode)
                     // snapshot địa chỉ:
                     .shipReceiverName(co.getShipReceiverName())
                     .shipPhoneNumber(co.getShipPhoneNumber())
@@ -551,6 +649,9 @@ public class CartServiceImpl implements CartService {
                         .refId(ci.getReferenceId())
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
+                        .variantId(ci.getVariantIdOrNull())
+                        .variantOptionName(ci.getVariantOptionNameSnapshot())
+                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
                         .build());
@@ -558,15 +659,15 @@ public class CartServiceImpl implements CartService {
             so.setItems(soItems);
             storeOrderRepository.save(so);
 
+            createNewOrderNotifications(co, store);
             // gom cho voucher service
             storeItemsMap.put(storeIdKey, soItems);
-
             createdOrders.add(co);
         }
 
         // 5) Áp voucher theo shop + platform cho từng shop
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
+        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -646,12 +747,28 @@ public class CartServiceImpl implements CartService {
 
         // kiểm tồn tùy theo type
         if (item.getType() == CartItemType.PRODUCT && item.getProduct() != null) {
-            Integer stock = item.getProduct().getStockQuantity();
-            if (stock != null && stock < request.getQuantity()) {
-                throw new IllegalStateException("Product out of stock: " + item.getProduct().getName());
+            Product p = item.getProduct();
+            ProductVariantEntity v = item.getVariant();
+
+            Integer stock;
+            if (v != null) {
+                stock = v.getVariantStock();
+            } else {
+                stock = p.getStockQuantity();
             }
-            item.setQuantity(request.getQuantity());
-            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+
+            if (stock != null && stock < request.getQuantity()) {
+                throw new IllegalStateException("Product/Variant out of stock: " + p.getName());
+            }
+
+            int q = request.getQuantity();
+            item.setQuantity(q);
+
+            BigDecimal unit = resolveUnitPrice(p, v, q);
+
+            item.setUnitPrice(unit);
+            item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
+
         } else {
             // COMBO
             ProductCombo combo = item.getCombo();
@@ -747,22 +864,33 @@ public class CartServiceImpl implements CartService {
             if (item == null) continue;
 
             // kiểm tồn
+            int q = line.getQuantity();
+
             if (type == CartItemType.PRODUCT && item.getProduct() != null) {
-                Integer stock = item.getProduct().getStockQuantity();
-                if (stock != null && stock < line.getQuantity()) {
-                    throw new IllegalStateException("Product out of stock: " + item.getProduct().getName());
+                Product p = item.getProduct();
+                Integer stock = p.getStockQuantity();
+                if (stock != null && stock < q) {
+                    throw new IllegalStateException("Product out of stock: " + p.getName());
                 }
+
+                item.setQuantity(q);
+                BigDecimal unit = getUnitPriceWithBulk(p, q);
+                item.setUnitPrice(unit);
+                item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
             } else {
+                // COMBO
                 ProductCombo combo = item.getCombo();
                 Integer stock = combo != null ? combo.getStockQuantity() : null;
-                if (stock != null && stock < line.getQuantity()) {
+                if (stock != null && stock < q) {
                     throw new IllegalStateException("Combo out of stock: " + (combo != null ? combo.getName() : ""));
                 }
+
+                item.setQuantity(q);
+                item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             }
 
-            item.setQuantity(line.getQuantity());
-            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
             cartItemRepo.save(item);
+
         }
 
         recalcTotals(cart);
@@ -819,6 +947,7 @@ public class CartServiceImpl implements CartService {
     private CustomerOrderResponse toOrderResponse(CustomerOrder order) {
         CustomerOrderResponse resp = new CustomerOrderResponse();
         resp.setId(order.getId());
+        resp.setOrderCode(order.getOrderCode());
         resp.setStatus(order.getStatus().name());
         resp.setMessage(order.getMessage());
         resp.setCreatedAt(order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
@@ -910,15 +1039,15 @@ public class CartServiceImpl implements CartService {
         List<CartItem> itemsToCheckout = new ArrayList<>();
         for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
             CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
-            UUID refId = req.getId();
             cart.getItems().stream()
-                    .filter(it -> it.getType() == type && it.getReferenceId().equals(refId))
+                    .filter(it -> it.getType() == type && matchesCartItem(it, req))
                     .findFirst()
                     .ifPresent(itemsToCheckout::add);
         }
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
+        deductStockForCartItems(itemsToCheckout);
 
         // 2) Group theo store
         Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
@@ -983,11 +1112,14 @@ public class CartServiceImpl implements CartService {
             BigDecimal shippingFee = BigDecimal.ZERO;
             Integer serviceTypeIdForStore = null; // không dùng
 
+            String orderCode = orderCodeGeneratorService.nextOrderCode();
+
             CustomerOrder co = CustomerOrder.builder()
                     .customer(customer)
                     .createdAt(java.time.LocalDateTime.now())
                     .message(message)
                     .status(OrderStatus.PENDING)
+                    .orderCode(orderCode)
                     // snapshot địa chỉ
                     .shipReceiverName(addr.getReceiverName())
                     .shipPhoneNumber(addr.getPhoneNumber())
@@ -1013,6 +1145,9 @@ public class CartServiceImpl implements CartService {
                         .refId(ci.getReferenceId())
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
+                        .variantId(ci.getVariantIdOrNull())
+                        .variantOptionName(ci.getVariantOptionNameSnapshot())
+                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
                         .storeId(storeIdKey)
@@ -1036,6 +1171,7 @@ public class CartServiceImpl implements CartService {
                     .createdAt(java.time.LocalDateTime.now())
                     .status(OrderStatus.PENDING)
                     .customerOrder(co)
+                    .orderCode(orderCode)
                     .shipReceiverName(co.getShipReceiverName())
                     .shipPhoneNumber(co.getShipPhoneNumber())
                     .shipCountry(co.getShipCountry())
@@ -1060,6 +1196,9 @@ public class CartServiceImpl implements CartService {
                         .refId(ci.getReferenceId())
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
+                        .variantId(ci.getVariantIdOrNull())
+                        .variantOptionName(ci.getVariantOptionNameSnapshot())
+                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
                         .build());
@@ -1072,8 +1211,8 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(platformVouchers, storeItemsMap);
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
+        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -1130,4 +1269,318 @@ public class CartServiceImpl implements CartService {
         return createdOrders;
     }
 
+    // ================= BULK DISCOUNT HELPERS =================
+
+    /** Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price. */
+    private BigDecimal getBaseUnitPrice(Product p) {
+        if (p == null) return BigDecimal.ZERO;
+        if (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0) {
+            return p.getDiscountPrice();
+        }
+        if (p.getPrice() != null) {
+            return p.getPrice();
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * Áp bulk discount cho product theo tổng quantity.
+     * Nếu quantity nằm trong bất kỳ khoảng [from, to] thì dùng unitPrice của khoảng đó.
+     * Nếu không, trả về base price.
+     */
+    private BigDecimal getUnitPriceWithBulk(Product p, int quantity) {
+        BigDecimal base = getBaseUnitPrice(p);
+        if (p == null || p.getBulkDiscounts() == null || p.getBulkDiscounts().isEmpty()) {
+            return base;
+        }
+
+        BigDecimal best = base;
+        for (Product.BulkDiscount d : p.getBulkDiscounts()) {
+            if (d == null) continue;
+            Integer from = d.getFromQuantity();
+            Integer to = d.getToQuantity();
+            BigDecimal bulkUnit = d.getUnitPrice();
+
+            if (bulkUnit == null) continue;
+            int q = quantity;
+
+            // from null => 1, to null => vô hạn
+            int fromQ = (from == null ? 1 : from);
+            int toQ = (to == null ? Integer.MAX_VALUE : to);
+
+            if (q >= fromQ && q <= toQ) {
+                // Nếu match nhiều khoảng, bạn có thể chọn khoảng có giá thấp nhất.
+                if (best == null || bulkUnit.compareTo(best) < 0) {
+                    best = bulkUnit;
+                }
+            }
+        }
+        return best;
+    }
+
+    private static String key(CartItemType type, UUID refId, UUID variantId) {
+        // refId: productId nếu PRODUCT, comboId nếu COMBO
+        String v = (variantId != null ? variantId.toString() : "_");
+        String r = (refId != null ? refId.toString() : "_");
+        return type.name() + ":" + r + ":" + v;
+    }
+
+    private boolean matchesCartItem(CartItem it, CheckoutItemRequest req) {
+        CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
+
+        if (type == CartItemType.COMBO) {
+            UUID comboId = req.getComboId();
+            return comboId != null
+                    && it.getType() == CartItemType.COMBO
+                    && it.getCombo() != null
+                    && comboId.equals(it.getCombo().getComboId());
+        } else {
+            // PRODUCT
+            UUID productId = req.getProductId();
+            UUID variantId = req.getVariantId();
+
+            UUID itemProductId = it.getProductIdOrNull();
+            UUID itemVariantId = it.getVariantIdOrNull();
+
+            // Nếu request có variantId => match theo variant
+            if (variantId != null) {
+                return it.getType() == CartItemType.PRODUCT
+                        && itemVariantId != null
+                        && variantId.equals(itemVariantId);
+            }
+
+            // Không có variantId => match productId và item không có variant
+            if (productId != null) {
+                return it.getType() == CartItemType.PRODUCT
+                        && productId.equals(itemProductId)
+                        && itemVariantId == null;
+            }
+
+            return false;
+        }
+    }
+
+    private StoreAddressEntity resolveStoreOriginAddress(Store store) {
+        if (store == null || store.getStoreAddresses() == null || store.getStoreAddresses().isEmpty()) {
+            return null;
+        }
+
+        // Ưu tiên địa chỉ defaultAddress = true
+        return store.getStoreAddresses().stream()
+                .filter(a -> Boolean.TRUE.equals(a.getDefaultAddress()))
+                .findFirst()
+                .orElse(store.getStoreAddresses().get(0)); // fallback: lấy địa chỉ đầu tiên
+    }
+    /**
+     * Tính giá base theo variant/product, rồi áp campaign (nếu có).
+     */
+    private BigDecimal resolveUnitPrice(Product product,
+                                        ProductVariantEntity variant,
+                                        int quantity) {
+        if (product == null) return BigDecimal.ZERO;
+
+        // 1) Base price: nếu có variant → lấy variantPrice, không thì lấy theo bulk
+        BigDecimal basePrice;
+        if (variant != null) {
+            basePrice = variant.getVariantPrice();
+        } else {
+            basePrice = getUnitPriceWithBulk(product, quantity);
+        }
+        if (basePrice == null) basePrice = BigDecimal.ZERO;
+
+        // 2) Lấy list campaign active cho product này tại thời điểm hiện tại
+        LocalDateTime now = LocalDateTime.now();
+        List<PlatformCampaignProduct> cps =
+                platformCampaignProductRepository.findAllActiveByProduct(product.getProductId(), now);
+
+        if (cps == null || cps.isEmpty()) {
+            // Không có chiến dịch active → trả giá base
+            return basePrice;
+        }
+
+        // 3) Áp tất cả campaign, chọn giá thấp nhất (giảm nhiều nhất)
+        BigDecimal bestPrice = basePrice;
+        for (PlatformCampaignProduct cp : cps) {
+            BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
+            if (discounted.compareTo(bestPrice) < 0) {
+                bestPrice = discounted;
+            }
+        }
+
+        return bestPrice;
+    }
+
+    /**
+     * Áp giảm giá theo 1 record PlatformCampaignProduct
+     * - Ưu tiên discountPercent, nếu không có thì dùng discountValue
+     * - Có maxDiscountValue thì cap lại.
+     */
+    private BigDecimal applyCampaignDiscount(BigDecimal basePrice,
+                                             PlatformCampaignProduct cp) {
+        if (basePrice == null) return BigDecimal.ZERO;
+        BigDecimal discountAmount = BigDecimal.ZERO;
+
+        // Giảm theo %
+        if (cp.getDiscountPercent() != null && cp.getDiscountPercent() > 0) {
+            discountAmount = basePrice
+                    .multiply(BigDecimal.valueOf(cp.getDiscountPercent()))
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.DOWN);
+        }
+
+        // Nếu không có % mà có giá cố định
+        if ((cp.getDiscountPercent() == null || cp.getDiscountPercent() == 0)
+                && cp.getDiscountValue() != null
+                && cp.getDiscountValue().compareTo(BigDecimal.ZERO) > 0) {
+            discountAmount = cp.getDiscountValue();
+        }
+
+        // Giới hạn maxDiscountValue nếu có
+        if (cp.getMaxDiscountValue() != null
+                && discountAmount.compareTo(cp.getMaxDiscountValue()) > 0) {
+            discountAmount = cp.getMaxDiscountValue();
+        }
+
+        BigDecimal result = basePrice.subtract(discountAmount);
+        if (result.compareTo(BigDecimal.ZERO) < 0) result = BigDecimal.ZERO;
+
+        // Optional: lưu lại original/discounted để report
+        cp.setOriginalPrice(basePrice);
+        cp.setDiscountedPrice(result);
+        // Không bắt buộc save ở đây (tránh N+1), nên mình không gọi repo.save(cp).
+
+        return result;
+    }
+
+    /**
+     * Trừ tồn kho cho list CartItem khi checkout thành công.
+     * - PRODUCT + variant: trừ cả variantStock và product.stockQuantity
+     * - PRODUCT không variant: trừ product.stockQuantity
+     * (COMBO hiện tại không đụng tới stockProducts, chỉ check stock combo ở chỗ khác)
+     */
+    private void deductStockForCartItems(List<CartItem> items) {
+        if (items == null || items.isEmpty()) return;
+
+        // ✅ Bước 0: kiểm tra trạng thái sản phẩm trước khi trừ stock
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) {
+                continue; // bỏ qua COMBO, hoặc item không có product
+            }
+            Product p = item.getProduct();
+
+            // Sản phẩm đã bị ẩn / xoá / ngừng bán
+            if (!isProductSellable(p)) {
+                throw new IllegalStateException(
+                        "Product is not available for checkout: " + p.getName()
+                                + " (status=" + p.getStatus() + ")"
+                );
+            }
+        }
+
+        // Dùng map để tránh trừ trùng 1 product/variant nhiều lần nếu có nhiều CartItem
+        Map<UUID, Integer> productQtyMap = new HashMap<>();
+        Map<UUID, Integer> variantQtyMap = new HashMap<>();
+
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) {
+                continue; // bỏ qua COMBO
+            }
+
+            int qty = item.getQuantity();
+            if (qty <= 0) continue;
+
+            Product p = item.getProduct();
+            productQtyMap.merge(p.getProductId(), qty, Integer::sum);
+
+            ProductVariantEntity v = item.getVariant();
+            if (v != null) {
+                variantQtyMap.merge(v.getId(), qty, Integer::sum);
+            }
+        }
+
+        // 1) Trừ variant.stock
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT) continue;
+            ProductVariantEntity v = item.getVariant();
+            if (v == null) continue;
+
+            int totalQty = variantQtyMap.getOrDefault(v.getId(), 0);
+            if (totalQty <= 0) continue;
+
+            Integer stock = v.getVariantStock();
+            if (stock == null) stock = 0;
+
+            if (stock < totalQty) {
+                throw new IllegalStateException(
+                        "Variant out of stock when checkout: "
+                                + v.getOptionName() + " " + v.getOptionValue()
+                );
+            }
+            v.setVariantStock(stock - totalQty);
+            // Không cần gọi save riêng, JPA dirty checking sẽ tự flush vì đang trong @Transactional
+        }
+
+        // 2) Trừ product.stockQuantity
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) continue;
+
+            Product p = item.getProduct();
+            int totalQty = productQtyMap.getOrDefault(p.getProductId(), 0);
+            if (totalQty <= 0) continue;
+
+            Integer stock = p.getStockQuantity();
+            if (stock == null) stock = 0;
+
+            if (stock < totalQty) {
+                throw new IllegalStateException(
+                        "Product out of stock when checkout: " + p.getName()
+                );
+            }
+            p.setStockQuantity(stock - totalQty);
+        }
+    }
+
+    /**
+     * Tạo notification khi có đơn hàng mới:
+     * - Cho customer
+     * - Cho store
+     */
+    private void createNewOrderNotifications(CustomerOrder co, Store store) {
+        try {
+            // ==== Notify cho CUSTOMER ====
+            Notification customerNotif = Notification.builder()
+                    .target(NotificationTarget.CUSTOMER)
+                    .targetId(co.getCustomer().getId())
+                    .type(NotificationType.NEW_ORDER)
+                    .title("Đặt hàng thành công")
+                    .message("Đơn hàng " + co.getOrderCode()
+                            + " tại cửa hàng " + store.getStoreName() + " đã được tạo thành công.")
+                    .read(false)
+                    .actionUrl("/customer/orders/" + co.getId()) // FE tuỳ chỉnh route
+                    .build();
+            notificationRepo.save(customerNotif);
+
+            // ==== Notify cho STORE ====
+            String customerName = co.getCustomer() != null ? co.getCustomer().getFullName() : "Khách hàng";
+
+            Notification storeNotif = Notification.builder()
+                    .target(NotificationTarget.STORE)
+                    .targetId(store.getStoreId())
+                    .type(NotificationType.NEW_ORDER)
+                    .title("Bạn có đơn hàng mới")
+                    .message("Bạn có đơn hàng mới " + co.getOrderCode()
+                            + " từ " + customerName + ".")
+                    .read(false)
+                    .actionUrl("/seller/orders/" + co.getId()) // FE tuỳ chỉnh route
+                    .build();
+            notificationRepo.save(storeNotif);
+
+        } catch (Exception e) {
+            log.warn("Failed to create notifications for order {}", co.getId(), e);
+        }
+    }
+
+    private boolean isProductSellable(Product p) {
+        if (p == null) return false;
+        return p.getStatus() == ProductStatus.ACTIVE;
+    }
 }

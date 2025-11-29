@@ -88,6 +88,10 @@ public class ShopVoucher {
         this.updatedAt = now;
         this.lastUpdatedAt = now;
         this.lastUpdateIntervalDays = 0L;
+        // ✅ Nếu chưa set remainingUsage thì mặc định = totalVoucherIssued
+        if (this.remainingUsage == null) {
+            this.remainingUsage = this.totalVoucherIssued;
+        }
     }
 
     @PreUpdate

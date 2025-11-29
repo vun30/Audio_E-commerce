@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.Enum.CustomerStatus;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.service.CustomerService;
 import org.example.audio_ecommerce.service.CustomerOrderService;
 import org.springframework.data.domain.*;
@@ -52,10 +53,11 @@ public class CustomerController {
     @GetMapping("/{customerId}/orders")
     public PagedResult<CustomerOrderDetailResponse> getCustomerOrders(
             @PathVariable UUID customerId,
+            @RequestParam(required = false) OrderStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return customerOrderService.getCustomerOrders(customerId, page, size);
+        return customerOrderService.getCustomerOrders(customerId, status,page, size);
     }
 
     @PutMapping("/{id}")
@@ -105,4 +107,14 @@ public class CustomerController {
                            @PathVariable UUID addressId) {
         customerService.setDefaultAddress(customerId, addressId);
     }
+
+    @GetMapping("/{customerId}/orders/{orderId}")
+    public BaseResponse<CustomerOrderDetailResponse> getCustomerOrderDetail(
+            @PathVariable UUID customerId,
+            @PathVariable UUID orderId
+    ) {
+        CustomerOrderDetailResponse resp = customerOrderService.getCustomerOrderDetail(customerId, orderId);
+        return BaseResponse.success("Fetched customer order detail", resp);
+    }
+
 }

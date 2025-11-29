@@ -24,7 +24,12 @@ public class AddCartItemsRequest {
     @Builder
     public static class CartItemLine {
         @NotNull private String type;   // "PRODUCT" | "COMBO"
-        @NotNull private UUID id;
+        // PRODUCT: dùng productId / variantId (1 trong 2 có thể null)
+        private UUID productId;    // null nếu chỉ gửi variantId
+        private UUID variantId;    // null nếu product không có variant
+
+        // COMBO: dùng comboId
+        private UUID comboId;
         @Min(1) private int quantity;
     }
 }

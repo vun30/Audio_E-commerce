@@ -21,12 +21,18 @@ public class CustomerOrder {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "order_code", length = 20, unique = true)
+    private String orderCode;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)
     private Customer customer;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(nullable = true)
+    private LocalDateTime deliveredAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 64, nullable = false)

@@ -1,17 +1,19 @@
 package org.example.audio_ecommerce.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutOnlineRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
-import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.example.audio_ecommerce.service.CartService;
+import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import vn.payos.type.Webhook;
+import vn.payos.PayOS;
+import vn.payos.exception.APIException;
+import vn.payos.exception.PayOSException;
+import vn.payos.model.webhooks.WebhookData;   // <-- đúng package (không có .v2)
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -23,19 +25,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PayOSEcomController {
 
-    private final CartService cartService;            // dùng lại logic tạo CustomerOrder & StoreOrders
+    private final CartService cartService;
     private final PayOSEcomService payOSEcomService;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final PayOS payOS; // dùng SDK để verify webhook
 
-    /**
-     * Tạo CustomerOrder + StoreOrders (như COD) rồi tạo PayOS link cho tổng số tiền.
-     */
     @PostMapping("/checkout")
     public ResponseEntity<BaseResponse<CheckoutOnlineResponse>> checkoutOnline(
             @RequestParam UUID customerId,
             @RequestBody CheckoutOnlineRequest req
     ) {
-        // 1) Tạo các CustomerOrder theo shop
         var codReq = new CheckoutCODRequest();
         codReq.setAddressId(req.getAddressId());
         codReq.setMessage(req.getMessage());
@@ -44,34 +42,29 @@ public class PayOSEcomController {
         codReq.setPlatformVouchers(req.getPlatformVouchers());
         codReq.setServiceTypeIds(req.getServiceTypeIds());
 
-        var orders = cartService.createOrderForOnline(customerId, codReq); // List<CustomerOrderResponse>
+        var orders = cartService.createOrderForOnline(customerId, codReq);
 
-        // 2) Tổng tiền = sum(grandTotal)
         java.math.BigDecimal total = orders.stream()
                 .map(o -> o.getGrandTotal() == null ? java.math.BigDecimal.ZERO : o.getGrandTotal())
                 .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add)
                 .setScale(0, java.math.RoundingMode.DOWN);
 
-        // 3) Mã nhóm (1 link PayOS)
         long batchCode = System.currentTimeMillis() + new java.util.Random().nextInt(999);
 
-        // 4) Tạo link PayOS cho NHÓM, đồng thời nhúng batchCode vào từng order (JSON key __payos_batch_code)
         var pay = payOSEcomService.createPaymentForMultipleCustomerOrders(
                 orders.stream().map(org.example.audio_ecommerce.dto.response.CustomerOrderResponse::getId).toList(),
                 total,
                 "Thanh toán " + orders.size() + " đơn",
                 req.getReturnUrl(),
                 req.getCancelUrl(),
-                batchCode // orderCode của PayOS
+                batchCode
         );
 
         return ResponseEntity.ok(BaseResponse.success("✅ Tạo link PayOS cho " + orders.size() + " đơn", pay));
     }
 
-
-
     /**
-     * Webhook PayOS: xác nhận thanh toán và cập nhật CustomerOrder/StoreOrders.
+     * Webhook (SDK v2): đọc raw body, verify chữ ký bằng SDK → WebhookData.
      */
     @PostMapping("/webhook")
     public ResponseEntity<Void> receiveWebhook(HttpServletRequest request) throws IOException {
@@ -79,8 +72,23 @@ public class PayOSEcomController {
         try (BufferedReader br = request.getReader()) {
             body = br.lines().collect(Collectors.joining(System.lineSeparator()));
         }
-        Webhook webhook = mapper.readValue(body, Webhook.class);
-        payOSEcomService.confirmWebhook(webhook);
-        return ResponseEntity.ok().build();
+
+        try {
+            // verify() nhận raw JSON (String/Object) và trả về WebhookData đã xác thực
+            WebhookData webhookData = payOS.webhooks().verify(body);
+
+            // Gọi service xử lý: service có thể nhận Object/WebhookData.
+            // Nếu bạn đã sửa service theo gợi ý trước đó là confirmWebhook(Object),
+            // truyền thẳng webhookData vào confirmWebhook(webhookData) là OK.
+            payOSEcomService.confirmWebhook(webhookData);
+            return ResponseEntity.ok().build();
+
+        } catch (PayOSException e) {
+            // chữ ký sai / payload không hợp lệ
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            // các lỗi khác
+            return ResponseEntity.internalServerError().build();
+        }
     }
 }

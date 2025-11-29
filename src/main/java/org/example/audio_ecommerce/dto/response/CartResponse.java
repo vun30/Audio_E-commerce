@@ -38,5 +38,9 @@ public class CartResponse {
         private String originProvinceCode; // từ Product.provinceCode
         private String originDistrictCode; // từ Product.districtCode
         private String originWardCode;     // từ Product.wardCode
+        private UUID variantId;
+        private String variantOptionName;
+        private String variantOptionValue;
+        private String variantUrl;
     }
 }

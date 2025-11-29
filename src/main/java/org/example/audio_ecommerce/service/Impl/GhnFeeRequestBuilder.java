@@ -17,7 +17,10 @@ public final class GhnFeeRequestBuilder {
 
     public static GhnFeeRequest buildForStoreShipment(
             List<CartItem> itemsOfStore,
-            Integer toDistrictId, String toWardCode,
+            Integer toDistrictId,
+            String toWardCode,
+            String fromDistrictCode,  // 👉 MÃ QUẬN CỦA SHOP
+            String fromWardCode,      // 👉 MÃ PHƯỜNG CỦA SHOP
             Integer serviceTypeId // 2=nhẹ, 5=nặng
     ) {
         List<int[]> dims = new ArrayList<>();
@@ -60,31 +63,11 @@ public final class GhnFeeRequestBuilder {
         GhnFeeRequest req = new GhnFeeRequest();
         req.setService_type_id(serviceTypeId == null ? 5 : serviceTypeId); // default hàng nặng
 
-        // === Origin chọn an toàn theo item đầu tiên ===
-        CartItem first = itemsOfStore.get(0);
-        Product originProduct = null;
+        // ✅ ORIGIN: LẤY TỪ ĐỊA CHỈ SHOP, KHÔNG LẤY TỪ PRODUCT NỮA
+        req.setFrom_district_id(parseIntSafe(fromDistrictCode));
+        req.setFrom_ward_code(fromWardCode);
 
-        if (first.getProduct() != null) {
-            originProduct = first.getProduct();
-        } else if (first.getCombo() != null && first.getCombo().getItems() != null && !first.getCombo().getItems().isEmpty()) {
-            ComboItem c0 = first.getCombo().getItems().get(0);
-            originProduct = c0.getProduct();
-        }
-
-        // Nếu bạn muốn ưu tiên origin của combo (khi có), có thể dùng block dưới:
-        // ProductCombo firstCombo = first.getCombo();
-        // if (firstCombo != null && firstCombo.getDistrictCode() != null && firstCombo.getWardCode() != null) {
-        //     req.setFrom_district_id(parseIntSafe(firstCombo.getDistrictCode()));
-        //     req.setFrom_ward_code(firstCombo.getWardCode());
-        // } else {
-        //     // fallback product
-        //     req.setFrom_district_id(parseIntSafe(originProduct != null ? originProduct.getDistrictCode() : null));
-        //     req.setFrom_ward_code(originProduct != null ? originProduct.getWardCode() : null);
-        // }
-
-        req.setFrom_district_id(parseIntSafe(originProduct != null ? originProduct.getDistrictCode() : null));
-        req.setFrom_ward_code(originProduct != null ? originProduct.getWardCode() : null);
-
+        // DESTINATION
         req.setTo_district_id(toDistrictId);
         req.setTo_ward_code(toWardCode);
 

@@ -38,68 +38,84 @@ public class WarrantyServiceImpl implements WarrantyService {
 
     @Override
     @Transactional
-    public void activateForStoreOrder(UUID storeOrderId) {
-        // 1) Lấy StoreOrder + kiểm tra trạng thái giao thành công (tùy policy của bạn)
+    public WarrantyActivationResult activateForStoreOrder(UUID storeOrderId) {
         StoreOrder so = storeOrderRepo.findById(storeOrderId)
                 .orElseThrow(() -> new NoSuchElementException("StoreOrder not found: " + storeOrderId));
 
         CustomerOrder co = so.getCustomerOrder();
         if (co == null) throw new IllegalStateException("StoreOrder has no CustomerOrder linked");
+
         if (!(OrderStatus.DELIVERY_SUCCESS.equals(co.getStatus()) || OrderStatus.DELIVERY_SUCCESS.equals(so.getStatus()))) {
             log.warn("[WARRANTY] activateForStoreOrder called while order not delivered yet: so={}, coStatus={}, soStatus={}",
                     storeOrderId, co.getStatus(), so.getStatus());
-            // tùy bạn: có thể throw, hoặc cho phép manual-activate. Mình CHO PHÉP manual ⇒ không throw.
+            // vẫn cho phép manual
         }
 
-        // 2) Duyệt từng item PRODUCT, tạo N warranty theo quantity (idempotent)
         if (so.getItems() == null || so.getItems().isEmpty()) {
             log.info("[WARRANTY] StoreOrder {} has no items. Skip.", storeOrderId);
-            return;
+            return WarrantyService.WarrantyActivationResult.builder()
+                    .storeOrderId(storeOrderId)
+                    .created(0).skipped(0).totalExpected(0)
+                    .alreadyActivated(false).noEligibleItems(true)
+                    .build();
         }
 
-        int created = 0, skipped = 0;
+        int created = 0, skipped = 0, totalExpected = 0;
+        boolean hadProduct = false;
+
         for (StoreOrderItem item : so.getItems()) {
-            if (!"PRODUCT".equalsIgnoreCase(item.getType())) {
-                continue; // bỏ qua COMBO
-            }
+            if (!"PRODUCT".equalsIgnoreCase(item.getType())) continue;
+            hadProduct = true;
 
             UUID productId = item.getRefId();
             Product p = productRepo.findById(productId)
                     .orElseThrow(() -> new NoSuchElementException("Product not found for item: " + productId));
 
-            // Idempotent theo storeOrderItemId: đã tạo đủ số lượng chưa?
             List<Warranty> existing = warrantyRepo.findByStoreOrderItemId(item.getId());
             int already = existing == null ? 0 : existing.size();
             int need = Optional.ofNullable(item.getQuantity()).orElse(1);
+            totalExpected += need;
+
             int remain = Math.max(0, need - already);
             if (remain <= 0) {
                 skipped++;
                 continue;
             }
 
-            // Ngày mua: theo CustomerOrder.createdAt (có thể đổi sang ngày giao thành công nếu bạn có cột)
             LocalDate purchase = co.getCreatedAt() != null ? co.getCreatedAt().toLocalDate() : LocalDate.now();
+            Integer months = resolveMonths(p);
 
-            Integer months = resolveMonths(p); // helper parse "24 tháng" → 24, default 12
             for (int i = 0; i < remain; i++) {
                 Warranty w = Warranty.builder()
                         .customer(co.getCustomer())
                         .store(so.getStore())
                         .product(p)
                         .storeOrderItemId(item.getId())
-                        .policyCode("AUTO_FROM_ORDER")   // gắn nhãn nguồn
+                        .policyCode("AUTO_FROM_ORDER")
                         .durationMonths(months)
                         .purchaseDate(purchase)
                         .startDate(purchase)
-                        .status(WarrantyStatus.ACTIVE)    // nếu bạn có enum trạng thái
-                        .covered(true)                    // ban đầu coi như còn hạn (sẽ tính lại khi trả response)
+                        .status(WarrantyStatus.ACTIVE)
+                        .covered(true)
                         .build();
                 warrantyRepo.save(w);
                 created++;
             }
         }
 
-        log.info("[WARRANTY] Activation done for StoreOrder {}: created={}, skippedExisting={}", storeOrderId, created, skipped);
+        boolean alreadyActivated = hadProduct && created == 0 && totalExpected > 0;
+
+        log.info("[WARRANTY] Activation for {} => created={}, skipped={}, totalExpected={}, alreadyActivated={}",
+                storeOrderId, created, skipped, totalExpected, alreadyActivated);
+
+        return WarrantyService.WarrantyActivationResult.builder()
+                .storeOrderId(storeOrderId)
+                .created(created)
+                .skipped(skipped)
+                .totalExpected(totalExpected)
+                .alreadyActivated(alreadyActivated)
+                .noEligibleItems(!hadProduct)
+                .build();
     }
 
     @Override
@@ -237,6 +253,142 @@ public class WarrantyServiceImpl implements WarrantyService {
                 .comment(req.getComment())
                 .build();
         return toReviewResponse(warrantyReviewRepo.save(rv));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WarrantyResponse> listByStoreOrderId(UUID storeOrderId) {
+        StoreOrder so = storeOrderRepo.findById(storeOrderId)
+                .orElseThrow(() -> new NoSuchElementException("StoreOrder not found: " + storeOrderId));
+
+        if (so.getItems() == null || so.getItems().isEmpty()) return List.of();
+
+        // chỉ lấy item PRODUCT
+        List<StoreOrderItem> productItems = so.getItems().stream()
+                .filter(i -> "PRODUCT".equalsIgnoreCase(i.getType()))
+                .toList();
+        if (productItems.isEmpty()) return List.of();
+
+        List<UUID> itemIds = productItems.stream().map(StoreOrderItem::getId).toList();
+        // group warranties theo itemId
+        Map<UUID, List<Warranty>> byItemId = warrantyRepo.findByStoreOrderItemIdIn(itemIds)
+                .stream()
+                .collect(Collectors.groupingBy(Warranty::getStoreOrderItemId));
+
+        List<WarrantyResponse> out = new ArrayList<>();
+
+        for (StoreOrderItem item : productItems) {
+            int qty = Optional.ofNullable(item.getQuantity()).orElse(1);
+            List<Warranty> existing = byItemId.getOrDefault(item.getId(), List.of());
+
+            // 1) add các warranty đã kích hoạt
+            for (Warranty w : existing) {
+                out.add(toWarrantyResponse(w));
+            }
+
+            // 2) nếu còn thiếu ⇒ đẩy “placeholder” PENDING_ACTIVATION
+            int remain = Math.max(0, qty - existing.size());
+            if (remain > 0) {
+                // cần product + bối cảnh để build response
+                Product p = productRepo.findById(item.getRefId())
+                        .orElse(null); // nếu null vẫn render tối thiểu
+
+                // ngày mua tham chiếu
+                CustomerOrder co = so.getCustomerOrder();
+                LocalDate purchase = (co != null && co.getCreatedAt() != null)
+                        ? co.getCreatedAt().toLocalDate()
+                        : LocalDate.now();
+
+                for (int i = 0; i < remain; i++) {
+                    out.add(buildPendingActivationResponse(item, so, p, purchase));
+                }
+            }
+        }
+
+        // (tùy chọn) sắp xếp: đã kích hoạt trước, pending sau
+        out.sort(Comparator.comparing((WarrantyResponse r) -> "PENDING_ACTIVATION".equals(r.getStatus()))
+                .thenComparing(r -> Optional.ofNullable(r.getProductName()).orElse("")));
+        return out;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<LogWarrantyResponse> listLogs(WarrantyLogSearchRequest req) {
+        if (req == null || req.getWarrantyId() == null) {
+            return List.of();
+        }
+
+        UUID warrantyId = req.getWarrantyId();
+
+        // 1) Lấy log theo warrantyId (+ status nếu có)
+        List<LogWarranty> logs;
+        if (req.getStatus() != null) {
+            logs = logWarrantyRepo.findByWarrantyIdAndStatus(warrantyId, req.getStatus());
+        } else {
+            logs = logWarrantyRepo.findByWarrantyId(warrantyId);
+        }
+
+        if (logs.isEmpty()) {
+            return List.of();
+        }
+
+        // 2) Filter theo customerId / storeId (nếu truyền vào)
+        UUID filterCustomerId = req.getCustomerId();
+        UUID filterStoreId = req.getStoreId();
+
+        return logs.stream()
+                .filter(log -> {
+                    Warranty w = log.getWarranty();
+                    if (w == null) return false;
+
+                    // filter theo customer
+                    if (filterCustomerId != null) {
+                        if (w.getCustomer() == null
+                                || w.getCustomer().getId() == null
+                                || !w.getCustomer().getId().equals(filterCustomerId)) {
+                            return false;
+                        }
+                    }
+
+                    // filter theo store
+                    if (filterStoreId != null) {
+                        if (w.getStore() == null
+                                || w.getStore().getStoreId() == null
+                                || !w.getStore().getStoreId().equals(filterStoreId)) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                })
+                .map(this::toLogResponse)
+                .toList();
+    }
+
+
+    private WarrantyResponse buildPendingActivationResponse(
+            StoreOrderItem item, StoreOrder so, Product p, LocalDate purchaseRef
+    ) {
+        return WarrantyResponse.builder()
+                .id(null) // CHƯA có warranty record
+                .productId(p != null ? p.getProductId() : null)
+                .productName(p != null ? p.getName() : item.getName())
+                .storeId(so.getStore() != null ? so.getStore().getStoreId() : null)
+                .storeName(so.getStore() != null ? so.getStore().getStoreName() : null)
+                .customerId(so.getCustomerOrder() != null && so.getCustomerOrder().getCustomer() != null
+                        ? so.getCustomerOrder().getCustomer().getId() : null)
+                .customerName(so.getCustomerOrder() != null && so.getCustomerOrder().getCustomer() != null
+                        ? so.getCustomerOrder().getCustomer().getFullName() : null)
+                .serialNumber(null)
+                .policyCode(null)
+                .durationMonths(p != null ? resolveMonths(p) : null)
+                .purchaseDate(purchaseRef)
+                .startDate(null) // chưa kích hoạt
+                .endDate(null)
+                .status("PENDING_ACTIVATION") // chỉ dùng để render UI
+                .covered(false)
+                .stillValid(false)
+                .build();
     }
 
     private WarrantyResponse toWarrantyResponse(Warranty w) {

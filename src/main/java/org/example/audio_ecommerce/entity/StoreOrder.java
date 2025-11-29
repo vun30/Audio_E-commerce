@@ -24,6 +24,9 @@ public class StoreOrder {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "order_code", length = 20)
+    private String orderCode;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "store_id", nullable = false)
     @JsonIgnore
@@ -31,6 +34,9 @@ public class StoreOrder {
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(nullable = true)
+    private LocalDateTime deliveredAt;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 64, nullable = false)
@@ -56,9 +62,6 @@ public class StoreOrder {
 
     @Column(name = "shipping_fee")
     private BigDecimal shippingFee; // phí ship GHN cho đơn của từng store
-
-
-
 
     @Column(name = "store_voucher_discount", precision = 18, scale = 2)
     private BigDecimal storeVoucherDiscount = BigDecimal.ZERO; // giảm do voucher shop của chính store này
@@ -112,6 +115,25 @@ public class StoreOrder {
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method", length = 32, nullable = false)
     private PaymentMethod paymentMethod = PaymentMethod.COD;
+
+    // ====== Settlement breakdown cho shop ======
+
+    @Column(name = "platform_fee_amount", precision = 18, scale = 2)
+    private BigDecimal platformFeeAmount = BigDecimal.ZERO;   // phí nền tảng (theo % product)
+
+    @Column(name = "actual_shipping_fee", precision = 18, scale = 2)
+    private BigDecimal actualShippingFee = BigDecimal.ZERO;   // GHN báo về (GhnOrder.totalFee)
+
+    @Column(name = "shipping_extra_for_store", precision = 18, scale = 2)
+    private BigDecimal shippingExtraForStore = BigDecimal.ZERO; // phần chênh GHN - shippingFee khách trả
+
+    @Column(name = "net_payout_to_store", precision = 18, scale = 2)
+    private BigDecimal netPayoutToStore = BigDecimal.ZERO;    // tiền cuối cùng chuyển vào ví shop
+
+    @Lob
+    @Column(name = "settlement_detail_json")
+    private String settlementDetailJson; // JSON chi tiết breakdown
+
 
     @PrePersist
     @PreUpdate

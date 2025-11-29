@@ -36,10 +36,15 @@ public class CartItem {
     private Product product; // nullable khi type = COMBO
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "variant_id")
+    private ProductVariantEntity variant; // nullable nếu không dùng biến thể
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "combo_id")
     private ProductCombo combo; // nullable khi type = PRODUCT
 
-    @Column(nullable = false) private Integer quantity;
+    @Column(nullable = false)
+    private Integer quantity;
 
     // snapshot giá tại thời điểm thêm giỏ
     @Column(precision = 18, scale = 2, nullable = false)
@@ -52,10 +57,22 @@ public class CartItem {
     private String nameSnapshot;
     private String imageSnapshot;
 
+    // NEW: snapshot thông tin variant để hiển thị
+    private String variantOptionNameSnapshot;   // ví dụ: "Color"
+    private String variantOptionValueSnapshot;  // ví dụ: "Black"
+
     // helper
     public UUID getReferenceId() {
         if (type == CartItemType.PRODUCT && product != null) return product.getProductId();
         if (type == CartItemType.COMBO   && combo   != null) return combo.getComboId();
         return null;
+    }
+
+    public UUID getProductIdOrNull() {
+        return (product != null ? product.getProductId() : null);
+    }
+
+    public UUID getVariantIdOrNull() {
+        return (variant != null ? variant.getId() : null);
     }
 }

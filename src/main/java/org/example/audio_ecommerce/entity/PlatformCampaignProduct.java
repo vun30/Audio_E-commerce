@@ -103,13 +103,16 @@ private BigDecimal discountedPrice;
     // ⚙️ LIFE-CYCLE HOOKS
     // =======================================================
     @PrePersist
-public void onCreate() {
-    this.createdAt = LocalDateTime.now();
-    this.remainingUsage = this.totalUsageLimit;
-    if (this.status == null) { // ✅ chỉ set nếu chưa có
-        this.status = VoucherStatus.DRAFT;
+    public void onCreate() {
+        this.createdAt = LocalDateTime.now();
+        if (this.remainingUsage == null) {
+            this.remainingUsage = this.totalUsageLimit;
+        }
+        if (this.status == null) {
+            this.status = VoucherStatus.DRAFT;
+        }
     }
-}
+
     @PreUpdate
     public void onUpdate() {
         this.updatedAt = LocalDateTime.now();

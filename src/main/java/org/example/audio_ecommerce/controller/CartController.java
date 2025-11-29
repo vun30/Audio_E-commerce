@@ -72,11 +72,11 @@ public class CartController {
     @Operation(
             summary = "Checkout COD các sản phẩm/combo được chọn trong giỏ hàng",
             description = """
-            Thanh toán COD: tạo CustomerOrder và tách StoreOrder theo từng cửa hàng.
-            - Body gồm danh sách items (PRODUCT/COMBO) và addressId (tuỳ chọn).
-            - Nếu không truyền addressId, hệ thống dùng địa chỉ mặc định của customer.
-            Trả về: id, status, createdAt, totalAmount và snapshot địa chỉ giao hàng.
-            """
+                    Thanh toán COD: tạo CustomerOrder và tách StoreOrder theo từng cửa hàng.
+                    - Body gồm danh sách items (PRODUCT/COMBO) và addressId (tuỳ chọn).
+                    - Nếu không truyền addressId, hệ thống dùng địa chỉ mặc định của customer.
+                    Trả về: id, status, createdAt, totalAmount và snapshot địa chỉ giao hàng.
+                    """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Checkout COD thành công",
@@ -90,18 +90,38 @@ public class CartController {
             @PathVariable UUID customerId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = """
-    Danh sách item cần checkout, addressId (tùy chọn) và voucher theo shop.
-    Ví dụ:
-    {
-      "items": [{"type":"PRODUCT","id":"...","quantity":2}],
-      "addressId":"...",
-      "storeVouchers": [
-        { "storeId":"11111111-1111-1111-1111-111111111111", "codes":["SALE10K","P10"] }
-      ]
-    }
-    """,
+                            Danh sách item cần checkout, addressId (tùy chọn) và voucher theo shop.
+                            
+                            - Nếu sản phẩm KHÔNG có biến thể: bỏ qua `variantUnitPrice` hoặc để null.
+                            - Nếu CÓ biến thể: FE gửi `variantUnitPrice` = giá của biến thể đã chọn, BE sẽ dùng làm giá gốc.
+                            
+                            Ví dụ:
+                            {
+                              "items": [
+                                {
+                                  "type": "PRODUCT",
+                                  "id": "product-uuid...",
+                                  "quantity": 2,
+                                  "variantUnitPrice": 3490000
+                                },
+                                {
+                                  "type": "COMBO",
+                                  "id": "combo-uuid...",
+                                  "quantity": 1
+                                }
+                              ],
+                              "addressId": "address-uuid...",
+                              "storeVouchers": [
+                                {
+                                  "storeId": "11111111-1111-1111-1111-111111111111",
+                                  "codes": ["SALE10K", "P10"]
+                                }
+                              ]
+                            }
+                            """,
                     required = true
             )
+
             @RequestBody CheckoutCODRequest request
     ) {
         List<CustomerOrderResponse> resp = cartService.checkoutCODWithResponse(customerId, request);
@@ -183,13 +203,13 @@ public class CartController {
     }
 
     // ví dụ trong CartController (tùy bạn đặt)
-    @PostMapping("/checkout/store-ship")
-    public ResponseEntity<List<CustomerOrderResponse>> checkoutStoreShip(
-            @RequestParam UUID customerId,
-            @RequestBody CheckoutCODRequest request // tái dùng request hiện có: items, addressId, message, vouchers
-    ) {
-        List<CustomerOrderResponse> resp = cartService.checkoutStoreShip(customerId, request);
-        return ResponseEntity.ok(resp);
-    }
+//    @PostMapping("/checkout/store-ship")
+//    public ResponseEntity<List<CustomerOrderResponse>> checkoutStoreShip(
+//            @RequestParam UUID customerId,
+//            @RequestBody CheckoutCODRequest request // tái dùng request hiện có: items, addressId, message, vouchers
+//    ) {
+//        List<CustomerOrderResponse> resp = cartService.checkoutStoreShip(customerId, request);
+//        return ResponseEntity.ok(resp);
+//    }
 
 }

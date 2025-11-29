@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.PagedResult;
 import org.example.audio_ecommerce.dto.response.StoreOrderDetailResponse;
 import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
+import org.example.audio_ecommerce.dto.response.StoreOrderResponse;
 import org.example.audio_ecommerce.entity.Customer;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.StoreOrder;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -44,24 +46,40 @@ public class StoreOrderServiceImpl implements StoreOrderService {
             throw new IllegalArgumentException("Store does not own this order");
         }
 
-        // Parse string sang enum (an toàn hơn)
+        // Cập nhật status cho StoreOrder
         order.setStatus(status);
+
+        // ✅ Nếu store-order chuyển sang DELIVERY_SUCCESS → set deliveredAt
+        if (status == OrderStatus.DELIVERY_SUCCESS) {
+            order.setDeliveredAt(LocalDateTime.now());
+        }
+
         storeOrderRepository.save(order);
         storeOrderRepository.flush();
 
+        // ====== Đồng bộ trạng thái & deliveredAt cho CustomerOrder ======
         CustomerOrder customerOrder = order.getCustomerOrder();
         if (customerOrder != null) {
             var allStoreOrders = storeOrderRepository.findAllByCustomerOrder_Id(customerOrder.getId());
 
+            boolean allDelivered = allStoreOrders.stream()
+                    .allMatch(o -> o.getStatus() == OrderStatus.DELIVERY_SUCCESS);
+
             boolean allCompleted = allStoreOrders.stream()
                     .allMatch(o -> o.getStatus() == OrderStatus.COMPLETED);
+
             boolean allCancelled = allStoreOrders.stream()
                     .allMatch(o -> o.getStatus() == OrderStatus.CANCELLED);
+
             boolean anyShipping = allStoreOrders.stream()
                     .anyMatch(o -> o.getStatus() == OrderStatus.SHIPPING);
 
             OrderStatus customerNewStatus = customerOrder.getStatus();
-            if (allCompleted) {
+
+            // 👇 Ưu tiên DELIVERY_SUCCESS nếu tất cả store-order đã giao xong
+            if (allDelivered) {
+                customerNewStatus = OrderStatus.DELIVERY_SUCCESS;
+            } else if (allCompleted) {
                 customerNewStatus = OrderStatus.COMPLETED;
             } else if (allCancelled) {
                 customerNewStatus = OrderStatus.CANCELLED;
@@ -71,8 +89,15 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 customerNewStatus = OrderStatus.AWAITING_SHIPMENT;
             }
 
+            // Nếu status CustomerOrder thay đổi → set deliveredAt nếu là DELIVERY_SUCCESS
             if (customerOrder.getStatus() != customerNewStatus) {
                 customerOrder.setStatus(customerNewStatus);
+
+                if (customerNewStatus == OrderStatus.DELIVERY_SUCCESS) {
+                    // ✅ Khi toàn bộ store-order đã DELIVERY_SUCCESS → set deliveredAt cho CustomerOrder
+                    customerOrder.setDeliveredAt(LocalDateTime.now());
+                }
+
                 customerOrderRepository.saveAndFlush(customerOrder);
             }
         }
@@ -82,12 +107,25 @@ public class StoreOrderServiceImpl implements StoreOrderService {
 
     @Override
     @Transactional(readOnly = true)
-    public PagedResult<StoreOrderDetailResponse> getOrdersForStore(UUID storeId, int page, int size) {
+    public PagedResult<StoreOrderDetailResponse> getOrdersForStore(
+            UUID storeId,
+            int page,
+            int size,
+            String orderCodeKeyword   // ✅ thêm tham số filter
+    ) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? 20 : size;
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<StoreOrder> ordersPage = storeOrderRepository.findByStore_StoreId(storeId, pageable);
+        Page<StoreOrder> ordersPage;
+
+        if (orderCodeKeyword != null && !orderCodeKeyword.isBlank()) {
+            ordersPage = storeOrderRepository
+                    .findByStore_StoreIdAndOrderCodeContainingIgnoreCase(storeId, orderCodeKeyword.trim(), pageable);
+        } else {
+            ordersPage = storeOrderRepository.findByStore_StoreId(storeId, pageable);
+        }
+
         List<StoreOrderDetailResponse> items = ordersPage.getContent().stream()
                 .map(this::toDetailResponse)
                 .collect(Collectors.toList());
@@ -101,12 +139,29 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .build();
     }
 
+
+    @Override
+    @Transactional(readOnly = true)
+    public StoreOrderDetailResponse getOrderDetailForStore(UUID storeId, UUID orderId) {
+        StoreOrder order = storeOrderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
+
+        // đảm bảo đơn này thuộc về store đang request
+        if (!order.getStore().getStoreId().equals(storeId)) {
+            throw new IllegalArgumentException("Store does not own this order");
+        }
+
+        return toDetailResponse(order);
+    }
+
+
     private StoreOrderDetailResponse toDetailResponse(StoreOrder order) {
         CustomerOrder customerOrder = order.getCustomerOrder();
         Customer customer = customerOrder != null ? customerOrder.getCustomer() : null;
 
         return StoreOrderDetailResponse.builder()
                 .id(order.getId())
+                .orderCode(order.getOrderCode())
                 .storeId(order.getStore().getStoreId())
                 .storeName(order.getStore().getStoreName())
                 .status(order.getStatus())

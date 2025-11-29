@@ -52,12 +52,21 @@ public class WarrantyController {
             )
     })
     @PostMapping("/activate/store-order/{storeOrderId}")
-    public ResponseEntity<BaseResponse<Void>> activateForStoreOrder(
-            @Parameter(description = "ID của StoreOrder cần kích hoạt bảo hành", example = "a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8")
+    public ResponseEntity<BaseResponse<WarrantyService.WarrantyActivationResult>> activateForStoreOrder(
             @PathVariable UUID storeOrderId
     ) {
-        warrantyService.activateForStoreOrder(storeOrderId);
-        return ResponseEntity.ok(BaseResponse.success("Activated"));
+        var result = warrantyService.activateForStoreOrder(storeOrderId);
+
+        String msg;
+        if (result.isNoEligibleItems()) {
+            msg = "Không có item PRODUCT đủ điều kiện trong StoreOrder";
+        } else if (result.isAlreadyActivated()) {
+            msg = "StoreOrder đã được kích hoạt trước đó (idempotent)";
+        } else {
+            msg = "Activated";
+        }
+
+        return ResponseEntity.ok(BaseResponse.success(msg, result));
     }
 
     // ============================================================
@@ -265,4 +274,53 @@ public class WarrantyController {
         WarrantyReviewResponse review = warrantyService.review(logId, customerId, req);
         return ResponseEntity.ok(BaseResponse.success("Review submitted", review));
     }
+
+    @Operation(
+            summary = "Danh sách bảo hành theo StoreOrder",
+            description = """
+        • Dành cho vai trò store owner/seller/shop.  
+        • Trả về tất cả bảo hành phát sinh từ các item PRODUCT của StoreOrder.  
+        """
+    )
+    @GetMapping("/by-store-order/{storeOrderId}")
+    public ResponseEntity<BaseResponse<List<WarrantyResponse>>> listByStoreOrder(
+            @PathVariable UUID storeOrderId
+    ) {
+        List<WarrantyResponse> data = warrantyService.listByStoreOrderId(storeOrderId);
+        return ResponseEntity.ok(BaseResponse.success("OK", data));
+    }
+
+    @Operation(
+            summary = "Lấy danh sách log bảo hành",
+            description = """
+        • API dùng chung cho cả khách và cửa hàng.  
+        • Tham số:
+          - `warrantyId` (bắt buộc)  
+          - `customerId` (optional) — nếu gọi từ phía khách.  
+          - `storeId` (optional) — nếu gọi từ phía cửa hàng.  
+          - `status` (optional) — filter theo trạng thái log (OPEN, COMPLETED, ...).  
+        • Nếu truyền cả `customerId` và `storeId` thì log phải match cả hai (thường chỉ nên dùng 1).  
+        """
+    )
+    @GetMapping("/logs")
+    public ResponseEntity<BaseResponse<List<LogWarrantyResponse>>> listLogs(
+            @RequestParam UUID warrantyId,
+
+            @RequestParam(required = false) UUID customerId,
+
+            @RequestParam(required = false) UUID storeId,
+
+            @RequestParam(required = false) WarrantyLogStatus status
+    ) {
+        WarrantyLogSearchRequest req = WarrantyLogSearchRequest.builder()
+                .warrantyId(warrantyId)
+                .customerId(customerId)
+                .storeId(storeId)
+                .status(status)
+                .build();
+
+        List<LogWarrantyResponse> data = warrantyService.listLogs(req);
+        return ResponseEntity.ok(BaseResponse.success("OK", data));
+    }
+
 }

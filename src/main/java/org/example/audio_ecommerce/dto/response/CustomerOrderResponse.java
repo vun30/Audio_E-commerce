@@ -9,6 +9,7 @@ import java.util.UUID;
 @Data
 public class CustomerOrderResponse {
     private UUID id;
+    private String orderCode;
     private String status;
     private String message;
     private String createdAt;
