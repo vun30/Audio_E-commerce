@@ -17,4 +17,7 @@ public class ChatConversationResponse {
 
     private String lastMessage;
     private Instant lastMessageTime;
+
+    private long customerUnreadCount;
+    private long storeUnreadCount;
 }
