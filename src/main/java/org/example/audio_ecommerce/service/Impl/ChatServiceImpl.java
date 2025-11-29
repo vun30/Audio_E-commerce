@@ -81,6 +81,17 @@ public class ChatServiceImpl implements ChatService {
             convMeta.put("storeId", storeId.toString());
             convMeta.put("lastMessage", req.getContent());
             convMeta.put("lastMessageTime", Timestamp.now());
+
+            String senderType = req.getSenderType(); // ví dụ: "CUSTOMER" / "STORE"
+
+            if ("CUSTOMER".equalsIgnoreCase(senderType)) {
+                // customer gửi -> store là người chưa đọc
+                convMeta.put("storeUnreadCount", FieldValue.increment(1L));
+            } else if ("STORE".equalsIgnoreCase(senderType)) {
+                // store gửi -> customer là người chưa đọc
+                convMeta.put("customerUnreadCount", FieldValue.increment(1L));
+            }
+
             firestore.collection("conversations")
                     .document(conversationId)
                     .set(convMeta, SetOptions.merge());
@@ -204,18 +215,34 @@ public class ChatServiceImpl implements ChatService {
                     .getDocuments();
 
             WriteBatch batch = firestore.batch();
-
+            int updatedCount = 0;
             for (QueryDocumentSnapshot doc : docs) {
-
                 // Chỉ mark READ những tin của đối phương
                 String senderId = doc.getString("senderId");
 
                 if (senderId != null && !senderId.equals(viewerId)) {
                     batch.update(doc.getReference(), "read", true);
+                    updatedCount++;
                 }
             }
 
-            batch.commit();
+            if (updatedCount > 0) {
+                batch.commit().get(); // đợi commit xong cho chắc
+            }
+
+            if (updatedCount > 0) {
+                boolean viewerIsCustomer = viewerId.equals(customerId.toString());
+                String fieldToDecrease = viewerIsCustomer
+                        ? "customerUnreadCount"  // customer đang xem -> giảm số tin chưa đọc của customer
+                        : "storeUnreadCount";    // store đang xem -> giảm số tin chưa đọc của store
+
+                Map<String, Object> convMeta = new HashMap<>();
+                convMeta.put(fieldToDecrease, FieldValue.increment(- (long) updatedCount));
+
+                firestore.collection("conversations")
+                        .document(conversationId)
+                        .set(convMeta, SetOptions.merge());
+            }
 
         } catch (Exception e) {
             log.error("Error marking messages as read", e);
@@ -246,12 +273,16 @@ public class ChatServiceImpl implements ChatService {
             List<ChatConversationResponse> result = new ArrayList<>();
 
             for (QueryDocumentSnapshot doc : docs) {
+                Long cusUnread = doc.getLong("customerUnreadCount");
+                Long storeUnread = doc.getLong("storeUnreadCount");
                 result.add(ChatConversationResponse.builder()
                         .id(doc.getId())
                         .customerId(UUID.fromString(doc.getString("customerId")))
                         .storeId(UUID.fromString(doc.getString("storeId")))
                         .lastMessage(doc.getString("lastMessage"))
                         .lastMessageTime(doc.getTimestamp("lastMessageTime").toDate().toInstant())
+                        .customerUnreadCount(cusUnread != null ? cusUnread : 0L)
+                        .storeUnreadCount(storeUnread != null ? storeUnread : 0L)
                         .build());
             }
 
