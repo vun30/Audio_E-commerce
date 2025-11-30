@@ -22,6 +22,7 @@ public class ShopVoucherResponse {
     private String title;
     private String description;
     private String type;
+    private String scopeType; // Loại voucher: PRODUCT_VOUCHER, ALL_SHOP_VOUCHER
     private BigDecimal discountValue;
     private Integer discountPercent;
     private BigDecimal maxDiscountValue;
@@ -42,6 +43,7 @@ public class ShopVoucherResponse {
                 .title(v.getTitle())
                 .description(v.getDescription())
                 .type(v.getType() != null ? v.getType().name() : null)
+                .scopeType(v.getScopeType() != null ? v.getScopeType().name() : null)
                 .discountValue(v.getDiscountValue())
                 .discountPercent(v.getDiscountPercent())
                 .maxDiscountValue(v.getMaxDiscountValue())

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.entity.Enum.VoucherType;
+import org.example.audio_ecommerce.entity.Enum.ShopVoucherScopeType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -79,6 +80,9 @@ public class ShopVoucher {
 
     private UUID createdBy;
     private UUID updatedBy;
+
+    @Enumerated(EnumType.STRING)
+    private ShopVoucherScopeType scopeType; // PRODUCT_VOUCHER hoặc ALL_SHOP_VOUCHER
 
     // ===== Lifecycle Hooks =====
     @PrePersist

@@ -968,4 +968,31 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
                 .updatedBy(p.getUpdatedBy())
                 .build();
     }
+
+    // ============================================================
+    // 👁️ INCREMENT VIEW COUNT
+    // ============================================================
+    @Override
+    public ResponseEntity<BaseResponse> incrementViewCount(UUID productId) {
+        try {
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new RuntimeException("❌ Product not found with id: " + productId));
+
+            // Tăng viewCount lên 1
+            Integer currentViews = product.getViewCount();
+            product.setViewCount(currentViews != null ? currentViews + 1 : 1);
+
+            productRepository.save(product);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "✅ View count incremented successfully",
+                            Map.of("productId", productId, "viewCount", product.getViewCount()))
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(
+                    BaseResponse.error("❌ Failed to increment view count: " + e.getMessage())
+            );
+        }
+    }
 }
