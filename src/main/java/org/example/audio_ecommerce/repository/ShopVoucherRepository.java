@@ -16,4 +16,6 @@ public interface ShopVoucherRepository extends JpaRepository<ShopVoucher, UUID> 
     Optional<ShopVoucher> findByShop_StoreIdAndCodeIgnoreCase(UUID storeId, String code);
     List<ShopVoucher> findAllByShop_StoreIdAndStatus(UUID storeId, VoucherStatus status);
     List<ShopVoucher> findAllByShop_StoreIdAndStatusAndScopeType(UUID storeId, VoucherStatus status, ShopVoucherScopeType scopeType);
+    List<ShopVoucher> findAllByShop_StoreId(UUID storeId);
+    List<ShopVoucher> findAllByShop_StoreIdAndScopeType(UUID storeId, ShopVoucherScopeType scopeType);
 }
