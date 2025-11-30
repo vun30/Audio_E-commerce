@@ -4,8 +4,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CheckoutCODRequest;
 import org.example.audio_ecommerce.dto.request.CheckoutOnlineRequest;
+import org.example.audio_ecommerce.dto.request.WalletTopupRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
+import org.example.audio_ecommerce.dto.response.WalletTopupResponse;
 import org.example.audio_ecommerce.service.CartService;
 import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.springframework.http.ResponseEntity;
@@ -90,5 +92,23 @@ public class PayOSEcomController {
             // các lỗi khác
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    @PostMapping("/wallet/checkout")
+    public ResponseEntity<BaseResponse<WalletTopupResponse>> walletTopupCheckout(
+            @RequestParam UUID customerId,
+            @RequestBody WalletTopupRequest req
+    ) {
+        var resp = payOSEcomService.createWalletTopupPayment(
+                customerId,
+                req.getAmount(),
+                "Nạp ví khách hàng",
+                req.getReturnUrl(),
+                req.getCancelUrl()
+        );
+
+        return ResponseEntity.ok(
+                BaseResponse.success("✅ Tạo link PayOS để nạp ví", resp)
+        );
     }
 }
