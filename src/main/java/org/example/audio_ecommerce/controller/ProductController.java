@@ -209,4 +209,23 @@ public ResponseEntity<BaseResponse> getAllProducts(
     ) {
         return productService.disableProduct(productId);
     }
+
+    // ============================================================
+    // 👁️ POST: Tăng lượt xem sản phẩm
+    // ============================================================
+    @Operation(
+            summary = "👁️ Tăng lượt xem sản phẩm",
+            description = """
+                    • API công khai, tăng viewCount của sản phẩm lên 1.  
+                    • Gọi khi user xem chi tiết sản phẩm.  
+                    • Trả về productId và viewCount mới.  
+                    """
+    )
+    @PostMapping("/{productId}/view")
+    public ResponseEntity<BaseResponse> incrementViewCount(
+            @Parameter(description = "UUID sản phẩm", example = "8e7e26a8-2b2a-4bc5-a617-40a9e2a6f1f0")
+            @PathVariable UUID productId
+    ) {
+        return productService.incrementViewCount(productId);
+    }
 }

@@ -24,4 +24,5 @@ public interface ProductService {
     ResponseEntity<BaseResponse> getProductById(UUID productId);
     ResponseEntity<BaseResponse> updateProduct(UUID productId, UpdateProductRequest request);
     ResponseEntity<BaseResponse> disableProduct(UUID productId);
+    ResponseEntity<BaseResponse> incrementViewCount(UUID productId);
 }
