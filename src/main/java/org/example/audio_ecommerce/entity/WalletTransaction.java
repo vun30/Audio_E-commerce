@@ -53,4 +53,7 @@ public class WalletTransaction extends BaseEntity {
     // Optional: liên kết đơn hàng
     @Column(name = "order_id", columnDefinition = "CHAR(36)")
     private UUID orderId;
+
+    @Column(name = "external_ref", length = 128)
+    private String externalRef;
 }

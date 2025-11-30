@@ -14,4 +14,6 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
 
     Optional<WalletTransaction> findFirstByWallet_Customer_IdAndOrderIdAndTransactionTypeOrderByCreatedAtDesc(
             UUID customerId, UUID orderId, WalletTransactionType type);
+
+    Optional<WalletTransaction> findByExternalRef(String externalRef);
 }
