@@ -34,9 +34,10 @@ public class ChatController {
     public List<ChatMessageResponse> getMessages(
             @PathVariable UUID customerId,
             @PathVariable UUID storeId,
-            @RequestParam(defaultValue = "50") int limit
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam String viewerType
     ) {
-        return chatService.getMessages(customerId, storeId, limit);
+        return chatService.getMessages(customerId, storeId, limit, viewerType);
     }
 
     // ============= NEW: tất cả conversations của 1 customer =============
@@ -64,6 +65,25 @@ public class ChatController {
             @RequestParam String viewerId // id của người đang xem tin nhắn
     ) {
         chatService.markMessagesAsRead(customerId, storeId, viewerId);
+    }
+
+    @DeleteMapping("/conversations/{customerId}/{storeId}/messages/{messageId}")
+    public void deleteMessage(
+            @PathVariable UUID customerId,
+            @PathVariable UUID storeId,
+            @PathVariable String messageId,
+            @RequestParam String viewerType // "CUSTOMER" hoặc "STORE"
+    ) {
+        chatService.deleteMessage(customerId, storeId, messageId, viewerType);
+    }
+
+    @DeleteMapping("/conversations/{customerId}/{storeId}/messages")
+    public void deleteAllMessages(
+            @PathVariable UUID customerId,
+            @PathVariable UUID storeId,
+            @RequestParam String viewerType // "CUSTOMER" hoặc "STORE"
+    ) {
+        chatService.deleteAllMessages(customerId, storeId, viewerType);
     }
 
 }

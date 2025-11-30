@@ -45,6 +45,8 @@ public class ChatServiceImpl implements ChatService {
         data.put("createdAt", Timestamp.now());
         data.put("read", false);
         data.put("type", req.getMessageType().name());
+        data.put("deletedForCustomer", false);
+        data.put("deletedForStore", false);
 
         // ========== MULTI MEDIA ==========
         if (req.getMessageType() == ChatMessageType.IMAGE
@@ -131,7 +133,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    public List<ChatMessageResponse> getMessages(UUID customerId, UUID storeId, int limit) {
+    public List<ChatMessageResponse> getMessages(UUID customerId, UUID storeId, int limit, String viewerType) {
 
         String conversationId = buildConversationId(customerId, storeId);
 
@@ -149,8 +151,19 @@ public class ChatServiceImpl implements ChatService {
                     .getDocuments();
 
             List<ChatMessageResponse> result = new ArrayList<>();
-
+            boolean isCustomer = "CUSTOMER".equalsIgnoreCase(viewerType);
+            boolean isStore = "STORE".equalsIgnoreCase(viewerType);
             for (QueryDocumentSnapshot doc : docs) {
+
+                Boolean deletedForCustomer = doc.getBoolean("deletedForCustomer");
+                Boolean deletedForStore = doc.getBoolean("deletedForStore");
+
+                if (isCustomer && Boolean.TRUE.equals(deletedForCustomer)) {
+                    continue;
+                }
+                if (isStore && Boolean.TRUE.equals(deletedForStore)) {
+                    continue;
+                }
 
                 // Parse media list
                 List<Map<String, Object>> mediaData =
@@ -261,6 +274,113 @@ public class ChatServiceImpl implements ChatService {
     @Override
     public List<ChatConversationResponse> getStoreConversations(UUID storeId) {
         return getConversationList("storeId", storeId.toString());
+    }
+
+    @Override
+    public void deleteMessage(UUID customerId, UUID storeId, String messageId, String viewerType) {
+
+        String conversationId = buildConversationId(customerId, storeId);
+
+        DocumentReference msgRef = firestore.collection("conversations")
+                .document(conversationId)
+                .collection("messages")
+                .document(messageId);
+
+        try {
+            DocumentSnapshot snap = msgRef.get().get();
+            if (!snap.exists()) {
+                throw new RuntimeException("Message not found");
+            }
+
+            Boolean deletedForCustomer = snap.getBoolean("deletedForCustomer");
+            Boolean deletedForStore = snap.getBoolean("deletedForStore");
+
+            Map<String, Object> update = new HashMap<>();
+            if ("CUSTOMER".equalsIgnoreCase(viewerType)) {
+                update.put("deletedForCustomer", true);
+            } else if ("STORE".equalsIgnoreCase(viewerType)) {
+                update.put("deletedForStore", true);
+            } else {
+                throw new IllegalArgumentException("viewerType must be CUSTOMER or STORE");
+            }
+
+            msgRef.set(update, SetOptions.merge()).get();
+
+            // OPTIONAL: nếu cả 2 bên đều đã xoá -> xoá hẳn document cho nhẹ DB
+            deletedForCustomer = "CUSTOMER".equalsIgnoreCase(viewerType) ? true : Boolean.TRUE.equals(deletedForCustomer);
+            deletedForStore = "STORE".equalsIgnoreCase(viewerType) ? true : Boolean.TRUE.equals(deletedForStore);
+
+            if (deletedForCustomer && deletedForStore) {
+                msgRef.delete(); // không cần .get() cũng được
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to delete message (soft)", e);
+        }
+    }
+
+    @Override
+    public void deleteAllMessages(UUID customerId, UUID storeId, String viewerType) {
+
+        String conversationId = buildConversationId(customerId, storeId);
+
+        CollectionReference messagesRef = firestore
+                .collection("conversations")
+                .document(conversationId)
+                .collection("messages");
+
+        try {
+            List<QueryDocumentSnapshot> docs = messagesRef
+                    .get()
+                    .get()
+                    .getDocuments();
+
+            if (docs.isEmpty()) return;
+
+            boolean isCustomer = "CUSTOMER".equalsIgnoreCase(viewerType);
+            boolean isStore = "STORE".equalsIgnoreCase(viewerType);
+
+            if (!isCustomer && !isStore) {
+                throw new IllegalArgumentException("viewerType must be CUSTOMER or STORE");
+            }
+
+            WriteBatch batch = firestore.batch();
+            int cnt = 0;
+
+            for (QueryDocumentSnapshot doc : docs) {
+                Boolean deletedForCustomer = doc.getBoolean("deletedForCustomer");
+                Boolean deletedForStore = doc.getBoolean("deletedForStore");
+
+                Map<String, Object> update = new HashMap<>();
+
+                if (isCustomer && !Boolean.TRUE.equals(deletedForCustomer)) {
+                    update.put("deletedForCustomer", true);
+                }
+                if (isStore && !Boolean.TRUE.equals(deletedForStore)) {
+                    update.put("deletedForStore", true);
+                }
+
+                if (!update.isEmpty()) {
+                    batch.set(doc.getReference(), update, SetOptions.merge());
+                    cnt++;
+
+                    // OPTIONAL: nếu cả 2 bên đều xoá sau khi update -> xoá doc
+                    boolean afterCus = isCustomer ? true : Boolean.TRUE.equals(deletedForCustomer);
+                    boolean afterStore = isStore ? true : Boolean.TRUE.equals(deletedForStore);
+                    if (afterCus && afterStore) {
+                        batch.delete(doc.getReference());
+                    }
+                }
+            }
+
+            if (cnt > 0) {
+                batch.commit().get();
+            }
+
+        } catch (Exception e) {
+            log.error("Error deleting all messages", e);
+            throw new RuntimeException("Failed to delete all messages");
+        }
     }
 
     private List<ChatConversationResponse> getConversationList(String field, String id) {
