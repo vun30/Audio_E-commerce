@@ -47,7 +47,9 @@ public class ChatServiceImpl implements ChatService {
         data.put("type", req.getMessageType().name());
 
         // ========== MULTI MEDIA ==========
-        if (req.getMessageType() == ChatMessageType.IMAGE || req.getMessageType() == ChatMessageType.MIXED) {
+        if (req.getMessageType() == ChatMessageType.IMAGE
+                || req.getMessageType() == ChatMessageType.VIDEO
+                || req.getMessageType() == ChatMessageType.MIXED) {
             if (req.getMediaUrl() != null) {
                 List<Map<String, Object>> mediaData = new ArrayList<>();
 

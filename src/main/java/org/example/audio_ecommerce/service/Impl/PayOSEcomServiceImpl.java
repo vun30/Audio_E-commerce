@@ -6,17 +6,20 @@ import jakarta.mail.MessagingException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
+import org.example.audio_ecommerce.dto.response.WalletTopupResponse;
 import org.example.audio_ecommerce.email.EmailService;
 import org.example.audio_ecommerce.email.EmailTemplateType;
 import org.example.audio_ecommerce.email.OrderData;
 import org.example.audio_ecommerce.email.OrderItemEmailData;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.CustomerOrderItem;
-import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
-import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
+import org.example.audio_ecommerce.entity.Enum.*;
+import org.example.audio_ecommerce.entity.Wallet;
+import org.example.audio_ecommerce.entity.WalletTransaction;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
 import org.example.audio_ecommerce.repository.PlatformTransactionRepository;
+import org.example.audio_ecommerce.repository.WalletRepository;
+import org.example.audio_ecommerce.repository.WalletTransactionRepository;
 import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +48,8 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final EmailService emailService;
     private final PlatformTransactionRepository platformTransactionRepository;
+    private final WalletRepository walletRepository;
+    private final WalletTransactionRepository walletTransactionRepository;
 
     private long generateOrderCode() {
         return System.currentTimeMillis() + new Random().nextInt(999);
@@ -140,12 +145,12 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
             return;
         }
 
-        Long batchCode = verified.getOrderCode();
+        Long code = verified.getOrderCode();
         String resultCode = verified.getCode();                 // "00" = success
         boolean success = "00".equals(resultCode);
         String desc = verified.getDesc() != null ? verified.getDesc() : verified.getDescription();
 
-        // Tìm các order có __payos_batch_code = batchCode
+        // ========= 1) Thử xử lý như batch order e-commerce =========
         List<CustomerOrder> all = customerOrderRepository.findAll();
         List<CustomerOrder> orders = new ArrayList<>();
         for (CustomerOrder o : all) {
@@ -154,63 +159,98 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
             try {
                 var node = mapper.readTree(json);
                 if (node.has("__payos_batch_code")
-                        && String.valueOf(batchCode).equals(node.get("__payos_batch_code").asText())) {
+                        && String.valueOf(code).equals(node.get("__payos_batch_code").asText())) {
                     orders.add(o);
                 }
             } catch (Exception ignored) {}
         }
 
-        if (orders.isEmpty()) {
-            log.error("[PayOS Webhook] no orders found for batch={}", batchCode);
+        if (!orders.isEmpty()) {
+            handleEcomOrdersWebhook(orders, code, success, desc);
             return;
         }
 
-        log.info("[PayOS Webhook] batch={} size={} resultCode={} success={} desc={}",
-                batchCode, orders.size(), resultCode, success, desc);
-
-        if (desc != null && desc.toLowerCase().contains("hết hạn")) {
-            for (CustomerOrder order : orders) {
-                order.setStatus(OrderStatus.CANCELLED);
-                order.setCreatedAt(LocalDateTime.now());
-                customerOrderRepository.save(order);
-            }
-            return;
-        }
-
-        if (success) {
-            for (CustomerOrder order : orders) {
-                BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
-                if (amount == null) amount = BigDecimal.ZERO;
-                amount = amount.setScale(0, java.math.RoundingMode.DOWN);
-
-                settlementService.recordCustomerQrPayment(order.getCustomer().getId(), order.getId(), amount);
-                boolean existsHolding = !platformTransactionRepository
-                        .findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
-                        .isEmpty();
-                if (!existsHolding) {
-                    settlementService.moveToPlatformHold(order.getId(), amount);
-                }
-                settlementService.allocateToStoresPending(order);
-
-                // tuỳ flow
-                order.setStatus(OrderStatus.PENDING);
-                order.setCreatedAt(LocalDateTime.now());
-                customerOrderRepository.save(order);
-
-                sendPaymentSuccessEmail(order, amount);
-            }
-            log.info("[PayOS Webhook] SUCCESS processed batch={} orders={}", batchCode, orders.size());
-            return;
-        }
-
-        // failed/cancel
-        for (CustomerOrder order : orders) {
-            order.setStatus(OrderStatus.UNPAID);
-            order.setCreatedAt(LocalDateTime.now());
-            customerOrderRepository.save(order);
-        }
+        // ========= 2) Không tìm thấy batch order => thử xem có phải topup ví =========
+        walletTransactionRepository.findByExternalRef(String.valueOf(code))
+                .ifPresentOrElse(
+                        txn -> handleWalletTopupWebhook(txn, success, desc),
+                        () -> log.error("[PayOS Webhook] No CustomerOrder batch and no WalletTransaction for code={}", code)
+                );
     }
 
+
+    @Override
+    @Transactional
+    public WalletTopupResponse createWalletTopupPayment(
+            UUID customerId,
+            BigDecimal amount,
+            String description,
+            String returnUrl,
+            String cancelUrl
+    ) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Amount must be > 0");
+        }
+
+        Wallet wallet = walletRepository.findByCustomer_Id(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Wallet not found for customerId=" + customerId));
+
+        BigDecimal topupAmount = amount.setScale(0, BigDecimal.ROUND_DOWN);
+        long amountVnd = topupAmount.longValueExact();
+
+        long orderCode = generateOrderCode(); // dùng luôn hàm có sẵn
+
+        String desc = asciiNoMarks(
+                description != null ? description : ("Wallet topup " + customerId));
+
+        try {
+            PaymentLinkItem item = PaymentLinkItem.builder()
+                    .name("WalletTopup#" + orderCode)
+                    .price(amountVnd)
+                    .quantity(1)
+                    .build();
+
+            CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
+                    .orderCode(orderCode)
+                    .amount(amountVnd)
+                    .description(desc)
+                    .returnUrl(returnUrl)
+                    .cancelUrl(cancelUrl)
+                    .item(item)
+                    .build();
+
+            CreatePaymentLinkResponse res = payOS.paymentRequests().create(paymentData);
+
+            // Tạo transaction PENDING
+            BigDecimal before = wallet.getBalance() != null ? wallet.getBalance() : BigDecimal.ZERO;
+
+            WalletTransaction txn = WalletTransaction.builder()
+                    .wallet(wallet)
+                    .amount(topupAmount)
+                    .transactionType(WalletTransactionType.TOPUP)
+                    .status(WalletTransactionStatus.PENDING)
+                    .description("Top up via PayOS, orderCode=" + orderCode)
+                    .balanceBefore(before)
+                    .balanceAfter(before) // chưa cộng tiền
+                    .orderId(null)
+                    .externalRef(String.valueOf(orderCode))
+                    .build();
+
+            walletTransactionRepository.save(txn);
+
+            WalletTopupResponse out = new WalletTopupResponse();
+            out.setWalletTransactionId(txn.getId());
+            out.setAmount(topupAmount);
+            out.setPayOSOrderCode(orderCode);
+            out.setCheckoutUrl(res.getCheckoutUrl());
+            out.setStatus(WalletTransactionStatus.PENDING.name());
+
+            return out;
+
+        } catch (Exception e) {
+            throw new RuntimeException("Tạo link PayOS topup ví thất bại: " + e.getMessage(), e);
+        }
+    }
 
 
     /* ================= helpers ================= */
@@ -294,4 +334,89 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         while (end > 0 && (b[end] & 0xC0) == 0x80) end--;
         return new String(b, 0, end, java.nio.charset.StandardCharsets.UTF_8);
     }
+
+    private void handleEcomOrdersWebhook(List<CustomerOrder> orders,
+                                         Long batchCode,
+                                         boolean success,
+                                         String desc) {
+
+        log.info("[PayOS Webhook][ECOM] batch={} size={} success={} desc={}",
+                batchCode, orders.size(), success, desc);
+
+        if (desc != null && desc.toLowerCase().contains("hết hạn")) {
+            for (CustomerOrder order : orders) {
+                order.setStatus(OrderStatus.CANCELLED);
+                order.setCreatedAt(LocalDateTime.now());
+                customerOrderRepository.save(order);
+            }
+            return;
+        }
+
+        if (success) {
+            for (CustomerOrder order : orders) {
+                BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
+                if (amount == null) amount = BigDecimal.ZERO;
+                amount = amount.setScale(0, java.math.RoundingMode.DOWN);
+
+                settlementService.recordCustomerQrPayment(order.getCustomer().getId(), order.getId(), amount);
+                boolean existsHolding = !platformTransactionRepository
+                        .findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
+                        .isEmpty();
+                if (!existsHolding) {
+                    settlementService.moveToPlatformHold(order.getId(), amount);
+                }
+                settlementService.allocateToStoresPending(order);
+
+                order.setStatus(OrderStatus.PENDING);
+                order.setCreatedAt(LocalDateTime.now());
+                customerOrderRepository.save(order);
+
+                sendPaymentSuccessEmail(order, amount);
+            }
+            log.info("[PayOS Webhook][ECOM] SUCCESS processed batch={} orders={}", batchCode, orders.size());
+            return;
+        }
+
+        for (CustomerOrder order : orders) {
+            order.setStatus(OrderStatus.UNPAID);
+            order.setCreatedAt(LocalDateTime.now());
+            customerOrderRepository.save(order);
+        }
+    }
+
+    private void handleWalletTopupWebhook(WalletTransaction txn,
+                                          boolean success,
+                                          String desc) {
+        log.info("[PayOS Webhook][WALLET] txnId={} extRef={} success={} desc={}",
+                txn.getId(), txn.getExternalRef(), success, desc);
+
+        // Idempotent: nếu đã SUCCESS thì bỏ qua
+        if (txn.getStatus() == WalletTransactionStatus.SUCCESS) {
+            log.info("[PayOS Webhook][WALLET] Txn already SUCCESS, skip.");
+            return;
+        }
+
+        if (!success) {
+            txn.setStatus(WalletTransactionStatus.FAILED);
+            walletTransactionRepository.save(txn);
+            return;
+        }
+
+        Wallet wallet = txn.getWallet();
+        BigDecimal before = wallet.getBalance() != null ? wallet.getBalance() : BigDecimal.ZERO;
+        BigDecimal after = before.add(txn.getAmount());
+
+        wallet.setBalance(after);
+        wallet.setLastTransactionAt(LocalDateTime.now());
+        walletRepository.save(wallet);
+
+        txn.setBalanceBefore(before);
+        txn.setBalanceAfter(after);
+        txn.setStatus(WalletTransactionStatus.SUCCESS);
+        walletTransactionRepository.save(txn);
+
+        log.info("[PayOS Webhook][WALLET] SUCCESS topup walletId={} amount={} before={} after={}",
+                wallet.getId(), txn.getAmount(), before, after);
+    }
+
 }
