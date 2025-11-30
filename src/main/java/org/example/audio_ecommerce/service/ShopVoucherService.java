@@ -17,5 +17,6 @@ public interface ShopVoucherService {
     ResponseEntity<BaseResponse> getActiveVoucherByProductId(UUID productId);
     ResponseEntity<BaseResponse> createShopWideVoucher(ShopWideVoucherRequest req);
     ResponseEntity<BaseResponse> getActiveVouchersByType(VoucherStatus status, ShopVoucherScopeType scopeType);
+    ResponseEntity<BaseResponse> getVouchersByStore(UUID storeId, VoucherStatus status, ShopVoucherScopeType scopeType);
 
 }

@@ -58,6 +58,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
                 .startTime(req.getStartTime())
                 .endTime(req.getEndTime())
                 .status(VoucherStatus.ACTIVE)
+                .scopeType(ShopVoucherScopeType.PRODUCT_VOUCHER) // Luôn set là PRODUCT_VOUCHER khi tạo voucher sản phẩm
                 .createdAt(now)
                 .updatedAt(now)
                 .lastUpdatedAt(now)
@@ -237,6 +238,26 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
         }
         List<ShopVoucherResponse> dtoList = vouchers.stream().map(ShopVoucherResponse::fromEntity).toList();
         return ResponseEntity.ok(new BaseResponse<>(200, "📦 List of vouchers by status and type", dtoList));
+    }
+
+    // ============================================================
+    // 📦 Lấy voucher theo storeId, trạng thái và loại scopeType
+    // ============================================================
+    @Override
+    public ResponseEntity<BaseResponse> getVouchersByStore(UUID storeId, VoucherStatus status, ShopVoucherScopeType scopeType) {
+        // Lấy tất cả voucher của một cửa hàng theo storeId, có thể lọc theo trạng thái và loại voucher
+        List<ShopVoucher> vouchers;
+        if (status != null && scopeType != null) {
+            vouchers = voucherRepository.findAllByShop_StoreIdAndStatusAndScopeType(storeId, status, scopeType);
+        } else if (status != null) {
+            vouchers = voucherRepository.findAllByShop_StoreIdAndStatus(storeId, status);
+        } else if (scopeType != null) {
+            vouchers = voucherRepository.findAllByShop_StoreIdAndScopeType(storeId, scopeType);
+        } else {
+            vouchers = voucherRepository.findAllByShop_StoreId(storeId);
+        }
+        List<ShopVoucherResponse> dtoList = vouchers.stream().map(ShopVoucherResponse::fromEntity).toList();
+        return ResponseEntity.ok(new BaseResponse<>(200, "📦 List of vouchers by storeId, status, and type", dtoList));
     }
 
 }

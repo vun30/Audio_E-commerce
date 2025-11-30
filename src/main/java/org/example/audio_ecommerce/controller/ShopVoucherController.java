@@ -255,4 +255,34 @@ public ResponseEntity<BaseResponse> getVoucherByProduct(@PathVariable UUID produ
         return service.getActiveVouchersByType(status, scopeType);
     }
 
+    /**
+     * Lấy tất cả voucher của một cửa hàng theo storeId, có thể lọc theo trạng thái và loại voucher.
+     * Query: storeId (bắt buộc), status (tùy chọn), scopeType (tùy chọn)
+     * Ví dụ:
+     *   /api/shop-vouchers/by-store?storeId=...&status=ACTIVE&scopeType=ALL_SHOP_VOUCHER
+     */
+    @Operation(
+        summary = "Lấy tất cả voucher của cửa hàng theo storeId, lọc theo trạng thái và loại",
+        description = "Trả về danh sách voucher của một cửa hàng theo storeId, có thể lọc theo trạng thái (ACTIVE, DISABLED, ...) và loại voucher (PRODUCT_VOUCHER, ALL_SHOP_VOUCHER).\n" +
+                "- Query: storeId (bắt buộc), status (tùy chọn), scopeType (tùy chọn).\n" +
+                "\nVí dụ:\n" +
+                "  /api/shop-vouchers/by-store?storeId=...&status=ACTIVE&scopeType=ALL_SHOP_VOUCHER\n",
+        parameters = {
+            @io.swagger.v3.oas.annotations.Parameter(name = "storeId", description = "ID cửa hàng", required = true),
+            @io.swagger.v3.oas.annotations.Parameter(name = "status", description = "Trạng thái voucher (ACTIVE, DISABLED, ...)", required = false),
+            @io.swagger.v3.oas.annotations.Parameter(name = "scopeType", description = "Loại voucher: PRODUCT_VOUCHER, ALL_SHOP_VOUCHER", required = false)
+        },
+        responses = {
+            @ApiResponse(responseCode = "200", description = "Danh sách voucher theo storeId, trạng thái và loại"),
+            @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+        }
+    )
+    @GetMapping("/by-store")
+    public ResponseEntity<BaseResponse> getVouchersByStore(
+            @RequestParam UUID storeId,
+            @RequestParam(required = false) VoucherStatus status,
+            @RequestParam(required = false) ShopVoucherScopeType scopeType) {
+        return service.getVouchersByStore(storeId, status, scopeType);
+    }
+
 }
