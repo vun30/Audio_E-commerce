@@ -193,6 +193,8 @@ public class ChatServiceImpl implements ChatService {
                         .content(doc.getString("content"))
                         .createdAt(doc.getTimestamp("createdAt").toDate().toInstant())
                         .read(Boolean.TRUE.equals(doc.getBoolean("read")))
+                        .deletedForCustomer(Boolean.TRUE.equals(deletedForCustomer))
+                        .deletedForStore(Boolean.TRUE.equals(deletedForStore))
                         .messageType(ChatMessageType.valueOf(doc.getString("type")))
                         .mediaUrl(mediaList)
                         .productId(doc.getString("productId") != null ?
