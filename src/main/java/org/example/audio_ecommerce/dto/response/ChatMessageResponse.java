@@ -23,6 +23,8 @@ public class ChatMessageResponse {
 
     private Instant createdAt;
     private Boolean read;
+    private Boolean deletedForCustomer;
+    private Boolean deletedForStore;
 
     private UUID productId;
     private String productName;
