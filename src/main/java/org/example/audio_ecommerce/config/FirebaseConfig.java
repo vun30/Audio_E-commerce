@@ -32,7 +32,7 @@ public class FirebaseConfig {
         FirebaseOptions options = FirebaseOptions.builder()
                 .setCredentials(GoogleCredentials.fromStream(firebaseConfigPath.getInputStream()))
                 .setProjectId(projectId)
-                 .setDatabaseUrl(databaseUrl) // nếu dùng Realtime DB thì bật
+//                 .setDatabaseUrl(databaseUrl) // nếu dùng Realtime DB thì bật
                 .build();
 
         if (FirebaseApp.getApps().isEmpty()) {
