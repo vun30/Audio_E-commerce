@@ -16,4 +16,7 @@ public interface StoreKycService {
     List <StoreKyc> getAllRequestsOfStore(UUID storeId);
     StoreKyc getRequestDetail(String kycId);
     List<StoreKyc> getRequestsByStatus(KycStatus status);
+
+    // ✅ Kiểm tra business license number
+    boolean checkBusinessLicenseExists(String businessLicenseNumber);
 }

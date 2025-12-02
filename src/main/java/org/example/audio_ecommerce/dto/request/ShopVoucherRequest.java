@@ -17,6 +17,7 @@ import java.util.UUID;
 public class ShopVoucherRequest {
 
     // ========== 🔹 Thông tin cơ bản ==========
+    @io.swagger.v3.oas.annotations.media.Schema(description = "Mã voucher (optional). Nếu bỏ trống hệ thống sẽ tự sinh 4 ký tự ngẫu nhiên", example = "SALE10K")
     private String code;
     private String title;
     private String description;
