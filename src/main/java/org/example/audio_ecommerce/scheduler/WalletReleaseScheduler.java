@@ -9,6 +9,7 @@ import org.example.audio_ecommerce.repository.NotificationRepository;
 import org.example.audio_ecommerce.repository.PlatformTransactionRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.example.audio_ecommerce.service.Impl.SettlementService;
+import org.example.audio_ecommerce.service.NotificationCreatorService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -25,7 +27,7 @@ public class WalletReleaseScheduler {
     private final PlatformTransactionRepository platformTransactionRepository;
     private final CustomerOrderRepository customerOrderRepository;
     private final SettlementService settlementService;
-    private final NotificationRepository notificationRepo;
+    private final NotificationCreatorService notificationCreatorService;
     private final StoreOrderRepository storeOrderRepository;
 
     //Chạy mỗi ngày lúc 01:00 sáng (prod)
@@ -97,7 +99,7 @@ public class WalletReleaseScheduler {
             try {
                 settlementService.releaseAfterHold(order);
                 processed++;
-
+                notifyReleaseSuccess(order);
                 log.info("💸 Released orderId={} amount={} (txId={})",
                         order.getId(), tx.getAmount(), tx.getId());
             } catch (Exception e) {
@@ -111,7 +113,6 @@ public class WalletReleaseScheduler {
 
     private void notifyReleaseSuccess(CustomerOrder order) {
         try {
-            // Lấy storeOrder đầu tiên của CustomerOrder
             StoreOrder so = storeOrderRepository.findAllByCustomerOrder_Id(order.getId())
                     .stream()
                     .findFirst()
@@ -124,30 +125,30 @@ public class WalletReleaseScheduler {
 
             Store store = so.getStore();
 
-            // ===== Notify cho STORE =====
-            notificationRepo.save(Notification.builder()
-                    .target(NotificationTarget.STORE)
-                    .targetId(store.getStoreId())
-                    .type(NotificationType.WALLET_RELEASE) // nhớ có enum này
-                    .title("Tiền đã được giải phóng")
-                    .message("Đơn hàng " + order.getOrderCode() +
-                            " đã qua thời gian giữ tiền, số tiền tạm giữ đã được chuyển vào ví cửa hàng.")
-                    .actionUrl("/seller/orders/" + so.getId()) // hoặc customerOrderId tuỳ FE
-                    .read(false)
-                    .build()
+            // STORE
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.STORE,
+                    store.getStoreId(),
+                    NotificationType.WALLET_RELEASE,
+                    "Tiền đã được giải phóng",
+                    "Đơn hàng " + order.getOrderCode()
+                            + " đã qua thời gian giữ tiền, số tiền tạm giữ đã được chuyển vào ví cửa hàng.",
+                    "/seller/orders/" + so.getId(),
+                    "{\"storeOrderId\":\"" + so.getId() + "\",\"customerOrderId\":\"" + order.getId() + "\"}",
+                    Map.of("screen", "SELLER_ORDER_DETAIL")
             );
 
-            // ===== Notify cho CUSTOMER =====
-            notificationRepo.save(Notification.builder()
-                    .target(NotificationTarget.CUSTOMER)
-                    .targetId(order.getCustomer().getId())
-                    .type(NotificationType.WALLET_RELEASE)
-                    .title("Đơn hàng đã hoàn tất")
-                    .message("Đơn hàng " + order.getOrderCode() +
-                            " đã hoàn tất, tiền giữ trên hệ thống đã được xử lý.")
-                    .actionUrl("/customer/orders/" + order.getId())
-                    .read(false)
-                    .build()
+            // CUSTOMER
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.CUSTOMER,
+                    order.getCustomer().getId(),
+                    NotificationType.WALLET_RELEASE,
+                    "Đơn hàng đã hoàn tất",
+                    "Đơn hàng " + order.getOrderCode()
+                            + " đã hoàn tất, tiền giữ trên hệ thống đã được xử lý.",
+                    "/customer/orders/" + order.getId(),
+                    "{\"customerOrderId\":\"" + order.getId() + "\"}",
+                    Map.of("screen", "ORDER_DETAIL")
             );
 
         } catch (Exception e) {
@@ -155,6 +156,4 @@ public class WalletReleaseScheduler {
                     order.getId(), e.getMessage(), e);
         }
     }
-
-
 }

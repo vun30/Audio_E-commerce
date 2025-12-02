@@ -9,13 +9,10 @@ import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
-import org.example.audio_ecommerce.service.CartService;
-import org.example.audio_ecommerce.service.GhnFeeService;
+import org.example.audio_ecommerce.service.*;
 
 import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
 
-import org.example.audio_ecommerce.service.OrderCodeGeneratorService;
-import org.example.audio_ecommerce.service.VoucherService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
@@ -36,9 +33,6 @@ public class CartServiceImpl implements CartService {
     private final ProductRepository productRepo;
     private final ProductComboRepository comboRepo;
     private final CustomerRepository customerRepo;
-    private final WalletRepository walletRepository;
-    private final PlatformWalletRepository platformWalletRepository;
-    private final WalletTransactionRepository walletTransactionRepository;
     private final CustomerOrderRepository customerOrderRepository;
     private final StoreOrderRepository storeOrderRepository;
     private final StoreRepository storeRepo;
@@ -47,7 +41,7 @@ public class CartServiceImpl implements CartService {
     private final ProductVariantRepository productVariantRepo;
     private final OrderCodeGeneratorService orderCodeGeneratorService;
     private final PlatformCampaignProductRepository platformCampaignProductRepository;
-    private final NotificationRepository notificationRepo;
+    private final NotificationCreatorService notificationCreatorService;
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -1546,38 +1540,41 @@ public class CartServiceImpl implements CartService {
      */
     private void createNewOrderNotifications(CustomerOrder co, Store store) {
         try {
-            // ==== Notify cho CUSTOMER ====
-            Notification customerNotif = Notification.builder()
-                    .target(NotificationTarget.CUSTOMER)
-                    .targetId(co.getCustomer().getId())
-                    .type(NotificationType.NEW_ORDER)
-                    .title("Đặt hàng thành công")
-                    .message("Đơn hàng " + co.getOrderCode()
-                            + " tại cửa hàng " + store.getStoreName() + " đã được tạo thành công.")
-                    .read(false)
-                    .actionUrl("/customer/orders/" + co.getId()) // FE tuỳ chỉnh route
-                    .build();
-            notificationRepo.save(customerNotif);
+            // CUSTOMER
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.CUSTOMER,
+                    co.getCustomer().getId(),
+                    NotificationType.NEW_ORDER,
+                    "Đặt hàng thành công",
+                    "Đơn hàng " + co.getOrderCode()
+                            + " tại cửa hàng " + store.getStoreName() + " đã được tạo thành công.",
+                    "/customer/orders/" + co.getId(),
+                    "{\"customerOrderId\":\"" + co.getId() + "\"}",
+                    Map.of("screen", "ORDER_DETAIL")
+            );
 
-            // ==== Notify cho STORE ====
-            String customerName = co.getCustomer() != null ? co.getCustomer().getFullName() : "Khách hàng";
+            // STORE
+            String customerName = co.getCustomer() != null
+                    ? co.getCustomer().getFullName()
+                    : "Khách hàng";
 
-            Notification storeNotif = Notification.builder()
-                    .target(NotificationTarget.STORE)
-                    .targetId(store.getStoreId())
-                    .type(NotificationType.NEW_ORDER)
-                    .title("Bạn có đơn hàng mới")
-                    .message("Bạn có đơn hàng mới " + co.getOrderCode()
-                            + " từ " + customerName + ".")
-                    .read(false)
-                    .actionUrl("/seller/orders/" + co.getId()) // FE tuỳ chỉnh route
-                    .build();
-            notificationRepo.save(storeNotif);
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.STORE,
+                    store.getStoreId(),
+                    NotificationType.NEW_ORDER,
+                    "Bạn có đơn hàng mới",
+                    "Bạn có đơn hàng mới " + co.getOrderCode()
+                            + " từ " + customerName + ".",
+                    "/seller/orders/" + co.getId(),
+                    "{\"customerOrderId\":\"" + co.getId() + "\"}",
+                    Map.of("screen", "SELLER_ORDER_DETAIL")
+            );
 
         } catch (Exception e) {
-            log.warn("Failed to create notifications for order {}", co.getId(), e);
+            log.warn("Failed to create/send notifications for order {}", co.getId(), e);
         }
     }
+
 
     private boolean isProductSellable(Product p) {
         if (p == null) return false;
