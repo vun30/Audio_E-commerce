@@ -13,32 +13,26 @@ import java.util.UUID;
 @Builder
 public class CreateComboRequest {
 
-    // 🏪 ID cửa hàng — BE tự động gán từ JWT
-    @Schema(description = "Không cần nhâp từ FE", example = "Không cần nhâp từ FE")
+    @Schema(description = "Tự động gán từ token", example = "Không cần nhập")
     private UUID storeId;
 
-    // ⚙️ Danh mục — BE tự động gán theo category có name = "Combo"
-    @Schema(description = "Không cần nhâp từ FE", example = "Không cần nhâp từ FE")
+    @Schema(description = "Tự động gán category COMBO", example = "Không cần nhập")
     private UUID categoryId;
 
-    // 📦 Thông tin cơ bản của combo
     private String name;
     private String shortDescription;
     private String description;
 
-    // 📸 Hình ảnh & video giới thiệu
     private List<String> images;
     private String videoUrl;
 
-    // ⚖️ Thông tin giao hàng
     private BigDecimal weight;
     private Integer stockQuantity;
     private String shippingAddress;
     private String warehouseLocation;
 
-    // 💰 Giá combo (giá bán gộp)
     private BigDecimal comboPrice;
 
-    // 🧩 Danh sách sản phẩm con thuộc combo
-    private List<UUID> includedProductIds;
+    // 🧩 Danh sách item gửi FULL DATA
+    private List<ComboItemRequest> items;
 }

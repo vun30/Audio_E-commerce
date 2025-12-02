@@ -1,21 +1,26 @@
 package org.example.audio_ecommerce.dto.request;
 
 import lombok.*;
-
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class UpdateCustomerComboRequest {
-    private UUID customerId; // verify quyền sở hữu
 
+    // ❌ FE không cần gửi customerId → BE tự lấy từ token
     private String name;
     private String shortDescription;
     private String description;
+
+    // 📸 Media
     private List<String> images;
     private String videoUrl;
 
+    // ⚖️ Logistics
     private BigDecimal weight;
     private Integer stockQuantity;
     private String shippingAddress;
@@ -24,7 +29,11 @@ public class UpdateCustomerComboRequest {
     private String districtCode;
     private String wardCode;
 
-    private Boolean isActive; // optional
-    private List<ComboItemRequest> items; // nếu truyền -> replace
-    private UUID updatedBy;
+    // 🔥 Trạng thái combo
+    private Boolean isActive;
+
+    // 🧩 Danh sách item mới (full variant info)
+    private List<ComboItemRequest> items;
+
+    // ❌ updatedBy → BE tự set trong service
 }

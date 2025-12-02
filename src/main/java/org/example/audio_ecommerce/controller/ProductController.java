@@ -13,6 +13,7 @@ import org.example.audio_ecommerce.service.ProductService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Tag(name = "📦 Product API", description = "Quản lý sản phẩm dành cho Admin & Store")
@@ -27,72 +28,109 @@ public class ProductController {
     // 📜 GET: Danh sách sản phẩm (filter + pagination)
     // ============================================================
     @GetMapping
-    @Operation(
-            summary = "📜 Lấy danh sách sản phẩm",
-            description = """
-                    • Hỗ trợ lọc theo danh mục, store, từ khóa, trạng thái.  
-                    • Hỗ trợ phân trang & sắp xếp mặc định theo ngày tạo.  
-                    • Trả về danh sách sản phẩm dạng `ProductResponse`.  
-                    """
-    )
-    public ResponseEntity<BaseResponse> getAllProducts(
+@Operation(
+        summary = "📜 Lấy danh sách sản phẩm",
+        description = """
+                • Lọc theo: danh mục, store, từ khóa, trạng thái sản phẩm.  
+                • Lọc theo khoảng giá: áp dụng cho cả giá sản phẩm và giá thấp nhất của biến thể.  
+                • Hỗ trợ phân trang & sắp xếp theo ngày tạo (mới nhất trước).  
+                • Trả về danh sách `ProductResponse`.  
+                """
+)
+public ResponseEntity<BaseResponse> getAllProducts(
 
-            @Parameter(
-                    description = "Tên danh mục (lọc). VD: Loa, Tai Nghe, DAC, Mixer...",
-                    example = "Loa"
-            )
-            @RequestParam(required = false) String categoryName,
+        // ===========================
+        // 🎯 Lọc theo danh mục
+        // ===========================
+        @Parameter(
+                description = "Tên danh mục (lọc). VD: Loa, Tai Nghe, DAC, Mixer...",
+                example = "Loa"
+        )
+        @RequestParam(required = false) String categoryName,
 
-            @Parameter(
-                    description = """
-                            UUID của Store (lọc theo cửa hàng).  
-                            Nếu để rỗng thì bỏ qua filter này.  
-                            """,
-                    example = "b57e964c-2cf1-4ca7-9e8a-82d27d0cbe11"
-            )
-            @RequestParam(required = false) String storeId,
+        // ===========================
+        // 🏪 Lọc theo store (UUID)
+        // ===========================
+        @Parameter(
+                description = """
+                        UUID của Store (lọc theo cửa hàng).  
+                        Nếu để rỗng → không lọc theo store.  
+                        """,
+                example = "b57e964c-2cf1-4ca7-9e8a-82d27d0cbe11"
+        )
+        @RequestParam(required = false) String storeId,
 
-            @Parameter(
-                    description = "Tìm kiếm theo tên sản phẩm",
-                    example = "sony"
-            )
-            @RequestParam(required = false) String keyword,
+        // ===========================
+        // 🔍 Lọc theo tên sản phẩm
+        // ===========================
+        @Parameter(
+                description = "Tìm kiếm theo tên sản phẩm (keyword). Không phân biệt hoa thường.",
+                example = "sony"
+        )
+        @RequestParam(required = false) String keyword,
 
-            @Parameter(description = "Trang hiện tại", example = "0")
-            @RequestParam(defaultValue = "0") int page,
+        // ===========================
+        // 📄 Pagination
+        // ===========================
+        @Parameter(description = "Trang hiện tại", example = "0")
+        @RequestParam(defaultValue = "0") int page,
 
-            @Parameter(description = "Số phần tử mỗi trang", example = "20")
-            @RequestParam(defaultValue = "20") int size,
+        @Parameter(description = "Số phần tử mỗi trang", example = "20")
+        @RequestParam(defaultValue = "20") int size,
 
-            @Parameter(
-                    description = "Trạng thái sản phẩm",
-                    schema = @Schema(allowableValues = {"ACTIVE", "INACTIVE", "DISCONTINUED"}),
-                    example = "ACTIVE"
-            )
-            @RequestParam(required = false) ProductStatus status
-    ) {
+        // ===========================
+        // 📌 Lọc theo trạng thái sản phẩm
+        // ===========================
+        @Parameter(
+                description = "Trạng thái sản phẩm",
+                schema = @Schema(allowableValues = {"ACTIVE", "INACTIVE", "DISCONTINUED"}),
+                example = "ACTIVE"
+        )
+        @RequestParam(required = false) ProductStatus status,
 
-        // 🔥 FIX UUID RỖNG
-        UUID storeUUID = null;
-        if (storeId != null && !storeId.isBlank()) {
-            try {
-                storeUUID = UUID.fromString(storeId.trim());
-            } catch (Exception e) {
-                return ResponseEntity.badRequest().body(
-                        BaseResponse.error("❌ storeId không đúng định dạng UUID")
-                );
-            }
+        // ===========================
+        // 💰 Lọc theo giá tối thiểu
+        // ===========================
+        @Parameter(description = "Giá thấp nhất cần lọc (áp dụng cho cả variant)", example = "500000")
+        @RequestParam(required = false) BigDecimal minPrice,
+
+        // ===========================
+        // 💰 Lọc theo giá tối đa
+        // ===========================
+        @Parameter(description = "Giá cao nhất cần lọc (áp dụng cho cả variant)", example = "2000000")
+        @RequestParam(required = false) BigDecimal maxPrice
+) {
+
+    // ======================================================
+    // 🛠️ KIỂM TRA & CHUYỂN storeId từ String → UUID
+    // ======================================================
+    UUID storeUUID = null;
+
+    if (storeId != null && !storeId.isBlank()) {
+        try {
+            storeUUID = UUID.fromString(storeId.trim());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(
+                    BaseResponse.error("❌ storeId không đúng định dạng UUID")
+            );
         }
-
-        return productService.getAllProducts(
-                categoryName,
-                storeUUID,
-                keyword,
-                page,
-                size,
-                status
-        );
     }
+
+    // ======================================================
+    // 🚀 CALL SERVICE
+    // ======================================================
+    return productService.getAllProducts(
+            categoryName,
+            storeUUID,
+            keyword,
+            page,
+            size,
+            status,
+            minPrice,
+            maxPrice
+    );
+}
+
 
     // ============================================================
     // 🔎 GET: Chi tiết sản phẩm
@@ -170,5 +208,24 @@ public class ProductController {
             @PathVariable UUID productId
     ) {
         return productService.disableProduct(productId);
+    }
+
+    // ============================================================
+    // 👁️ POST: Tăng lượt xem sản phẩm
+    // ============================================================
+    @Operation(
+            summary = "👁️ Tăng lượt xem sản phẩm",
+            description = """
+                    • API công khai, tăng viewCount của sản phẩm lên 1.  
+                    • Gọi khi user xem chi tiết sản phẩm.  
+                    • Trả về productId và viewCount mới.  
+                    """
+    )
+    @PostMapping("/{productId}/view")
+    public ResponseEntity<BaseResponse> incrementViewCount(
+            @Parameter(description = "UUID sản phẩm", example = "8e7e26a8-2b2a-4bc5-a617-40a9e2a6f1f0")
+            @PathVariable UUID productId
+    ) {
+        return productService.incrementViewCount(productId);
     }
 }

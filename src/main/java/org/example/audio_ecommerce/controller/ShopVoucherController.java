@@ -8,7 +8,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ShopVoucherRequest;
+import org.example.audio_ecommerce.dto.request.ShopWideVoucherRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.entity.Enum.ShopVoucherScopeType;
+import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.service.ShopVoucherService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -89,6 +92,74 @@ public class ShopVoucherController {
     }
 
     // ============================================================
+    // ➕ TẠO VOUCHER TOÀN SHOP (KHÔNG GIỚI HẠN, KHÔNG LIÊN KẾT SẢN PHẨM)
+    // ============================================================
+    /**
+     * Tạo voucher áp dụng cho toàn bộ cửa hàng hoặc sản phẩm cụ thể.
+     * FE cần truyền trường scopeType để chọn loại voucher:
+     * - PRODUCT_VOUCHER: Áp dụng cho sản phẩm cụ thể (cần truyền products)
+     * - ALL_SHOP_VOUCHER: Áp dụng toàn shop (không cần products)
+     *
+     * Ví dụ request tạo voucher toàn shop:
+     * {
+     *   "code": "SALEALL",
+     *   "title": "Giảm 10% toàn shop",
+     *   "description": "Áp dụng cho mọi đơn hàng",
+     *   "type": "PERCENT",
+     *   "discountPercent": 10,
+     *   "minOrderValue": 100000,
+     *   "startTime": "2025-12-01T00:00:00",
+     *   "endTime": "2025-12-31T23:59:59",
+     *   "scopeType": "ALL_SHOP_VOUCHER"
+     * }
+     *
+     * Ví dụ request tạo voucher cho sản phẩm:
+     * {
+     *   "code": "SALEPROD",
+     *   "title": "Giảm 10% cho sản phẩm",
+     *   "type": "PERCENT",
+     *   "discountPercent": 10,
+     *   "products": [ ... ],
+     *   "scopeType": "PRODUCT_VOUCHER"
+     * }
+     *
+     * @param req Thông tin voucher toàn shop
+     * @return ResponseEntity<BaseResponse>
+     */
+    @Operation(
+        summary = "Tạo voucher toàn shop (không giới hạn, không liên kết sản phẩm)",
+        description = "Tạo voucher áp dụng cho toàn bộ cửa hàng, không giới hạn số lượng, không liên kết sản phẩm.\n" +
+                "FE chỉ cần truyền các trường cơ bản, không cần products, totalVoucherIssued, usagePerUser.\n" +
+                "\nVí dụ request:\n" +
+                "{\n" +
+                "  \"code\": \"SALEALL\",\n" +
+                "  \"title\": \"Giảm 10% toàn shop\",\n" +
+                "  \"description\": \"Áp dụng cho mọi đơn hàng\",\n" +
+                "  \"type\": \"PERCENT\",\n" +
+                "  \"discountPercent\": 10,\n" +
+                "  \"minOrderValue\": 100000,\n" +
+                "  \"startTime\": \"2025-12-01T00:00:00\",\n" +
+                "  \"endTime\": \"2025-12-31T23:59:59\"\n" +
+                "}\n",
+        requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            required = true,
+            description = "Thông tin tạo voucher toàn shop",
+            content = @Content(
+                schema = @Schema(implementation = ShopWideVoucherRequest.class)
+            )
+        ),
+        responses = {
+            @ApiResponse(responseCode = "201", description = "Voucher toàn shop đã được tạo thành công"),
+            @ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ hoặc lỗi logic"),
+            @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+        }
+    )
+    @PostMapping("/shop-wide")
+    public ResponseEntity<BaseResponse> createShopWideVoucher(@RequestBody ShopWideVoucherRequest req) {
+        return service.createShopWideVoucher(req);
+    }
+
+    // ============================================================
     // 📦 GET ALL VOUCHERS
     // ============================================================
     @Operation(
@@ -153,5 +224,65 @@ public class ShopVoucherController {
 public ResponseEntity<BaseResponse> getVoucherByProduct(@PathVariable UUID productId) {
     return service.getActiveVoucherByProductId(productId);
 }
+
+/**
+     * Lấy danh sách voucher theo trạng thái và loại scopeType.
+     * Query: status (ACTIVE, DISABLED, ...), scopeType (PRODUCT_VOUCHER, ALL_SHOP_VOUCHER, null)
+     * Nếu không truyền scopeType sẽ trả về tất cả theo trạng thái.
+     * Ví dụ:
+     *   /api/shop-vouchers/filter?status=ACTIVE&scopeType=ALL_SHOP_VOUCHER
+     */
+    @Operation(
+        summary = "Lọc voucher theo trạng thái và loại voucher",
+        description = "Lấy danh sách voucher theo trạng thái (ACTIVE, DISABLED, ...) và loại voucher (PRODUCT_VOUCHER, ALL_SHOP_VOUCHER).\n" +
+                "- Query: status (bắt buộc), scopeType (tùy chọn: PRODUCT_VOUCHER, ALL_SHOP_VOUCHER).\n" +
+                "- Nếu không truyền scopeType sẽ trả về tất cả voucher theo trạng thái.\n" +
+                "\nVí dụ:\n" +
+                "  /api/shop-vouchers/filter?status=ACTIVE&scopeType=ALL_SHOP_VOUCHER\n" +
+                "  /api/shop-vouchers/filter?status=ACTIVE\n",
+        parameters = {
+            @io.swagger.v3.oas.annotations.Parameter(name = "status", description = "Trạng thái voucher (ACTIVE, DISABLED, ...)", required = true),
+            @io.swagger.v3.oas.annotations.Parameter(name = "scopeType", description = "Loại voucher: PRODUCT_VOUCHER (áp dụng cho sản phẩm), ALL_SHOP_VOUCHER (toàn shop)", required = false)
+        },
+        responses = {
+            @ApiResponse(responseCode = "200", description = "Danh sách voucher theo trạng thái và loại"),
+            @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+        }
+    )
+    @GetMapping("/filter")
+    public ResponseEntity<BaseResponse> getVouchersByStatusAndType(@RequestParam VoucherStatus status,
+                                                                  @RequestParam(required = false) ShopVoucherScopeType scopeType) {
+        return service.getActiveVouchersByType(status, scopeType);
+    }
+
+    /**
+     * Lấy tất cả voucher của một cửa hàng theo storeId, có thể lọc theo trạng thái và loại voucher.
+     * Query: storeId (bắt buộc), status (tùy chọn), scopeType (tùy chọn)
+     * Ví dụ:
+     *   /api/shop-vouchers/by-store?storeId=...&status=ACTIVE&scopeType=ALL_SHOP_VOUCHER
+     */
+    @Operation(
+        summary = "Lấy tất cả voucher của cửa hàng theo storeId, lọc theo trạng thái và loại",
+        description = "Trả về danh sách voucher của một cửa hàng theo storeId, có thể lọc theo trạng thái (ACTIVE, DISABLED, ...) và loại voucher (PRODUCT_VOUCHER, ALL_SHOP_VOUCHER).\n" +
+                "- Query: storeId (bắt buộc), status (tùy chọn), scopeType (tùy chọn).\n" +
+                "\nVí dụ:\n" +
+                "  /api/shop-vouchers/by-store?storeId=...&status=ACTIVE&scopeType=ALL_SHOP_VOUCHER\n",
+        parameters = {
+            @io.swagger.v3.oas.annotations.Parameter(name = "storeId", description = "ID cửa hàng", required = true),
+            @io.swagger.v3.oas.annotations.Parameter(name = "status", description = "Trạng thái voucher (ACTIVE, DISABLED, ...)", required = false),
+            @io.swagger.v3.oas.annotations.Parameter(name = "scopeType", description = "Loại voucher: PRODUCT_VOUCHER, ALL_SHOP_VOUCHER", required = false)
+        },
+        responses = {
+            @ApiResponse(responseCode = "200", description = "Danh sách voucher theo storeId, trạng thái và loại"),
+            @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+        }
+    )
+    @GetMapping("/by-store")
+    public ResponseEntity<BaseResponse> getVouchersByStore(
+            @RequestParam UUID storeId,
+            @RequestParam(required = false) VoucherStatus status,
+            @RequestParam(required = false) ShopVoucherScopeType scopeType) {
+        return service.getVouchersByStore(storeId, status, scopeType);
+    }
 
 }
