@@ -42,6 +42,7 @@ public class CartServiceImpl implements CartService {
     private final OrderCodeGeneratorService orderCodeGeneratorService;
     private final PlatformCampaignProductRepository platformCampaignProductRepository;
     private final NotificationCreatorService notificationCreatorService;
+    private final PlatformFeeRepository platformFeeRepository;
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -509,6 +510,12 @@ public class CartServiceImpl implements CartService {
         Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
         Map<UUID, Store> storeCache = new HashMap<>();
 
+        // Lấy platform fee percentage hiện tại để snapshot vào StoreOrder
+        BigDecimal platformFeePercentage = platformFeeRepository
+                .findFirstByIsActiveTrueOrderByEffectiveDateDesc()
+                .map(PlatformFee::getPercentage)
+                .orElse(BigDecimal.ZERO);
+
         // Kết quả orders để trả về
         List<CustomerOrder> createdOrders = new ArrayList<>();
 
@@ -631,6 +638,9 @@ public class CartServiceImpl implements CartService {
                     .shipNote(co.getShipNote())
                     .shippingFee(shippingFee)
                     .shippingServiceTypeId(serviceTypeIdForStore)
+                    // snapshot platform fee percentage và actual shipping fee từ GHN
+                    .platformFeePercentage(platformFeePercentage)
+                    .actualShippingFee(shippingFee)  // GHN totalFee, bằng shippingFee tại thời điểm này
                     .build();
             so.setPaymentMethod(co.getPaymentMethod());
 
@@ -1093,6 +1103,12 @@ public class CartServiceImpl implements CartService {
         // Dùng cho voucher services
         Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
 
+        // Lấy platform fee percentage hiện tại để snapshot vào StoreOrder
+        BigDecimal platformFeePercentage = platformFeeRepository
+                .findFirstByIsActiveTrueOrderByEffectiveDateDesc()
+                .map(PlatformFee::getPercentage)
+                .orElse(BigDecimal.ZERO);
+
         // Kết quả
         List<CustomerOrder> createdOrders = new ArrayList<>();
 
@@ -1179,6 +1195,9 @@ public class CartServiceImpl implements CartService {
                     .shipNote((co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]")
                     .shippingFee(shippingFee)
                     .shippingServiceTypeId(serviceTypeIdForStore) // null
+                    // snapshot platform fee percentage (actual shipping = 0 cho store-ship)
+                    .platformFeePercentage(platformFeePercentage)
+                    .actualShippingFee(BigDecimal.ZERO)  // store-ship không có phí GHN
                     .build();
             so.setPaymentMethod(co.getPaymentMethod());
 

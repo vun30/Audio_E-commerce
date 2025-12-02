@@ -124,7 +124,6 @@ public class SettlementService {
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
                 .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
-        BigDecimal platformFeeRate = getCurrentPlatformFeeRate();
         LocalDateTime now = LocalDateTime.now();
 
         BigDecimal totalProductsAllStores = BigDecimal.ZERO;
@@ -150,7 +149,13 @@ public class SettlementService {
                 extraShip = BigDecimal.ZERO;
             }
 
-            // 2.3 Phí nền tảng
+            // 2.3 Phí nền tảng - SỬ DỤNG % ĐÃ SNAPSHOT TẠI THỜI ĐIỂM CHECKOUT
+            BigDecimal platformFeePercentage = Optional.ofNullable(so.getPlatformFeePercentage())
+                    .orElse(BigDecimal.ZERO);
+            // Chuyển từ % sang rate (5.00 -> 0.05)
+            BigDecimal platformFeeRate = platformFeePercentage
+                    .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
+            
             BigDecimal platformFeeAmount = productsTotal.multiply(platformFeeRate)
                     .setScale(0, RoundingMode.DOWN);
 
@@ -178,7 +183,8 @@ public class SettlementService {
                 detail.put("customerShippingFee", customerShipFee.longValueExact());
                 detail.put("actualShippingFee", actualShipFee.longValueExact());
                 detail.put("shippingExtraForStore", extraShip.longValueExact());
-                detail.put("platformFeeRate", platformFeeRate.stripTrailingZeros().toPlainString());
+                detail.put("platformFeePercentage", platformFeePercentage.stripTrailingZeros().toPlainString()); // % gốc (5.00)
+                detail.put("platformFeeRate", platformFeeRate.stripTrailingZeros().toPlainString()); // rate (0.05)
                 detail.put("platformFeeAmount", platformFeeAmount.longValueExact());
                 detail.put("netPayoutToStore", netPayout.longValueExact());
                 detail.put("settledAt", now.toString());
@@ -521,13 +527,4 @@ public class SettlementService {
                 .build();
         walletTxRepo.save(wtx);
     }
-
-    private BigDecimal getCurrentPlatformFeeRate() {
-        return platformFeeRepo.findFirstByIsActiveTrueOrderByEffectiveDateDesc()
-                .map(f -> f.getPercentage()
-                        .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)) // 5.00 → 0.0500
-                .orElse(BigDecimal.ZERO);
-    }
-
-
 }
