@@ -337,8 +337,6 @@ public class ChatServiceImpl implements ChatService {
                     .get()
                     .getDocuments();
 
-            if (docs.isEmpty()) return;
-
             boolean isCustomer = "CUSTOMER".equalsIgnoreCase(viewerType);
             boolean isStore = "STORE".equalsIgnoreCase(viewerType);
 
@@ -347,43 +345,57 @@ public class ChatServiceImpl implements ChatService {
             }
 
             WriteBatch batch = firestore.batch();
-            int cnt = 0;
 
+            // =========================
+            // 1) XÓA SOFT HOẶC HARD PER MESSAGE
+            // =========================
             for (QueryDocumentSnapshot doc : docs) {
                 Boolean deletedForCustomer = doc.getBoolean("deletedForCustomer");
                 Boolean deletedForStore = doc.getBoolean("deletedForStore");
 
+                boolean afterCus = deletedForCustomer != null && deletedForCustomer;
+                boolean afterStore = deletedForStore != null && deletedForStore;
+
+                // soft delete
                 Map<String, Object> update = new HashMap<>();
-
-                if (isCustomer && !Boolean.TRUE.equals(deletedForCustomer)) {
+                if (isCustomer) {
                     update.put("deletedForCustomer", true);
+                    afterCus = true;
                 }
-                if (isStore && !Boolean.TRUE.equals(deletedForStore)) {
+                if (isStore) {
                     update.put("deletedForStore", true);
+                    afterStore = true;
                 }
 
-                if (!update.isEmpty()) {
-                    batch.set(doc.getReference(), update, SetOptions.merge());
-                    cnt++;
+                batch.set(doc.getReference(), update, SetOptions.merge());
 
-                    // OPTIONAL: nếu cả 2 bên đều xoá sau khi update -> xoá doc
-                    boolean afterCus = isCustomer ? true : Boolean.TRUE.equals(deletedForCustomer);
-                    boolean afterStore = isStore ? true : Boolean.TRUE.equals(deletedForStore);
-                    if (afterCus && afterStore) {
-                        batch.delete(doc.getReference());
-                    }
+                // nếu cả 2 bên xoá thì hard delete
+                if (afterCus && afterStore) {
+                    batch.delete(doc.getReference());
                 }
             }
 
-            if (cnt > 0) {
-                batch.commit().get();
-            }
+            batch.commit().get();
+
+            // =========================
+            // 2) RESET LAST MESSAGE + UNREAD COUNT
+            // =========================
+            Map<String, Object> resetMeta = new HashMap<>();
+            resetMeta.put("lastMessage", "");
+            resetMeta.put("lastMessageTime", null);
+            resetMeta.put("customerUnreadCount", 0L);
+            resetMeta.put("storeUnreadCount", 0L);
+
+            firestore.collection("conversations")
+                    .document(conversationId)
+                    .set(resetMeta, SetOptions.merge());
 
         } catch (Exception e) {
             log.error("Error deleting all messages", e);
             throw new RuntimeException("Failed to delete all messages");
         }
     }
+
 
     private List<ChatConversationResponse> getConversationList(String field, String id) {
         try {
