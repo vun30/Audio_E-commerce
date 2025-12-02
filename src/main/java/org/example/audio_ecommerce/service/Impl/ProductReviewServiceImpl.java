@@ -9,6 +9,7 @@ import org.example.audio_ecommerce.dto.response.ProductReviewResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.service.NotificationCreatorService;
 import org.example.audio_ecommerce.service.ProductReviewService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,7 +29,8 @@ public class ProductReviewServiceImpl implements ProductReviewService {
     private final CustomerOrderItemRepository orderItemRepo;
     private final ProductRepository productRepo;
     private final StoreRepository storeRepo;
-    private final NotificationRepository notificationRepo;
+    private final NotificationCreatorService notificationCreatorService;
+
 
     // ================== CREATE ==================
     @Override
@@ -96,19 +98,21 @@ public class ProductReviewServiceImpl implements ProductReviewService {
 
         // 🔔 Thông báo cho STORE có review mới
         try {
-            notificationRepo.save(Notification.builder()
-                    .target(NotificationTarget.STORE)
-                    .targetId(store.getStoreId())
-                    .type(NotificationType.NEW_REVIEW)
-                    .title("Đánh giá mới cho sản phẩm " + product.getName())
-                    .message("Khách hàng " + customer.getFullName()
-                            + " đã đánh giá " + req.getRating() + "★ cho sản phẩm " + product.getName())
-                    .actionUrl("/seller/products/" + product.getProductId() + "/reviews") // FE map route tuỳ bạn
-                    .read(false)
-                    .build()
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.STORE,
+                    store.getStoreId(),
+                    NotificationType.NEW_REVIEW,
+                    "Đánh giá mới cho sản phẩm " + product.getName(),
+                    "Khách hàng " + customer.getFullName()
+                            + " đã đánh giá " + req.getRating() + "★ cho sản phẩm " + product.getName(),
+                    "/seller/products/" + product.getProductId() + "/reviews",
+                    "{\"productId\":\"" + product.getProductId() + "\"}",
+                    Map.of(
+                            "screen", "SELLER_PRODUCT_REVIEWS",
+                            "productId", String.valueOf(product.getProductId())
+                    )
             );
         } catch (Exception e) {
-            // tránh làm fail luôn createReview, chỉ log
             e.printStackTrace();
         }
         return toResponse(saved);
@@ -213,25 +217,31 @@ public class ProductReviewServiceImpl implements ProductReviewService {
         replyRepo.save(reply);
 
         review.getReplies().add(reply);
+
         // 🔔 Thông báo cho CUSTOMER khi shop reply
         try {
             Customer customer = review.getCustomer();
             Product product = review.getProduct();
 
-            notificationRepo.save(Notification.builder()
-                    .target(NotificationTarget.CUSTOMER)
-                    .targetId(customer.getId())
-                    .type(NotificationType.NEW_REVIEW_REPLY) // dùng type mới
-                    .title("Cửa hàng đã phản hồi đánh giá của bạn")
-                    .message("Cửa hàng " + review.getStore().getStoreName()
-                            + " đã trả lời đánh giá cho sản phẩm " + product.getName())
-                    .actionUrl("/customer/products/" + product.getProductId() + "/reviews") // hoặc /customer/orders/{orderId}
-                    .read(false)
-                    .build()
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.CUSTOMER,
+                    customer.getId(),
+                    NotificationType.NEW_REVIEW_REPLY,
+                    "Cửa hàng đã phản hồi đánh giá của bạn",
+                    "Cửa hàng " + review.getStore().getStoreName()
+                            + " đã trả lời đánh giá cho sản phẩm " + product.getName(),
+                    "/customer/products/" + product.getProductId() + "/reviews",
+                    "{\"productId\":\"" + product.getProductId() + "\"}",
+                    Map.of(
+                            "screen", "PRODUCT_REVIEW_DETAIL",
+                            "productId", String.valueOf(product.getProductId())
+                    )
             );
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+
         return toResponse(review);
     }
 
