@@ -72,11 +72,6 @@ public class PlatformCampaignProduct {
 @Enumerated(EnumType.STRING)
 private VoucherType type; // FIXED / PERCENT / SHIPPING
 
-@Column(precision = 12, scale = 2)
-private BigDecimal originalPrice;
-
-@Column(precision = 12, scale = 2)
-private BigDecimal discountedPrice;
 
     // =======================================================
     // ⏰ THỜI GIAN & TRẠNG THÁI

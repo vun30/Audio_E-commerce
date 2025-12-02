@@ -1437,11 +1437,8 @@ public class CartServiceImpl implements CartService {
         BigDecimal result = basePrice.subtract(discountAmount);
         if (result.compareTo(BigDecimal.ZERO) < 0) result = BigDecimal.ZERO;
 
-        // Optional: lưu lại original/discounted để report
-        cp.setOriginalPrice(basePrice);
-        cp.setDiscountedPrice(result);
-        // Không bắt buộc save ở đây (tránh N+1), nên mình không gọi repo.save(cp).
-
+        // FE sẽ tính và hiển thị giá discount dựa trên giá biến thể
+        
         return result;
     }
 

@@ -35,7 +35,6 @@ public class CampaignProductOverviewResponse {
         private UUID productId;
         private String productName;
         private String productImage;
-        private BigDecimal originalPrice;
         private UUID storeId;
         private String storeName;
         private VoucherDto voucher;
