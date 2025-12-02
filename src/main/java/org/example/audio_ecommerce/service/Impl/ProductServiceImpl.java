@@ -30,6 +30,7 @@ public class ProductServiceImpl implements ProductService {
     private final CategoryRepository categoryRepository;
     private final PlatformFeeRepository platformFeeRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final PlatformCampaignProductRepository platformCampaignProductRepository;
 
     // ============================================================
     // 🔧 Helper: Sinh slug duy nhất
@@ -263,6 +264,53 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
             throw new RuntimeException("❌ You are not allowed to update another store's product");
         }
 
+        // =====================================================
+        // 🛡️ CAMPAIGN PRICE PROTECTION RULES
+        // =====================================================
+        LocalDateTime now = LocalDateTime.now();
+        List<PlatformCampaignProduct> activeCampaignEntries = platformCampaignProductRepository.findAllActiveByProduct(p.getProductId(), now);
+        boolean inFlashSale = activeCampaignEntries.stream()
+                .anyMatch(e -> e.getCampaign() != null && "FAST_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
+        boolean inMegaSale = activeCampaignEntries.stream()
+                .anyMatch(e -> e.getCampaign() != null && "MEGA_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
+
+        // 🔒 FAST_SALE: Không được phép sửa giá sản phẩm hoặc giá biến thể
+        if (inFlashSale) {
+            if (req.getPrice() != null) {
+                throw new RuntimeException("⚠️ Product is in an ACTIVE FAST_SALE campaign. Price update is not allowed.");
+            }
+            if (req.getVariantsToUpdate() != null && req.getVariantsToUpdate().stream().anyMatch(v -> v.getVariantPrice() != null)) {
+                throw new RuntimeException("⚠️ Product is in FAST_SALE. Variant price update is not allowed.");
+            }
+            if (req.getVariantsToAdd() != null && req.getVariantsToAdd().stream().anyMatch(v -> v.getVariantPrice() != null)) {
+                throw new RuntimeException("⚠️ Product is in FAST_SALE. Adding variants with price modification is not allowed.");
+            }
+        }
+
+        // 🔒 MEGA_SALE: Chỉ cho phép tăng giá (product & variant), không giảm
+        if (inMegaSale) {
+            // Sản phẩm không có biến thể -> kiểm tra trực tiếp price
+            if (req.getPrice() != null && p.getPrice() != null && req.getPrice().compareTo(p.getPrice()) < 0) {
+                throw new RuntimeException("⚠️ Product is in an ACTIVE MEGA_SALE campaign. Price decrease is not allowed.");
+            }
+            // Kiểm tra biến thể cập nhật
+            if (req.getVariantsToUpdate() != null) {
+                for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
+                    if (v.getVariantPrice() != null) {
+                        ProductVariantEntity existingVariant = productVariantRepository
+                                .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
+                                .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
+                        if (v.getVariantPrice().compareTo(existingVariant.getVariantPrice()) < 0) {
+                            throw new RuntimeException("⚠️ Variant price decrease is not allowed during MEGA_SALE (variantId=" + v.getVariantId() + ")");
+                        }
+                    }
+                }
+            }
+            // Biến thể thêm mới: cho phép, vì không phải giảm giá
+        }
+        // =====================================================
+        // (Tiếp tục logic update hiện có)
+        // =====================================================
         // =======================
         // 1️⃣ UPDATE BASIC FIELDS
         // =======================
@@ -287,14 +335,14 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         }
 
         // Update timestamps
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime nowUpdate = LocalDateTime.now();
         long intervalDays = p.getLastUpdatedAt() != null
-                ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), now)
+                ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), nowUpdate)
                 : 0L;
 
         p.setLastUpdateIntervalDays(intervalDays);
-        p.setLastUpdatedAt(now);
-        p.setUpdatedAt(now);
+        p.setLastUpdatedAt(nowUpdate);
+        p.setUpdatedAt(nowUpdate);
         p.setUpdatedBy(store.getAccount().getId());
 
         // Map toàn bộ detail fields

@@ -17,4 +17,10 @@ public interface StoreKycRepository extends JpaRepository<StoreKyc, String> {
 
     // 📜 Lấy toàn bộ request theo trạng thái (dành cho admin dashboard)
     List<StoreKyc> findByStatusOrderBySubmittedAtDesc(KycStatus status);
+
+    // ✅ Kiểm tra business license number đã được đăng ký hay chưa
+    boolean existsByBusinessLicenseNumber(String businessLicenseNumber);
+
+    // ✅ Kiểm tra business license number đã được approved hay chưa
+    boolean existsByBusinessLicenseNumberAndStatus(String businessLicenseNumber, KycStatus status);
 }

@@ -41,6 +41,15 @@ public class StoreKycServiceImpl implements StoreKycService {
         if (hasPending)
             throw new IllegalStateException("Store đã gửi KYC và đang chờ duyệt");
 
+        // ✅ Kiểm tra business license number đã được đăng ký (APPROVED) bởi store khác
+        boolean licenseExists = storeKycRepository.existsByBusinessLicenseNumberAndStatus(
+                request.getBusinessLicenseNumber(),
+                KycStatus.APPROVED
+        );
+        if (licenseExists) {
+            throw new IllegalStateException("Số giấy phép kinh doanh này đã được đăng ký trong hệ thống");
+        }
+
         StoreKyc kyc = StoreKyc.builder()
                 .id(UUID.randomUUID().toString())
                 .store(store)
@@ -196,5 +205,15 @@ public class StoreKycServiceImpl implements StoreKycService {
     @Override
     public List<StoreKyc> getRequestsByStatus(KycStatus status) {
         return storeKycRepository.findByStatusOrderBySubmittedAtDesc(status);
+    }
+
+    // ==================== KIỂM TRA BUSINESS LICENSE ====================
+    @Override
+    public boolean checkBusinessLicenseExists(String businessLicenseNumber) {
+        // Kiểm tra xem business license đã được APPROVED trong hệ thống chưa
+        return storeKycRepository.existsByBusinessLicenseNumberAndStatus(
+                businessLicenseNumber,
+                KycStatus.APPROVED
+        );
     }
 }
