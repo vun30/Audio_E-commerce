@@ -23,8 +23,6 @@ public class SlotProductsResponse {
         private UUID productId;
         private String productName;
         private String brandName;
-        private BigDecimal originalPrice;
-        private BigDecimal discountedPrice;
 
         private VoucherType type;
         private BigDecimal discountValue;
