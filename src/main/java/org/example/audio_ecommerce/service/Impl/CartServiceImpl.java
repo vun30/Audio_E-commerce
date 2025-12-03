@@ -647,6 +647,31 @@ public class CartServiceImpl implements CartService {
 
             List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
+                BigDecimal baseListUnit = ci.getType() == CartItemType.COMBO
+                        ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
+                        : (ci.getVariant() != null
+                            ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
+                            : getBaseUnitPrice(ci.getProduct()));
+                BigDecimal bulkUnit = ci.getType() == CartItemType.COMBO
+                        ? baseListUnit
+                        : (ci.getVariant() != null
+                            ? baseListUnit
+                            : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+                BigDecimal lineBefore = baseListUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
+
+                BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
+                if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
+                BigDecimal platformDiscount = platformPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
+
+                BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
+                if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
+                BigDecimal shopItemDiscount = shopItemPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
+
+                BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
+                BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
+                if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+                BigDecimal finalUnit = finalLine.divide(BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN);
+
                 soItems.add(StoreOrderItem.builder()
                         .storeOrder(so)
                         .type(ci.getType().name())
@@ -656,8 +681,19 @@ public class CartServiceImpl implements CartService {
                         .variantId(ci.getVariantIdOrNull())
                         .variantOptionName(ci.getVariantOptionNameSnapshot())
                         .variantOptionValue(ci.getVariantOptionValueSnapshot())
+                        // legacy fields
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
+                        // snapshot fields
+                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
+                        .linePriceBeforeDiscount(lineBefore)
+                        .platformVoucherDiscount(platformDiscount)
+                        .shopItemDiscount(shopItemDiscount)
+                        .shopOrderVoucherDiscount(java.math.BigDecimal.ZERO)
+                        .totalItemDiscount(totalItemDiscount)
+                        .finalUnitPrice(finalUnit)
+                        .finalLineTotal(finalLine)
+                        .amountCharged(finalLine)
                         .build());
             }
             so.setItems(soItems);
@@ -718,6 +754,43 @@ public class CartServiceImpl implements CartService {
                 String platJson = platformDetailJsonByStore.getOrDefault(sid, "{}");
                 so.setStoreVoucherDetailJson(storeJson);
                 so.setPlatformVoucherDetailJson(platJson);
+
+                // Allocate shop-order voucher to items proportionally
+                if (sv != null && sv.compareTo(BigDecimal.ZERO) > 0) {
+                    List<StoreOrderItem> items = Optional.ofNullable(so.getItems()).orElse(List.of());
+                    BigDecimal subtotalBefore = items.stream()
+                            .map(StoreOrderItem::getLinePriceBeforeDiscount)
+                            .filter(Objects::nonNull)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    if (subtotalBefore.compareTo(BigDecimal.ZERO) > 0 && !items.isEmpty()) {
+                        BigDecimal allocated = BigDecimal.ZERO;
+                        for (int i = 0; i < items.size(); i++) {
+                            StoreOrderItem it = items.get(i);
+                            BigDecimal share = it.getLinePriceBeforeDiscount()
+                                    .multiply(sv)
+                                    .divide(subtotalBefore, 0, RoundingMode.DOWN);
+                            if (i == items.size() - 1) {
+                                share = sv.subtract(allocated);
+                            }
+                            it.setShopOrderVoucherDiscount(share);
+
+                            BigDecimal platformD = Optional.ofNullable(it.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal shopItemD = Optional.ofNullable(it.getShopItemDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal totalD = platformD.add(shopItemD).add(share);
+                            it.setTotalItemDiscount(totalD);
+
+                            BigDecimal lineBefore = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal finalLine = lineBefore.subtract(totalD);
+                            if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+                            it.setFinalLineTotal(finalLine);
+                            BigDecimal finalUnit = finalLine.divide(BigDecimal.valueOf(Math.max(it.getQuantity(), 1)), 0, RoundingMode.DOWN);
+                            it.setFinalUnitPrice(finalUnit);
+                            it.setAmountCharged(finalLine);
+
+                            allocated = allocated.add(share);
+                        }
+                    }
+                }
 
                 storeOrderRepository.save(so);
             }
@@ -1203,6 +1276,31 @@ public class CartServiceImpl implements CartService {
 
             List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
+                BigDecimal baseListUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
+                        ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
+                        : (ci.getVariant() != null
+                            ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
+                            : getBaseUnitPrice(ci.getProduct()));
+                BigDecimal bulkUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
+                        ? baseListUnit
+                        : (ci.getVariant() != null
+                            ? baseListUnit
+                            : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+                BigDecimal lineBefore = baseListUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
+
+                BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
+                if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
+                BigDecimal platformDiscount = platformPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
+
+                BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
+                if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
+                BigDecimal shopItemDiscount = shopItemPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
+
+                BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
+                BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
+                if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+                BigDecimal finalUnit = finalLine.divide(BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN);
+
                 soItems.add(StoreOrderItem.builder()
                         .storeOrder(so)
                         .type(ci.getType().name())
@@ -1212,8 +1310,19 @@ public class CartServiceImpl implements CartService {
                         .variantId(ci.getVariantIdOrNull())
                         .variantOptionName(ci.getVariantOptionNameSnapshot())
                         .variantOptionValue(ci.getVariantOptionValueSnapshot())
+                        // legacy fields
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
+                        // snapshot fields
+                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
+                        .linePriceBeforeDiscount(lineBefore)
+                        .platformVoucherDiscount(platformDiscount)
+                        .shopItemDiscount(shopItemDiscount)
+                        .shopOrderVoucherDiscount(java.math.BigDecimal.ZERO)
+                        .totalItemDiscount(totalItemDiscount)
+                        .finalUnitPrice(finalUnit)
+                        .finalLineTotal(finalLine)
+                        .amountCharged(finalLine)
                         .build());
             }
             so.setItems(soItems);
