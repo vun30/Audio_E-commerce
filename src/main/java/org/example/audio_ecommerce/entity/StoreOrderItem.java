@@ -48,6 +48,7 @@ public class StoreOrderItem {
     @Column(nullable = false)
     private BigDecimal unitPrice;
 
+
     // Giá vốn (cost price) của từng đơn vị sản phẩm (mặc định = 0 nếu chưa có dữ liệu)
     @Column(name = "cost_price", precision = 18, scale = 2)
     private BigDecimal costPrice = BigDecimal.ZERO;
