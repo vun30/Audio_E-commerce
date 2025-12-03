@@ -19,53 +19,66 @@ import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.stereotype.Component;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
 @RequiredArgsConstructor
-@Component
 public class SecurityConfig {
     private final JwtFilter jwtFilter;
     private final OAuth2UserService oAuth2UserService;
     private final OAuth2AuthenticationSuccessHandler  oAuth2SuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2FailureHandler;
+
     @Bean
     PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+
+    // Bean cấu hình CORS dùng allowedOriginPatterns, áp dụng cho toàn bộ API
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration corsConfiguration = new CorsConfiguration();
+        // Header cho phép
+        corsConfiguration.setAllowedHeaders(List.of("*"));
+        // Method cho phép
+        corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        // Origin cho phép (dùng pattern để linh hoạt hơn)
+        corsConfiguration.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",              // tất cả port localhost (dev)
+                "https://*.railway.app",           // mọi subdomain Railway
+                "https://audioe-commerce-production.up.railway.app", // domain hiện tại
+                "https://conicboulevard.pro.vn",
+                "https://www.conicboulevard.pro.vn",
+                "https://conicboulevard.vercel.app",
+                "https://manager.conicboulevard.pro.vn"
+        ));
+        corsConfiguration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", corsConfiguration);
+        return source;
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configurationSource(request -> {
-                    var corsConfiguration = new CorsConfiguration();
-                    corsConfiguration.setAllowedHeaders(List.of("*"));
-                    corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-                    corsConfiguration.setAllowedOrigins(List.of(
-                            "http://localhost:3000",
-                            "http://localhost:5173",
-                            "https://conicboulevard.pro.vn",
-                            "https://www.conicboulevard.pro.vn",
-                            "https://conicboulevard.vercel.app",
-                            "https://manager.conicboulevard.pro.vn",
-                            "http://localhost:8081",
-                            "https://audioe-commerce-production.up.railway.app"
-                    ));
-                    corsConfiguration.setAllowCredentials(true);
-                    return corsConfiguration;
-                }))
+                // dùng bean corsConfigurationSource() thay vì cấu hình inline
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/v3/api-docs/**",
+                        .requestMatchers(
+                                "/v3/api-docs/**",
                                 "/swagger-ui/**",
+                                "/swagger-ui.html",
                                 "/api/account/register/**",
                                 "/api/account/login/**",
-                                "/api/**",
                                 "/oauth2/**",
-                                "/login/oauth2/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
+                                "/login/oauth2/**"
+                        ).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
                         .anyRequest().authenticated()
