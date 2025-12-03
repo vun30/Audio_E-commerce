@@ -18,6 +18,19 @@ public class StoreOrderItemResponse {
     private UUID refId;
     private String name;
     private int quantity;
+
+    // Snapshot pricing
+    private BigDecimal unitPriceBeforeDiscount;
+    private BigDecimal linePriceBeforeDiscount;
+    private BigDecimal platformVoucherDiscount;
+    private BigDecimal shopItemDiscount;
+    private BigDecimal shopOrderVoucherDiscount;
+    private BigDecimal totalItemDiscount;
+    private BigDecimal finalUnitPrice;
+    private BigDecimal finalLineTotal;
+    private BigDecimal amountCharged;
+
+    // Legacy fields kept for compatibility
     private BigDecimal unitPrice;
     private BigDecimal lineTotal;
 }

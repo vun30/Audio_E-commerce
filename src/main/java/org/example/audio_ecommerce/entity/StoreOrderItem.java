@@ -48,6 +48,34 @@ public class StoreOrderItem {
     @Column(nullable = false)
     private BigDecimal unitPrice;
 
+    // Snapshot pricing fields
+    @Column(name = "unit_price_before_discount")
+    private BigDecimal unitPriceBeforeDiscount;
+
+    @Column(name = "line_price_before_discount")
+    private BigDecimal linePriceBeforeDiscount;
+
+    @Column(name = "platform_voucher_discount")
+    private BigDecimal platformVoucherDiscount = BigDecimal.ZERO;
+
+    @Column(name = "shop_item_discount")
+    private BigDecimal shopItemDiscount = BigDecimal.ZERO;
+
+    @Column(name = "shop_order_voucher_discount")
+    private BigDecimal shopOrderVoucherDiscount = BigDecimal.ZERO;
+
+    @Column(name = "total_item_discount")
+    private BigDecimal totalItemDiscount = BigDecimal.ZERO;
+
+    @Column(name = "final_unit_price")
+    private BigDecimal finalUnitPrice;
+
+    @Column(name = "final_line_total")
+    private BigDecimal finalLineTotal;
+
+    @Column(name = "amount_charged")
+    private BigDecimal amountCharged;
+
     // Giá vốn (cost price) của từng đơn vị sản phẩm (mặc định = 0 nếu chưa có dữ liệu)
     @Column(name = "cost_price", precision = 18, scale = 2)
     private BigDecimal costPrice = BigDecimal.ZERO;
