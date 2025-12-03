@@ -5,14 +5,23 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class OpenApiConfig {
+
     @Bean
     public OpenAPI api() {
+
+        // 🔥 THÊM PHẦN SERVER URL CHO RAILWAY
+        Server productionServer = new Server()
+                .url("https://audioe-commerce-production.up.railway.app")
+                .description("Railway Production");
+
         return new OpenAPI()
+                .addServersItem(productionServer) // ✔ Thêm server
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
                 .components(new Components().addSecuritySchemes(
                         "bearerAuth",
@@ -20,7 +29,8 @@ public class OpenApiConfig {
                                 .name("Authorization")
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
-                                .bearerFormat("JWT")))
+                                .bearerFormat("JWT")
+                ))
                 .info(new Info().title("Audio System").version("v1"));
     }
 }
