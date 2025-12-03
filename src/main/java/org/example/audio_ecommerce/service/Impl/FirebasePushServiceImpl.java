@@ -19,7 +19,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class FirebasePushServiceImpl implements FirebasePushService {
 
-    @Value("${firebase.config-path}")
+    @Value("${firebase.credentials}")
     private Resource firebaseConfigPath;
 
     @Value("${firebase.project-id}")
