@@ -351,22 +351,6 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
             // ✅ RULE mới: product không được overlap thời gian với campaign khác
             validateProductNotOverlappingCampaign(product, start, end);
 
-            BigDecimal original = product.getPrice();
-            BigDecimal discounted = original;
-
-            if (item.getType() == VoucherType.FIXED && item.getDiscountValue() != null) {
-                discounted = original.subtract(item.getDiscountValue()).max(BigDecimal.ZERO);
-            } else if (item.getType() == VoucherType.PERCENT && item.getDiscountPercent() != null) {
-                BigDecimal cut = original.multiply(BigDecimal.valueOf(item.getDiscountPercent()))
-                        .divide(BigDecimal.valueOf(100));
-                if (item.getMaxDiscountValue() != null) {
-                    cut = cut.min(item.getMaxDiscountValue());
-                }
-                discounted = original.subtract(cut).max(BigDecimal.ZERO);
-            } else if (item.getType() != VoucherType.SHIPPING) {
-                throw new RuntimeException("❌ Invalid voucher config for product: " + product.getName());
-            }
-
             if (campaignProductRepository.existsByCampaign_IdAndProduct_ProductId(campaignId, product.getProductId()))
                 throw new RuntimeException("⚠️ Product already joined campaign: " + product.getName());
 
@@ -384,8 +368,6 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
                     .totalUsageLimit(item.getTotalUsageLimit())
                     .usagePerUser(item.getUsagePerUser())
                     .remainingUsage(item.getTotalUsageLimit())
-                    .originalPrice(original)
-                    .discountedPrice(discounted)
                     .startTime(start)
                     .endTime(end)
                     .status(VoucherStatus.DRAFT)
@@ -480,8 +462,6 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
                                 .productId(p.getProduct().getProductId())
                                 .productName(p.getProduct().getName())
                                 .brandName(p.getProduct().getBrandName())
-                                .originalPrice(p.getOriginalPrice())
-                                .discountedPrice(p.getDiscountedPrice())
                                 .type(p.getType())
                                 .discountValue(p.getDiscountValue())
                                 .discountPercent(p.getDiscountPercent())
@@ -950,7 +930,6 @@ public void tickAllCampaigns() {
                                         ? product.getImages().get(0)
                                         : null
                         )
-                        .originalPrice(product.getPrice())
                         .storeId(store.getStoreId())
                         .storeName(store.getStoreName());
 
@@ -1383,8 +1362,6 @@ public ResponseEntity<BaseResponse> getCampaignProductDetails(UUID storeId, UUID
             map.put("productName", prod != null ? prod.getName() : null);
             map.put("brandName", prod != null ? prod.getBrandName() : null);
             map.put("category", prod != null && prod.getCategory() != null ? prod.getCategory().getName() : null);
-            map.put("originalPrice", p.getOriginalPrice());
-            map.put("discountedPrice", p.getDiscountedPrice());
             map.put("discountType", p.getType());
             map.put("discountValue", p.getDiscountValue());
             map.put("discountPercent", p.getDiscountPercent());

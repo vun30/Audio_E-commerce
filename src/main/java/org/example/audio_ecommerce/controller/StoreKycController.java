@@ -127,4 +127,30 @@ public class StoreKycController {
         storeKycService.rejectKyc(kycId, reason);
         return ResponseEntity.ok("❌ KYC rejected: " + reason);
     }
+
+    @Operation(
+            summary = "Kiểm tra Business License Number đã tồn tại",
+            description = """
+                    Kiểm tra xem số giấy phép kinh doanh đã được đăng ký (APPROVED) trong hệ thống hay chưa.
+                    <br>✅ **Mục đích:**
+                    - Cảnh báo real-time cho Store trước khi submit KYC
+                    - Tránh submit KYC với số giấy phép trùng lặp
+                    - Giảm workload cho Admin review
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trả về true nếu đã tồn tại, false nếu chưa"),
+    })
+    @GetMapping("/check-license")
+    public ResponseEntity<BaseResponse> checkBusinessLicense(
+            @Parameter(description = "Số giấy phép kinh doanh cần kiểm tra", example = "123456789", required = true)
+            @RequestParam String businessLicenseNumber) {
+        boolean exists = storeKycService.checkBusinessLicenseExists(businessLicenseNumber);
+
+        String message = exists
+            ? "⚠️ Số giấy phép kinh doanh này đã được đăng ký trong hệ thống"
+            : "✅ Số giấy phép kinh doanh hợp lệ, có thể sử dụng";
+
+        return ResponseEntity.ok(new BaseResponse<>(200, message, exists));
+    }
 }

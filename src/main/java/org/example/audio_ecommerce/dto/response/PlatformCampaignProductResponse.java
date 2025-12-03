@@ -15,8 +15,6 @@ public class PlatformCampaignProductResponse {
 
     private UUID productId;
     private String productName;
-    private BigDecimal  originalPrice;
-    private BigDecimal discountedPrice;
     private Integer discountPercent;
     private Boolean approved;
 
@@ -24,8 +22,6 @@ public class PlatformCampaignProductResponse {
         return PlatformCampaignProductResponse.builder()
                 .productId(entity.getProduct().getProductId())
                 .productName(entity.getProduct().getName())
-                .originalPrice(entity.getOriginalPrice())
-                .discountedPrice(entity.getDiscountedPrice())
                 .discountPercent(entity.getDiscountPercent())
                 .approved(entity.getApproved())
                 .build();

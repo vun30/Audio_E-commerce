@@ -71,14 +71,15 @@ public class PlatformCampaignController {
                     - **Store** gửi danh sách sản phẩm muốn tham gia campaign.
                     - Nếu là `FAST_SALE`, **bắt buộc** chỉ định `slotId` cho từng sản phẩm.
                     - Sản phẩm được lưu ở trạng thái `DRAFT` (chờ duyệt).
-                    - Hệ thống sẽ tính toán `discountedPrice` dựa vào `VoucherType`:
+                    - Discount sẽ được áp dụng dựa vào `VoucherType`:
                         • FIXED → Giảm số tiền cố định.
                         • PERCENT → Giảm theo phần trăm.
                         • SHIPPING → Miễn phí vận chuyển.
+                    - Giá discount được tính bởi Frontend dựa trên giá biến thể sản phẩm.
                     
                     ⚠️ Điều kiện:
                     - Store phải ở trạng thái `ACTIVE`.
-                    - Product thuộc về chính store đó và đã được cập nhật ≥ 7 ngày trước.
+                    - Product thuộc về chính store đó.
                     """)
     public ResponseEntity<BaseResponse> join(@PathVariable UUID campaignId,
                                              @RequestBody CampaignProductRegisterRequest req) {

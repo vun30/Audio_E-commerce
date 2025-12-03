@@ -10,6 +10,7 @@ import org.example.audio_ecommerce.entity.Enum.ShopVoucherScopeType;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ShopVoucherService;
+import org.example.audio_ecommerce.util.VoucherCodeGenerator;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -27,25 +28,50 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     private final ProductRepository productRepository;
 
     // ============================================================
+    // 🎲 Helper: Sinh mã voucher unique
+    // ============================================================
+    private String generateUniqueVoucherCode() {
+        String code;
+        int maxRetries = 10; // Tối đa 10 lần thử để tránh vòng lặp vô hạn
+        int attempts = 0;
+
+        do {
+            code = VoucherCodeGenerator.generateCode();
+            attempts++;
+
+            if (attempts >= maxRetries) {
+                throw new RuntimeException("❌ Không thể tạo mã voucher unique sau " + maxRetries + " lần thử");
+            }
+        } while (voucherRepository.existsByCodeIgnoreCase(code));
+
+        return code;
+    }
+
+    // ============================================================
     // ➕ Tạo Voucher cho nhiều sản phẩm (runtime logic)
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> createVoucher(ShopVoucherRequest req) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> createVoucher(ShopVoucherRequest req) {
         String principal = SecurityContextHolder.getContext().getAuthentication().getName();
         String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
         Store store = storeRepository.findByAccount_Email(email)
                 .orElseThrow(() -> new RuntimeException("❌ Store not found for current user"));
 
-        if (voucherRepository.existsByCodeIgnoreCase(req.getCode()))
-            throw new RuntimeException("❌ Voucher code already exists: " + req.getCode());
+        // 🎲 Tự động sinh mã voucher nếu không được cung cấp hoặc để trống
+        String voucherCode = (req.getCode() == null || req.getCode().trim().isEmpty())
+            ? generateUniqueVoucherCode()
+            : req.getCode().toUpperCase();
+
+        if (voucherRepository.existsByCodeIgnoreCase(voucherCode))
+            throw new RuntimeException("❌ Voucher code already exists: " + voucherCode);
 
         LocalDateTime now = LocalDateTime.now();
 
         // === Khởi tạo voucher ===
         ShopVoucher voucher = ShopVoucher.builder()
                 .shop(store)
-                .code(req.getCode().toUpperCase())
+                .code(voucherCode)
                 .title(req.getTitle())
                 .description(req.getDescription())
                 .type(req.getType())
@@ -113,7 +139,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     // 📜 Lấy tất cả voucher cửa hàng
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> getAllVouchers() {
+    public ResponseEntity<BaseResponse<List<ShopVoucherResponse>>> getAllVouchers() {
         String principal = SecurityContextHolder.getContext().getAuthentication().getName();
         String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
@@ -136,7 +162,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     // 🔍 Lấy chi tiết voucher
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> getVoucherById(UUID id) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> getVoucherById(UUID id) {
         ShopVoucher voucher = voucherRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("❌ Voucher not found"));
         return ResponseEntity.ok(new BaseResponse<>(200, "🔎 Voucher detail", ShopVoucherResponse.fromEntity(voucher)));
@@ -146,7 +172,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     // 🚫 Disable / Enable Voucher
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> disableVoucher(UUID id) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> disableVoucher(UUID id) {
         ShopVoucher voucher = voucherRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("❌ Voucher not found"));
 
@@ -160,7 +186,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     }
 
     @Override
-    public ResponseEntity<BaseResponse> getActiveVoucherByProductId(UUID productId) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> getActiveVoucherByProductId(UUID productId) {
         ShopVoucherProduct vp = voucherProductRepository
                 .findFirstByProduct_ProductIdAndVoucher_Status(productId, VoucherStatus.ACTIVE)
                 .orElseThrow(() -> new RuntimeException("❌ Sản phẩm này chưa có voucher ACTIVE nào áp dụng"));
@@ -177,21 +203,26 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     // ➕ Tạo Voucher toàn shop (không giới hạn số lượng, không liên kết sản phẩm)
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> createShopWideVoucher(ShopWideVoucherRequest req) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> createShopWideVoucher(ShopWideVoucherRequest req) {
         String principal = SecurityContextHolder.getContext().getAuthentication().getName();
         String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
         Store store = storeRepository.findByAccount_Email(email)
                 .orElseThrow(() -> new RuntimeException("❌ Store not found for current user"));
 
-        if (voucherRepository.existsByCodeIgnoreCase(req.getCode()))
-            throw new RuntimeException("❌ Voucher code already exists: " + req.getCode());
+        // 🎲 Tự động sinh mã voucher nếu không được cung cấp hoặc để trống
+        String voucherCode = (req.getCode() == null || req.getCode().trim().isEmpty())
+            ? generateUniqueVoucherCode()
+            : req.getCode().toUpperCase();
+
+        if (voucherRepository.existsByCodeIgnoreCase(voucherCode))
+            throw new RuntimeException("❌ Voucher code already exists: " + voucherCode);
 
         LocalDateTime now = LocalDateTime.now();
 
         ShopVoucher.ShopVoucherBuilder builder = ShopVoucher.builder()
                 .shop(store)
-                .code(req.getCode().toUpperCase())
+                .code(voucherCode)
                 .title(req.getTitle())
                 .description(req.getDescription())
                 .type(req.getType())
@@ -225,7 +256,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     // 📦 Lấy voucher theo trạng thái và loại scopeType
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> getActiveVouchersByType(VoucherStatus status, ShopVoucherScopeType scopeType) {
+    public ResponseEntity<BaseResponse<List<ShopVoucherResponse>>> getActiveVouchersByType(VoucherStatus status, ShopVoucherScopeType scopeType) {
         String principal = SecurityContextHolder.getContext().getAuthentication().getName();
         String email = principal.contains(":") ? principal.split(":")[0] : principal;
         Store store = storeRepository.findByAccount_Email(email)
@@ -244,7 +275,7 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
     // 📦 Lấy voucher theo storeId, trạng thái và loại scopeType
     // ============================================================
     @Override
-    public ResponseEntity<BaseResponse> getVouchersByStore(UUID storeId, VoucherStatus status, ShopVoucherScopeType scopeType) {
+    public ResponseEntity<BaseResponse<List<ShopVoucherResponse>>> getVouchersByStore(UUID storeId, VoucherStatus status, ShopVoucherScopeType scopeType) {
         // Lấy tất cả voucher của một cửa hàng theo storeId, có thể lọc theo trạng thái và loại voucher
         List<ShopVoucher> vouchers;
         if (status != null && scopeType != null) {
@@ -258,6 +289,15 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
         }
         List<ShopVoucherResponse> dtoList = vouchers.stream().map(ShopVoucherResponse::fromEntity).toList();
         return ResponseEntity.ok(new BaseResponse<>(200, "📦 List of vouchers by storeId, status, and type", dtoList));
+    }
+
+    // ============================================================
+    // 🎲 Tạo mã voucher unique mới
+    // ============================================================
+    @Override
+    public ResponseEntity<BaseResponse<String>> generateVoucherCode() {
+        String code = generateUniqueVoucherCode();
+        return ResponseEntity.ok(new BaseResponse<>(200, "🎲 Generated voucher code", code));
     }
 
 }

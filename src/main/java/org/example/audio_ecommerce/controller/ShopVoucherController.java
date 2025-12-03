@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ShopVoucherRequest;
 import org.example.audio_ecommerce.dto.request.ShopWideVoucherRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.dto.response.ShopVoucherResponse;
 import org.example.audio_ecommerce.entity.Enum.ShopVoucherScopeType;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.service.ShopVoucherService;
@@ -33,16 +34,11 @@ public class ShopVoucherController {
             summary = "Tạo mới voucher cho nhiều sản phẩm",
             description = """
                     Cho phép cửa hàng tạo voucher và liên kết với nhiều sản phẩm.
-                    <br><br>⚙️ **Logic hoạt động:**
-                    - Voucher chỉ lưu điều kiện (giảm theo % hoặc số tiền cố định).
-                    - Sản phẩm chỉ được liên kết với voucher, **không lưu giá giảm** trong DB.
-                    - FE hoặc BE sẽ gọi API `calculate` để tính giá sau giảm tại runtime.
-                    <br><br>✅ **Lưu ý:**  
-                    - Chỉ có thể áp voucher cho sản phẩm thuộc chính cửa hàng.  
-                    - Không ảnh hưởng đến giá gốc của sản phẩm (`Product.price`).
-                     FIXED,      // Giảm số tiền cố định
-                        PERCENT,    // Giảm phần trăm
-                        SHIPPING    // Miễn phí vận chuyển
+                    <br><br>🧩 **Sinh mã tự động:** Nếu trường `code` bỏ trống hoặc null → Backend sẽ tự sinh mã ngẫu nhiên 4 ký tự (A-Z0-9) đảm bảo không trùng.
+                    <br>Ví dụ mã sinh tự động: `A7K9`, `Z1X0`.
+                    <br><br>⚠️ **Quy tắc:**
+                    - Một sản phẩm chỉ có thể thuộc về 1 voucher ACTIVE tại một thời điểm.
+                    - Nếu muốn cập nhật, cần disable voucher cũ trước.
                     """,
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -87,7 +83,7 @@ public class ShopVoucherController {
             }
     )
     @PostMapping
-    public ResponseEntity<BaseResponse> createVoucher(@RequestBody ShopVoucherRequest req) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> createVoucher(@RequestBody ShopVoucherRequest req) {
         return service.createVoucher(req);
     }
 
@@ -127,36 +123,29 @@ public class ShopVoucherController {
      * @return ResponseEntity<BaseResponse>
      */
     @Operation(
-        summary = "Tạo voucher toàn shop (không giới hạn, không liên kết sản phẩm)",
-        description = "Tạo voucher áp dụng cho toàn bộ cửa hàng, không giới hạn số lượng, không liên kết sản phẩm.\n" +
-                "FE chỉ cần truyền các trường cơ bản, không cần products, totalVoucherIssued, usagePerUser.\n" +
-                "\nVí dụ request:\n" +
-                "{\n" +
-                "  \"code\": \"SALEALL\",\n" +
-                "  \"title\": \"Giảm 10% toàn shop\",\n" +
-                "  \"description\": \"Áp dụng cho mọi đơn hàng\",\n" +
-                "  \"type\": \"PERCENT\",\n" +
-                "  \"discountPercent\": 10,\n" +
-                "  \"minOrderValue\": 100000,\n" +
-                "  \"startTime\": \"2025-12-01T00:00:00\",\n" +
-                "  \"endTime\": \"2025-12-31T23:59:59\"\n" +
-                "}\n",
-        requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            required = true,
-            description = "Thông tin tạo voucher toàn shop",
-            content = @Content(
-                schema = @Schema(implementation = ShopWideVoucherRequest.class)
-            )
-        ),
-        responses = {
-            @ApiResponse(responseCode = "201", description = "Voucher toàn shop đã được tạo thành công"),
-            @ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ hoặc lỗi logic"),
-            @ApiResponse(responseCode = "401", description = "Chưa xác thực")
-        }
+        summary = "Tạo voucher toàn shop (code optional)",
+        description = """
+                Tạo voucher áp dụng cho toàn bộ cửa hàng. Nếu `code` trống → hệ thống tự sinh.
+                """
     )
     @PostMapping("/shop-wide")
-    public ResponseEntity<BaseResponse> createShopWideVoucher(@RequestBody ShopWideVoucherRequest req) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> createShopWideVoucher(@RequestBody ShopWideVoucherRequest req) {
         return service.createShopWideVoucher(req);
+    }
+
+    // ============================================================
+    // 🎲 GENERATE UNIQUE CODE (FE có thể gọi trước khi submit)
+    // ============================================================
+    @Operation(
+        summary = "Sinh mã voucher ngẫu nhiên 4 ký tự",
+        description = "Trả về một mã voucher chưa tồn tại trong hệ thống. FE có thể gọi để hiển thị cho user trước khi tạo voucher.",
+        responses = {
+            @ApiResponse(responseCode = "200", description = "Generated successfully")
+        }
+    )
+    @GetMapping("/generate-code")
+    public ResponseEntity<BaseResponse<String>> generateCode() {
+        return service.generateVoucherCode();
     }
 
     // ============================================================
@@ -170,7 +159,7 @@ public class ShopVoucherController {
                     """
     )
     @GetMapping
-    public ResponseEntity<BaseResponse> getAllVouchers() {
+    public ResponseEntity<BaseResponse<java.util.List<ShopVoucherResponse>>> getAllVouchers() {
         return service.getAllVouchers();
     }
 
@@ -188,7 +177,7 @@ public class ShopVoucherController {
             }
     )
     @GetMapping("/{id}")
-    public ResponseEntity<BaseResponse> getVoucherById(@PathVariable UUID id) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> getVoucherById(@PathVariable UUID id) {
         return service.getVoucherById(id);
     }
 
@@ -209,7 +198,7 @@ public class ShopVoucherController {
             }
     )
     @PatchMapping("/{id}/toggle")
-    public ResponseEntity<BaseResponse> toggleVoucher(@PathVariable UUID id) {
+    public ResponseEntity<BaseResponse<ShopVoucherResponse>> toggleVoucher(@PathVariable UUID id) {
         return service.disableVoucher(id);
     }
 
@@ -221,7 +210,7 @@ public class ShopVoucherController {
                 """
 )
 @GetMapping("/product/{productId}")
-public ResponseEntity<BaseResponse> getVoucherByProduct(@PathVariable UUID productId) {
+public ResponseEntity<BaseResponse<ShopVoucherResponse>> getVoucherByProduct(@PathVariable UUID productId) {
     return service.getActiveVoucherByProductId(productId);
 }
 
@@ -250,7 +239,7 @@ public ResponseEntity<BaseResponse> getVoucherByProduct(@PathVariable UUID produ
         }
     )
     @GetMapping("/filter")
-    public ResponseEntity<BaseResponse> getVouchersByStatusAndType(@RequestParam VoucherStatus status,
+    public ResponseEntity<BaseResponse<java.util.List<ShopVoucherResponse>>> getVouchersByStatusAndType(@RequestParam VoucherStatus status,
                                                                   @RequestParam(required = false) ShopVoucherScopeType scopeType) {
         return service.getActiveVouchersByType(status, scopeType);
     }
@@ -278,7 +267,7 @@ public ResponseEntity<BaseResponse> getVoucherByProduct(@PathVariable UUID produ
         }
     )
     @GetMapping("/by-store")
-    public ResponseEntity<BaseResponse> getVouchersByStore(
+    public ResponseEntity<BaseResponse<java.util.List<ShopVoucherResponse>>> getVouchersByStore(
             @RequestParam UUID storeId,
             @RequestParam(required = false) VoucherStatus status,
             @RequestParam(required = false) ShopVoucherScopeType scopeType) {
