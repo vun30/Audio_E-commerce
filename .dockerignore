@@ -1,0 +1,35 @@
+# Ignore target directory (sẽ được build lại trong container)
+target/
+!target/*.jar
+
+# Ignore IDE files
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Ignore Git
+.git/
+.gitignore
+
+# Ignore logs
+*.log
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore documentation
+*.md
+!README.md
+
+# Ignore test resources
+src/test/
+
+# Ignore Maven wrapper (nếu muốn giảm size)
+.mvn/
+mvnw
+mvnw.cmd
+
