@@ -41,14 +41,14 @@ public class StoreKycServiceImpl implements StoreKycService {
         if (hasPending)
             throw new IllegalStateException("Store đã gửi KYC và đang chờ duyệt");
 
-        // ✅ Kiểm tra business license number đã được đăng ký (APPROVED) bởi store khác
-        boolean licenseExists = storeKycRepository.existsByBusinessLicenseNumberAndStatus(
-                request.getBusinessLicenseNumber(),
-                KycStatus.APPROVED
-        );
-        if (licenseExists) {
-            throw new IllegalStateException("Số giấy phép kinh doanh này đã được đăng ký trong hệ thống");
-        }
+//        // ✅ Kiểm tra business license number đã được đăng ký (APPROVED) bởi store khác
+//        boolean licenseExists = storeKycRepository.existsByBusinessLicenseNumberAndStatus(
+//                request.getBusinessLicenseNumber(),
+//                KycStatus.APPROVED
+//        );
+//        if (licenseExists) {
+//            throw new IllegalStateException("Số giấy phép kinh doanh này đã được đăng ký trong hệ thống");
+//        }
 
         StoreKyc kyc = StoreKyc.builder()
                 .id(UUID.randomUUID().toString())
