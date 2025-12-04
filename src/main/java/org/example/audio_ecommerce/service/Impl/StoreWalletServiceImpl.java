@@ -33,7 +33,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
 
     /**
      * ✅ Lấy thông tin ví của cửa hàng đang đăng nhập
-     *    (Bao gồm: tiền khả dụng, tiền pending, tổng doanh thu, và tiền ký quỹ)
+     * (Bao gồm: tiền khả dụng, tiền pending, tổng doanh thu, và tiền ký quỹ)
      */
     @Override
     public ResponseEntity<BaseResponse> getMyWallet() {
@@ -114,87 +114,91 @@ public class StoreWalletServiceImpl implements StoreWalletService {
      * 🔎 Lọc giao dịch theo thời gian, loại, transactionId, v.v.
      */
     @Override
-public Page<StoreWalletTransactionResponse> filterTransactions(
-        UUID walletId,
-        LocalDateTime from,
-        LocalDateTime to,
-        StoreWalletTransactionType type,
-        UUID transactionId,
-        Pageable pageable
-) {
-    // ✅ Nếu không có walletId, tự động lấy từ tài khoản đang đăng nhập
-    if (walletId == null) {
-        walletId = getCurrentStoreWalletId();
+    public Page<StoreWalletTransactionResponse> filterTransactions(
+            UUID walletId,
+            LocalDateTime from,
+            LocalDateTime to,
+            StoreWalletTransactionType type,
+            UUID transactionId,
+            Pageable pageable
+    ) {
+        // ✅ Nếu không có walletId, tự động lấy từ tài khoản đang đăng nhập
+        if (walletId == null) {
+            walletId = getCurrentStoreWalletId();
+        }
+
+        // ✅ Kiểm tra điều kiện thời gian hợp lệ
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("Thời gian 'from' phải nhỏ hơn hoặc bằng 'to'");
+        }
+
+        // ✅ Lấy dữ liệu từ repository
+        Page<StoreWalletTransaction> transactionsPage = storeWalletTransactionRepository.filterTransactions(
+                walletId, from, to, type, transactionId, pageable
+        );
+
+        // ✅ Ánh xạ sang DTO
+        return transactionsPage.map(this::mapToTransactionResponse);
     }
 
-    // ✅ Kiểm tra điều kiện thời gian hợp lệ
-    if (from != null && to != null && from.isAfter(to)) {
-        throw new IllegalArgumentException("Thời gian 'from' phải nhỏ hơn hoặc bằng 'to'");
+    /**
+     * 🧩 Hàm tiện ích: Lấy walletId của cửa hàng đang đăng nhập
+     */
+    private UUID getCurrentStoreWalletId() {
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy cửa hàng cho tài khoản: " + email));
+
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(store.getStoreId())
+                .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
+
+        return wallet.getWalletId();
     }
-
-    // ✅ Lấy dữ liệu từ repository
-    Page<StoreWalletTransaction> transactionsPage = storeWalletTransactionRepository.filterTransactions(
-            walletId, from, to, type, transactionId, pageable
-    );
-
-    // ✅ Ánh xạ sang DTO
-    return transactionsPage.map(this::mapToTransactionResponse);
-}
-
-/**
- * 🧩 Hàm tiện ích: Lấy walletId của cửa hàng đang đăng nhập
- */
-private UUID getCurrentStoreWalletId() {
-    String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-    String email = principal.contains(":") ? principal.split(":")[0] : principal;
-
-    Store store = storeRepository.findByAccount_Email(email)
-            .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy cửa hàng cho tài khoản: " + email));
-
-    StoreWallet wallet = storeWalletRepository.findByStore_StoreId(store.getStoreId())
-            .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
-
-    return wallet.getWalletId();
-}
 
     private StoreWalletTransactionResponse mapToTransactionResponse(StoreWalletTransaction tx) {
-    return StoreWalletTransactionResponse.builder()
-            .transactionId(tx.getTransactionId())
-            .walletId(tx.getWallet().getWalletId())
-            .orderId(tx.getOrderId())
-            .amount(tx.getAmount())
-            .balanceAfter(tx.getBalanceAfter())
-            .description(tx.getDescription())
-            .createdAt(tx.getCreatedAt())
-            .type(tx.getType()) // ✅ Giữ Enum
-            .displayType(getDisplayName(tx.getType())) // ✅ Thêm tên thân thiện
-            .build();
-}
+        return StoreWalletTransactionResponse.builder()
+                .transactionId(tx.getTransactionId())
+                .walletId(tx.getWallet().getWalletId())
+                .orderId(tx.getOrderId())
+                .amount(tx.getAmount())
+                .balanceAfter(tx.getBalanceAfter())
+                .description(tx.getDescription())
+                .createdAt(tx.getCreatedAt())
+                .type(tx.getType()) // ✅ Giữ Enum
+                .displayType(getDisplayName(tx.getType())) // ✅ Thêm tên thân thiện
+                .build();
+    }
 
-/** 🧩 Hàm helper hiển thị text dễ đọc cho FE */
-private String getDisplayName(StoreWalletTransactionType type) {
-    if (type == null) return "Không xác định";
-    return switch (type) {
-        case DEPOSIT -> "Nạp tiền vào ví";
-        case PENDING_HOLD -> "Giữ tiền chờ xác nhận";
-        case RELEASE_PENDING -> "Giải phóng tiền chờ";
-        case WITHDRAW -> "Rút tiền về ngân hàng";
-        case REFUND -> "Hoàn tiền cho khách hàng";
-        case ADJUSTMENT -> "Điều chỉnh thủ công";
-    };
-}
+    /**
+     * 🧩 Hàm helper hiển thị text dễ đọc cho FE
+     */
+    private String getDisplayName(StoreWalletTransactionType type) {
+        if (type == null) return "Không xác định";
+        return switch (type) {
+            case DEPOSIT -> "Nạp tiền vào ví";
+            case PENDING_HOLD -> "Giữ tiền chờ xác nhận";
+            case RELEASE_PENDING -> "Giải phóng tiền chờ";
+            case WITHDRAW -> "Rút tiền về ngân hàng";
+            case REFUND -> "Hoàn tiền cho khách hàng";
+            case ADJUSTMENT -> "Điều chỉnh thủ công";
+            case REFUND_RETURN -> "Hoàn trả hàng";
+            case REFUND_FORCE -> "Hoàn tiền (bắt buộc)";
+        };
+    }
 
-@Override
-public UUID resolveWalletIdForCurrentUser() {
-    String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-    String email = principal.contains(":") ? principal.split(":")[0] : principal;
+    @Override
+    public UUID resolveWalletIdForCurrentUser() {
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
-    Store store = storeRepository.findByAccount_Email(email)
-            .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy cửa hàng cho tài khoản: " + email));
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy cửa hàng cho tài khoản: " + email));
 
-    StoreWallet wallet = storeWalletRepository.findByStore_StoreId(store.getStoreId())
-            .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(store.getStoreId())
+                .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
 
-    return wallet.getWalletId();
-}
+        return wallet.getWalletId();
+    }
 }
