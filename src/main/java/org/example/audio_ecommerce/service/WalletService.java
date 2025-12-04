@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service;
 import org.example.audio_ecommerce.dto.request.WalletTxnRequest;
 import org.example.audio_ecommerce.dto.response.WalletResponse;
 import org.example.audio_ecommerce.dto.response.WalletTransactionResponse;
+import org.example.audio_ecommerce.entity.ReturnRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -17,4 +18,7 @@ public interface WalletService {
     WalletTransactionResponse refund(UUID customerId, WalletTxnRequest req);
 
     Page<WalletTransactionResponse> listTransactions(UUID customerId, Pageable pageable);
+
+    void refundForReturn(ReturnRequest r);
+    void forceRefundWithoutReturn(ReturnRequest r);
 }

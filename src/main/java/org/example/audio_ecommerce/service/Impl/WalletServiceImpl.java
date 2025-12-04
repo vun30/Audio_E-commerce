@@ -1,13 +1,13 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.request.WalletTxnRequest;
 import org.example.audio_ecommerce.dto.response.WalletResponse;
 import org.example.audio_ecommerce.dto.response.WalletTransactionResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
-import org.example.audio_ecommerce.repository.WalletRepository;
-import org.example.audio_ecommerce.repository.WalletTransactionRepository;
+import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.WalletService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,11 +16,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.slf4j.Logger;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -28,6 +31,9 @@ public class WalletServiceImpl implements WalletService {
 
     private final WalletRepository walletRepo;
     private final WalletTransactionRepository txnRepo;
+    private final StoreWalletRepository storeWalletRepo;
+    private final StoreWalletTransactionRepository storeWalletTxnRepo;
+    private final CustomerOrderItemRepository customerOrderItemRepo;
 
     @Override
     @Transactional(readOnly = true)
@@ -70,6 +76,168 @@ public class WalletServiceImpl implements WalletService {
     public Page<WalletTransactionResponse> listTransactions(UUID customerId, Pageable pageable) {
         return txnRepo.findByWallet_Customer_IdOrderByCreatedAtDesc(customerId, pageable)
                 .map(this::toTxnResponse);
+    }
+
+    /**
+     * Luồng refund bình thường cho return:
+     *  - Trừ tiền khỏi pendingBalance + totalRevenue của StoreWallet
+     *  - Cộng tiền vào balance của Wallet (customer)
+     *  - Ghi 1 dòng WalletTransaction cho customer (store có StoreWalletTransaction riêng nếu muốn)
+     */
+    @Override
+    @Transactional
+    public void refundForReturn(ReturnRequest r) {
+        BigDecimal amount = r.getItemPrice();
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Invalid refund amount");
+        }
+
+        // ===== Lấy orderId từ ReturnRequest → CustomerOrderItem → CustomerOrder =====
+        CustomerOrderItem orderItem = customerOrderItemRepo.findById(r.getOrderItemId())
+                .orElseThrow(() -> new NoSuchElementException("Order item not found for return request"));
+        UUID orderId = orderItem.getCustomerOrder().getId();
+
+        // ===== Lấy ví customer =====
+        Wallet customerWallet = walletRepo.findByCustomerId(r.getCustomerId())
+                .orElseThrow(() -> new NoSuchElementException("Customer wallet not found"));
+
+        // ===== Lấy ví shop =====
+        StoreWallet shopWallet = storeWalletRepo.findByStore_StoreId(r.getShopId())
+                .orElseThrow(() -> new NoSuchElementException("Store wallet not found"));
+
+        // ===== SHOP: trừ pendingBalance + totalRevenue =====
+        BigDecimal shopPendingBefore = shopWallet.getPendingBalance();
+        BigDecimal shopPendingAfter = shopPendingBefore.subtract(amount);
+        ensureNonNegative(shopPendingAfter, "Shop pending balance cannot be negative");
+
+        BigDecimal shopTotalBefore = shopWallet.getTotalRevenue();
+        BigDecimal shopTotalAfter = shopTotalBefore.subtract(amount);
+        ensureNonNegative(shopTotalAfter, "Shop totalRevenue cannot be negative");
+
+        shopWallet.setPendingBalance(shopPendingAfter);
+        shopWallet.setTotalRevenue(shopTotalAfter);
+        storeWalletRepo.save(shopWallet);
+
+        // 🔹 Log StoreWalletTransaction: hoàn trả hàng → trừ pendingBalance
+        StoreWalletTransaction shopTxn = StoreWalletTransaction.builder()
+                .wallet(shopWallet)
+                .type(StoreWalletTransactionType.REFUND) // hoặc REFUND_RETURN nếu bạn thêm enum
+                .amount(amount)                          // luôn dương, hướng nhìn theo type/description
+                .balanceAfter(shopPendingAfter)         // coi như "pendingBalance sau giao dịch"
+                .description("Hoàn tiền trả hàng (trừ pendingBalance), returnId=" + r.getId())
+                .orderId(orderId)                       // ✅ orderId của đơn gốc
+                .createdAt(LocalDateTime.now())
+                .build();
+        storeWalletTxnRepo.save(shopTxn);
+
+        // ===== CUSTOMER: cộng balance + log WalletTransaction =====
+        BigDecimal cusBefore = customerWallet.getBalance();
+        BigDecimal cusAfter = cusBefore.add(amount);
+
+        customerWallet.setBalance(cusAfter);
+        customerWallet.setLastTransactionAt(LocalDateTime.now());
+        walletRepo.save(customerWallet);
+
+        WalletTransaction cusTxn = WalletTransaction.builder()
+                .wallet(customerWallet)
+                .amount(amount)
+                .transactionType(WalletTransactionType.RETURN_REFUND_CUSTOMER_CREDIT)
+                .status(WalletTransactionStatus.SUCCESS)
+                .description("Hoàn tiền trả hàng, sản phẩm: " + r.getProductName())
+                .balanceBefore(cusBefore)
+                .balanceAfter(cusAfter)
+                .orderId(orderId)                       // ✅ link luôn về đơn gốc
+                .externalRef("RETURN:" + r.getId())
+                .build();
+        txnRepo.save(cusTxn);
+
+        log.info("[RETURN REFUND] returnRequest={}, orderId={}, amount={} hoàn vào ví customer",
+                r.getId(), orderId, amount);
+    }
+
+
+    /**
+     * Luồng ép hoàn (customer complaint, không cần hoàn hàng):
+     *  - Trừ tiền khỏi availableBalance + totalRevenue của StoreWallet
+     *  - Cộng tiền vào balance của Wallet (customer)
+     *  - KHÔNG đụng tới phí ship
+     */
+    @Override
+    @Transactional
+    public void forceRefundWithoutReturn(ReturnRequest r) {
+        BigDecimal amount = r.getItemPrice();
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Invalid refund amount");
+        }
+
+        // ===== Lấy orderId từ ReturnRequest → CustomerOrderItem → CustomerOrder =====
+        CustomerOrderItem orderItem = customerOrderItemRepo.findById(r.getOrderItemId())
+                .orElseThrow(() -> new NoSuchElementException("Order item not found for return request"));
+        UUID orderId = orderItem.getCustomerOrder().getId();
+
+        // ===== Lấy ví customer =====
+        Wallet customerWallet = walletRepo.findByCustomerId(r.getCustomerId())
+                .orElseThrow(() -> new NoSuchElementException("Customer wallet not found"));
+
+        // ===== Lấy ví shop =====
+        StoreWallet shopWallet = storeWalletRepo.findByStore_StoreId(r.getShopId())
+                .orElseThrow(() -> new NoSuchElementException("Store wallet not found"));
+
+        // ===== SHOP: trừ availableBalance + totalRevenue =====
+        BigDecimal shopAvailableBefore = shopWallet.getAvailableBalance();
+        BigDecimal shopAvailableAfter = shopAvailableBefore.subtract(amount);
+        ensureNonNegative(shopAvailableAfter, "Shop availableBalance cannot be negative");
+
+        BigDecimal shopTotalBefore = shopWallet.getTotalRevenue();
+        BigDecimal shopTotalAfter = shopTotalBefore.subtract(amount);
+        ensureNonNegative(shopTotalAfter, "Shop totalRevenue cannot be negative");
+
+        shopWallet.setAvailableBalance(shopAvailableAfter);
+        shopWallet.setTotalRevenue(shopTotalAfter);
+        storeWalletRepo.save(shopWallet);
+
+        // 🔹 Log StoreWalletTransaction: ép hoàn → trừ availableBalance
+        StoreWalletTransaction forceTxn = StoreWalletTransaction.builder()
+                .wallet(shopWallet)
+                .type(StoreWalletTransactionType.REFUND) // hoặc REFUND_FORCE nếu bạn muốn tách
+                .amount(amount)
+                .balanceAfter(shopAvailableAfter)        // coi như "availableBalance sau giao dịch"
+                .description("Ép hoàn do complaint (trừ availableBalance), returnId=" + r.getId())
+                .orderId(orderId)                        // ✅ gắn đúng orderId
+                .createdAt(LocalDateTime.now())
+                .build();
+        storeWalletTxnRepo.save(forceTxn);
+
+        // ===== CUSTOMER: cộng balance + log WalletTransaction =====
+        BigDecimal cusBefore = customerWallet.getBalance();
+        BigDecimal cusAfter = cusBefore.add(amount);
+
+        customerWallet.setBalance(cusAfter);
+        customerWallet.setLastTransactionAt(LocalDateTime.now());
+        walletRepo.save(customerWallet);
+
+        WalletTransaction cusTxn = WalletTransaction.builder()
+                .wallet(customerWallet)
+                .amount(amount)
+                .transactionType(WalletTransactionType.FORCE_RETURN_REFUND_CUSTOMER)
+                .status(WalletTransactionStatus.SUCCESS)
+                .description("Ép hoàn tiền do complaint, sản phẩm: " + r.getProductName())
+                .balanceBefore(cusBefore)
+                .balanceAfter(cusAfter)
+                .orderId(orderId)                        // ✅ gắn đúng orderId
+                .externalRef("FORCE_RETURN:" + r.getId())
+                .build();
+        txnRepo.save(cusTxn);
+
+        log.info("[FORCE RETURN REFUND] returnRequest={}, orderId={}, amount={} ép hoàn vào ví customer",
+                r.getId(), orderId, amount);
+    }
+
+
+    private void ensureNonNegative(BigDecimal value, String message) {
+        if (value.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalStateException(message);
+        }
     }
 
     // ===== Core =====

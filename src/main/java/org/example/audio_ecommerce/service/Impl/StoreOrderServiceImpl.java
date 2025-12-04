@@ -200,6 +200,17 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                         .refId(item.getRefId())
                         .name(item.getName())
                         .quantity(item.getQuantity())
+                        // Snapshot pricing
+                        .unitPriceBeforeDiscount(item.getUnitPriceBeforeDiscount())
+                        .linePriceBeforeDiscount(item.getLinePriceBeforeDiscount())
+                        .platformVoucherDiscount(item.getPlatformVoucherDiscount())
+                        .shopItemDiscount(item.getShopItemDiscount())
+                        .shopOrderVoucherDiscount(item.getShopOrderVoucherDiscount())
+                        .totalItemDiscount(item.getTotalItemDiscount())
+                        .finalUnitPrice(item.getFinalUnitPrice())
+                        .finalLineTotal(item.getFinalLineTotal())
+                        .amountCharged(item.getAmountCharged())
+                        // Legacy
                         .unitPrice(item.getUnitPrice())
                         .lineTotal(item.getLineTotal())
                         .build())

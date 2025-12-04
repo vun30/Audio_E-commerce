@@ -18,5 +18,9 @@ public enum OrderStatus {
     DELIVERY_DENIED,            // khách từ chối nhận (order deny receive)
     READY_FOR_DELIVERY,          // hàng đã sẵn sàng giao (chờ nhân viên giao nhận đến lấy)
     DELIVERY_FAIL,
-    EXCEPTION
+    EXCEPTION,
+
+       // KH đã gửi yêu cầu hoàn
+    RETURNING,          // đang trên đường trả
+
 }
