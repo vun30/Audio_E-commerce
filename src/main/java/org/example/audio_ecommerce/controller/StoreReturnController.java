@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ReturnCreateGhnOrderRequest;
+import org.example.audio_ecommerce.dto.request.ReturnRejectRequest;
 import org.example.audio_ecommerce.dto.request.ReturnShopReceiveRequest;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.example.audio_ecommerce.service.ReturnRequestService;
@@ -46,4 +47,13 @@ public class StoreReturnController {
     ) {
         return returnService.shopReceiveOrDispute(id, req);
     }
+
+    @PostMapping("/{id}/reject")
+    public void reject(
+            @PathVariable UUID id,
+            @RequestBody(required = false) ReturnRejectRequest req
+    ) {
+        returnService.rejectReturnByShop(id, req);
+    }
+
 }

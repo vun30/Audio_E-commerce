@@ -39,6 +39,7 @@ public interface ReturnRequestService {
             UUID returnRequestId,
             ReturnDisputeResolveRequest req
     );
+    void rejectReturnByShop(UUID returnRequestId, ReturnRejectRequest req);
 
     // AUTO
     void autoRefundForUnresponsiveShop();
