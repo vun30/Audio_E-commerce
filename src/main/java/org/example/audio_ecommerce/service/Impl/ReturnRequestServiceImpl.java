@@ -21,10 +21,12 @@ import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpHeaders;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -86,11 +88,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .build();
     }
 
-    private org.springframework.http.HttpHeaders ghnHeaders(boolean includeShopId) {
-        org.springframework.http.HttpHeaders h = new org.springframework.http.HttpHeaders();
+    private HttpHeaders ghnHeaders(boolean includeShopId) {
+        HttpHeaders h = new HttpHeaders();
         h.set("Token", ghnToken);
         if (includeShopId) h.set("ShopId", ghnShopId);
-        h.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        h.setContentType(MediaType.APPLICATION_JSON);
         return h;
     }
 

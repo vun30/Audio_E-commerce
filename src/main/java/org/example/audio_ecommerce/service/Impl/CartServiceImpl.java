@@ -470,7 +470,7 @@ public class CartServiceImpl implements CartService {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
 
-        // ✅ Trừ tồn kho theo items chuẩn bị checkout
+        // Trừ tồn kho theo items chuẩn bị checkout
         deductStockForCartItems(itemsToCheckout);
 
         // 2) Group theo store
@@ -527,25 +527,25 @@ public class CartServiceImpl implements CartService {
             storeCache.put(storeIdKey, store);
 
             String orderCode = orderCodeGeneratorService.nextOrderCode();
-        // 🔹 Lấy địa chỉ origin của shop
+
+            // Lấy địa chỉ origin của shop
             StoreAddressEntity originAddr = resolveStoreOriginAddress(store);
             String fromDistrictCode = originAddr != null ? originAddr.getDistrictCode() : null;
             String fromWardCode = originAddr != null ? originAddr.getWardCode() : null;
 
-        // 4a) Tính phí GHN cho shop này
+            // 4a) Tính phí GHN cho shop này
             Integer serviceTypeIdForStore = Optional.ofNullable(serviceTypeIds)
                     .map(m -> m.get(storeIdKey))
                     .orElse(5);
 
             var reqGHN = buildForStoreShipment(
                     entry.getValue(),
-                    toDistrictId,          // Integer
+                    toDistrictId,
                     toWardCode,
-                    fromDistrictCode,      // String
-                    fromWardCode,          // String// String
-                    serviceTypeIdForStore  // Integer
+                    fromDistrictCode,
+                    fromWardCode,
+                    serviceTypeIdForStore
             );
-
 
             // === LOG REQUEST JSON ===
             try {
@@ -586,10 +586,42 @@ public class CartServiceImpl implements CartService {
 
             co.setPaymentMethod(paymentMethod != null ? paymentMethod : PaymentMethod.ONLINE);
 
-            // 4c) Items của riêng shop này
+            // 4c) Items của riêng shop này (dùng chung logic snapshot cho cả CustomerOrderItem & StoreOrderItem)
             List<CustomerOrderItem> coItems = new ArrayList<>();
+            List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
-                coItems.add(CustomerOrderItem.builder()
+                // ==== TÍNH SNAPSHOT GIÁ GIỐNG BÊN STORE_ORDER_ITEM ====
+                BigDecimal baseListUnit = ci.getType() == CartItemType.COMBO
+                        ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
+                        : (ci.getVariant() != null
+                        ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
+                        : getBaseUnitPrice(ci.getProduct()));
+                BigDecimal bulkUnit = ci.getType() == CartItemType.COMBO
+                        ? baseListUnit
+                        : (ci.getVariant() != null
+                        ? baseListUnit
+                        : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+                BigDecimal lineBefore = baseListUnit
+                        .multiply(BigDecimal.valueOf(ci.getQuantity()))
+                        .setScale(0, RoundingMode.DOWN);
+                BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
+                if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
+                BigDecimal platformDiscount = platformPerUnit
+                        .multiply(BigDecimal.valueOf(ci.getQuantity()))
+                        .setScale(0, RoundingMode.DOWN);
+                BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
+                if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
+                BigDecimal shopItemDiscount = shopItemPerUnit
+                        .multiply(BigDecimal.valueOf(ci.getQuantity()))
+                        .setScale(0, RoundingMode.DOWN);
+                BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
+                BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
+                if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+                BigDecimal finalUnit = finalLine.divide(
+                        BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN
+                );
+                // ==== CUSTOMER_ORDER_ITEM: đổ snapshot giống store ====
+                CustomerOrderItem coi = CustomerOrderItem.builder()
                         .customerOrder(co)
                         .type(ci.getType().name())
                         .refId(ci.getReferenceId())
@@ -598,10 +630,46 @@ public class CartServiceImpl implements CartService {
                         .variantId(ci.getVariantIdOrNull())
                         .variantOptionName(ci.getVariantOptionNameSnapshot())
                         .variantOptionValue(ci.getVariantOptionValueSnapshot())
+                        .unitPrice(ci.getUnitPrice()) // giá FE thấy ở cart (sau campaign/bulk)
+                        .lineTotal(ci.getLineTotal()) // = unitPrice * qty (trước voucher)
+                        .storeId(storeIdKey)
+                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
+                        .linePriceBeforeDiscount(lineBefore)
+                        .platformVoucherDiscount(platformDiscount)
+                        .shopItemDiscount(shopItemDiscount)
+                        .shopOrderVoucherDiscount(BigDecimal.ZERO) // sẽ được cập nhật sau nếu allocate voucher per item
+                        .totalItemDiscount(totalItemDiscount)
+                        .finalUnitPrice(finalUnit)
+                        .finalLineTotal(finalLine)
+                        .amountCharged(finalLine) // số tiền thực sau mọi item-based discount
+                        .build();
+                coItems.add(coi);
+
+                // ==== STORE_ORDER_ITEM: dùng lại y chang ====
+                StoreOrderItem soi = StoreOrderItem.builder()
+                        .storeOrder(null) // sẽ set sau khi có StoreOrder
+                        .type(ci.getType().name())
+                        .refId(ci.getReferenceId())
+                        .name(ci.getNameSnapshot())
+                        .quantity(ci.getQuantity())
+                        .variantId(ci.getVariantIdOrNull())
+                        .variantOptionName(ci.getVariantOptionNameSnapshot())
+                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
+                        // legacy fields
                         .unitPrice(ci.getUnitPrice())
                         .lineTotal(ci.getLineTotal())
-                        .storeId(storeIdKey)
-                        .build());
+                        // snapshot fields
+                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
+                        .linePriceBeforeDiscount(lineBefore)
+                        .platformVoucherDiscount(platformDiscount)
+                        .shopItemDiscount(shopItemDiscount)
+                        .shopOrderVoucherDiscount(BigDecimal.ZERO)
+                        .totalItemDiscount(totalItemDiscount)
+                        .finalUnitPrice(finalUnit)
+                        .finalLineTotal(finalLine)
+                        .amountCharged(finalLine)
+                        .build();
+                soItems.add(soi);
             }
             co.setItems(coItems);
 
@@ -640,61 +708,13 @@ public class CartServiceImpl implements CartService {
                     .shippingServiceTypeId(serviceTypeIdForStore)
                     // snapshot platform fee percentage và actual shipping fee từ GHN
                     .platformFeePercentage(platformFeePercentage)
-                    .actualShippingFee(shippingFee)  // GHN totalFee, bằng shippingFee tại thời điểm này
+                    .actualShippingFee(shippingFee)
                     .build();
             so.setPaymentMethod(co.getPaymentMethod());
 
-
-            List<StoreOrderItem> soItems = new ArrayList<>();
-            for (CartItem ci : entry.getValue()) {
-                BigDecimal baseListUnit = ci.getType() == CartItemType.COMBO
-                        ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
-                        : (ci.getVariant() != null
-                            ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
-                            : getBaseUnitPrice(ci.getProduct()));
-                BigDecimal bulkUnit = ci.getType() == CartItemType.COMBO
-                        ? baseListUnit
-                        : (ci.getVariant() != null
-                            ? baseListUnit
-                            : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
-                BigDecimal lineBefore = baseListUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
-
-                BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
-                if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
-                BigDecimal platformDiscount = platformPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
-
-                BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
-                if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
-                BigDecimal shopItemDiscount = shopItemPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
-
-                BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
-                BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
-                if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
-                BigDecimal finalUnit = finalLine.divide(BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN);
-
-                soItems.add(StoreOrderItem.builder()
-                        .storeOrder(so)
-                        .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
-                        .name(ci.getNameSnapshot())
-                        .quantity(ci.getQuantity())
-                        .variantId(ci.getVariantIdOrNull())
-                        .variantOptionName(ci.getVariantOptionNameSnapshot())
-                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
-                        // legacy fields
-                        .unitPrice(ci.getUnitPrice())
-                        .lineTotal(ci.getLineTotal())
-                        // snapshot fields
-                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
-                        .linePriceBeforeDiscount(lineBefore)
-                        .platformVoucherDiscount(platformDiscount)
-                        .shopItemDiscount(shopItemDiscount)
-                        .shopOrderVoucherDiscount(java.math.BigDecimal.ZERO)
-                        .totalItemDiscount(totalItemDiscount)
-                        .finalUnitPrice(finalUnit)
-                        .finalLineTotal(finalLine)
-                        .amountCharged(finalLine)
-                        .build());
+            // Gán StoreOrder vào các StoreOrderItem đã tạo ở trên
+            for (StoreOrderItem soi : soItems) {
+                soi.setStoreOrder(so);
             }
             so.setItems(soItems);
             storeOrderRepository.save(so);
@@ -705,6 +725,7 @@ public class CartServiceImpl implements CartService {
             createdOrders.add(co);
         }
 
+        // === PHẦN SAU GIỮ NGUYÊN (voucher, cập nhật grand total, xóa cart...) ===
         // 5) Áp voucher theo shop + platform cho từng shop
         var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
         var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
@@ -725,13 +746,11 @@ public class CartServiceImpl implements CartService {
                     .add(co.getShippingFeeTotal())
                     .subtract(discountTotal);
 
-            // set vào order
             co.setStoreDiscountTotal(storeDiscount);
             co.setPlatformDiscountTotal(platformDiscount);
             co.setDiscountTotal(discountTotal);
             co.setGrandTotal(grand);
             co.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
-            // nếu bạn có JSON chi tiết cho store-voucher, set vào co.setStoreVoucherDetailJson(...)
 
             customerOrderRepository.save(co);
         }
@@ -749,7 +768,6 @@ public class CartServiceImpl implements CartService {
                 so.setStoreVoucherDiscount(sv);
                 so.setPlatformVoucherDiscount(pv);
 
-                // JSON chi tiết theo mã (shop) & platform
                 String storeJson = storeDetailJsonByStore.getOrDefault(sid, "{}");
                 String platJson = platformDetailJsonByStore.getOrDefault(sid, "{}");
                 so.setStoreVoucherDetailJson(storeJson);
