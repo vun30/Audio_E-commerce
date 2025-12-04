@@ -35,4 +35,8 @@ public class ReturnShippingFee extends BaseEntity {
     // flag cho case shop fault
     @Column(name = "shop_fault")
     private Boolean shopFault;
+
+    @Builder.Default
+    @Column(name = "picked", nullable = false)
+    private boolean picked = false;
 }
