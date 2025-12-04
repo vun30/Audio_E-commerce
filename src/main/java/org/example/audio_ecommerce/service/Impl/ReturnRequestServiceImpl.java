@@ -583,6 +583,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .chargedToShop(r.getReasonType() == ReturnReasonType.SHOP_FAULT
                         ? (r.getShippingFee() != null ? r.getShippingFee() : totalFee)
                         : BigDecimal.ZERO)
+                .picked(false)
                 .build();
         shippingFeeRepo.save(feeLog);
 
