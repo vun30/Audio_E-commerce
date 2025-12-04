@@ -15,7 +15,7 @@ public class GhnCreateOrderRequest {
     private Integer payment_type_id;  // 1: Shop trả phí ship, 2: Người nhận trả
     private String note;              // Ghi chú đơn hàng
     private String required_note;     // KHONGCHOXEMHANG | CHOXEMHANGKHONGTHU | CHOTHUHANG
-
+    private List<Integer> pick_shift;
     // ================== 🏢 Thông tin người gửi ==================
     private String from_name;
     private String from_phone;
@@ -53,7 +53,7 @@ public class GhnCreateOrderRequest {
     private Integer service_id;        // Mã dịch vụ
     private Integer service_type_id;   // 2: Ecommerce, 5: Traditional
     private String coupon;             // Mã giảm giá GHN
-    private List<Integer> pick_shift;  // Ca lấy hàng (ví dụ [2])
+
 
     // ================== 🛍️ Danh sách sản phẩm ==================
     private List<GhnItem> items;
