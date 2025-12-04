@@ -1,0 +1,6 @@
+package org.example.audio_ecommerce.entity.Enum;
+
+public enum ReturnReasonType {
+    CUSTOMER_FAULT,   // lỗi khách: đổi size, không thích...
+    SHOP_FAULT        // lỗi shop: giao sai, hàng lỗi...
+}
