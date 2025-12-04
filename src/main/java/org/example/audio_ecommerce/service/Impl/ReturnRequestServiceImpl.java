@@ -8,6 +8,7 @@ import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.ReturnPackageFeeResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.example.audio_ecommerce.entity.*;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.ReturnFaultType;
 import org.example.audio_ecommerce.entity.Enum.ReturnReasonType;
 import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
@@ -45,7 +46,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final GhnOrderService ghnOrderService;
     private final RestTemplate restTemplate;
     private final StoreOrderRepository storeOrderRepository;
-
+    private final CustomerOrderRepository customerOrderRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${ghn.token}")
@@ -115,6 +116,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         String productName = orderItem.getName();
         BigDecimal itemPrice = orderItem.getUnitPrice(); // hoặc lineTotal nếu hoàn theo cả dòng
 
+        // 2️⃣ Tạo ReturnRequest
         ReturnRequest entity = ReturnRequest.builder()
                 .customerId(customerId)
                 .shopId(shopId)
@@ -134,6 +136,33 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .build();
 
         entity = returnRepo.save(entity);
+
+        // 3️⃣ Cập nhật status CustomerOrder + StoreOrder
+        CustomerOrder customerOrder = orderItem.getCustomerOrder();
+
+        // chỉ đổi trạng thái nếu đơn đã giao thành công
+        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
+            customerOrder.setStatus(OrderStatus.RETURN_REQUESTED);
+            customerOrder.setCreatedAt(LocalDateTime.now()); // nếu có field này
+            customerOrderRepository.save(customerOrder);
+        }
+
+        // Tìm storeOrder tương ứng với shopId của item này
+        StoreOrder targetStoreOrder = storeOrderRepository
+                .findAllByCustomerOrder_Id(customerOrder.getId()).stream()
+                .filter(so -> so.getStore() != null
+                        && so.getStore().getStoreId().equals(shopId))
+                .findFirst()
+                .orElse(null);
+
+        if (targetStoreOrder != null &&
+                targetStoreOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
+
+            targetStoreOrder.setStatus(OrderStatus.RETURN_REQUESTED);
+            targetStoreOrder.setCreatedAt(LocalDateTime.now()); // nếu em có field
+            storeOrderRepository.save(targetStoreOrder);
+        }
+
         return toResponse(entity);
     }
 
@@ -668,4 +697,37 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             walletService.refundForReturn(r);
         }
     }
+
+    @Override
+    @Transactional
+    public void rejectReturnByShop(UUID returnRequestId, ReturnRejectRequest req) {
+        UUID shopId = securityUtils.getCurrentStoreId();
+
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+
+        if (!r.getShopId().equals(shopId)) {
+            throw new AccessDeniedException("Not your return request");
+        }
+
+        // Chỉ cho reject khi còn PENDING
+        if (r.getStatus() != ReturnStatus.PENDING) {
+            throw new IllegalStateException("ReturnRequest must be PENDING to reject");
+        }
+
+        // Gắn trạng thái REJECTED
+        r.setStatus(ReturnStatus.REJECTED);
+
+        // Tuỳ bạn muốn gắn lỗi về phía ai, thường shop không chấp nhận → lỗi phía CUSTOMER
+        r.setFaultType(ReturnFaultType.CUSTOMER);
+
+        // Nếu muốn lưu lý do shop từ chối (nếu bạn có trường tương ứng trong entity)
+        if (req != null && req.getShopRejectReason() != null) {
+            r.setShopDisputeReason(req.getShopRejectReason()); // hoặc thêm field riêng như shopRejectReason
+        }
+
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+    }
+
 }
