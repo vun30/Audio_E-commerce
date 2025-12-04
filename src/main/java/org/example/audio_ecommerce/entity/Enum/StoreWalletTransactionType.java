@@ -6,5 +6,7 @@ public enum StoreWalletTransactionType {
     RELEASE_PENDING,        // 🔁 Chuyển tiền từ pending sang có thể rút
     WITHDRAW,               // 💸 Rút tiền
     REFUND,                 // 🔄 Hoàn tiền cho khách
-    ADJUSTMENT              // ⚙️ Điều chỉnh thủ công (admin)
+    ADJUSTMENT,              // ⚙️ Điều chỉnh thủ công (admin)
+    REFUND_RETURN,       // hoàn trả hàng
+    REFUND_FORCE         // ép hoàn
 }

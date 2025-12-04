@@ -19,4 +19,6 @@ public interface StoreWalletRepository extends JpaRepository<StoreWallet, UUID> 
 
     // 🔍 Kiểm tra xem ví đã tồn tại cho store hay chưa
     boolean existsByStore_StoreId(UUID storeId);
+
+
 }
