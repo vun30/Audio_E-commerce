@@ -668,6 +668,7 @@ public class CartServiceImpl implements CartService {
                         .finalUnitPrice(finalUnit)
                         .finalLineTotal(finalLine)
                         .amountCharged(finalLine)
+                        .platformFeePercentage(platformFeePercentage)
                         .build();
                 soItems.add(soi);
             }
@@ -1341,6 +1342,7 @@ public class CartServiceImpl implements CartService {
                         .finalUnitPrice(finalUnit)
                         .finalLineTotal(finalLine)
                         .amountCharged(finalLine)
+                        .platformFeePercentage(platformFeePercentage)
                         .build());
             }
             so.setItems(soItems);

@@ -83,7 +83,7 @@ public ResponseEntity<BaseResponse> getAllProducts(
         // ===========================
         @Parameter(
                 description = "Trạng thái sản phẩm",
-                schema = @Schema(allowableValues = {"ACTIVE", "INACTIVE", "DISCONTINUED"}),
+                schema = @Schema(allowableValues = {"ACTIVE", "INACTIVE", "DISCONTINUED","OUT_OF_STOCK", "DRAFT", "UNLISTED", "SUSPENDED", "DELETED", "BANNED"}),
                 example = "ACTIVE"
         )
         @RequestParam(required = false) ProductStatus status,

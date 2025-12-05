@@ -576,6 +576,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // 6️⃣ Log phí ship
         ReturnShippingFee feeLog = ReturnShippingFee.builder()
                 .returnRequestId(r.getId())
+                .storeId(r.getShopId())  // ✅ TỰ ĐỘNG LẤY TỪ ReturnRequest.shopId
                 .ghnOrderCode(orderCode)
                 .shippingFee(r.getShippingFee() != null ? r.getShippingFee() : totalFee)
                 .payer(r.getReasonType() == ReturnReasonType.CUSTOMER_FAULT ? "CUSTOMER" : "SHOP")

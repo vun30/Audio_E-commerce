@@ -3,7 +3,10 @@ package org.example.audio_ecommerce.entity;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.ItemRefundStatus;
+
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Getter
@@ -14,6 +17,12 @@ import java.util.UUID;
 @Entity
 @Table(name = "store_order_item")
 public class StoreOrderItem {
+
+    // tính sao cho giá finalLineTotal tuyệt đối KHÔNG bao gồm phí ship. và x ố lượng ra
+    // tính sao cho giá finalLineTotal tuyệt đối KHÔNG bao gồm phí ship. và x ố lượng ra
+    // tính sao cho giá finalLineTotal tuyệt đối KHÔNG bao gồm phí ship. và x ố lượng ra
+
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -71,10 +80,13 @@ public class StoreOrderItem {
     private BigDecimal finalUnitPrice;
 
     @Column(name = "final_line_total")
-    private BigDecimal finalLineTotal;
+    private BigDecimal finalLineTotal; // sau tất cả chiết khấu  là giá finalLineTotal = finalUnitPrice * quantity
 
     @Column(name = "amount_charged")
     private BigDecimal amountCharged;
+
+    @Column(name = "platform_fee_percentage_item", precision = 5, scale = 2)
+    private BigDecimal platformFeePercentage;   // % phí nền tảng tại thời điểm checkout (snapshot từ PlatformFee)
 
     // Giá vốn (cost price) của từng đơn vị sản phẩm (mặc định = 0 nếu chưa có dữ liệu)
     @Column(name = "cost_price", precision = 18, scale = 2)
@@ -82,4 +94,42 @@ public class StoreOrderItem {
 
     @Column(nullable = false)
     private BigDecimal lineTotal;
+
+    @Column(nullable = true)
+    private LocalDateTime deliveredAt;
+
+//    // ===== Refund / Return Tracking =====
+//
+//    @Enumerated(EnumType.STRING)
+//    @Column(name = "refund_status", length = 30)
+//    private ItemRefundStatus refundStatus = ItemRefundStatus.NONE;
+//
+//    @Column(name = "refund_requested_at")
+//    private LocalDateTime refundRequestedAt;
+//
+//    @Column(name = "refund_amount", precision = 18, scale = 2)
+//    private BigDecimal refundAmount;
+//
+//    @Column(name = "refund_completed_at")
+//    private LocalDateTime refundCompletedAt;
+//
+//    @Column(name = "refund_reason", length = 500)
+//    private String refundReason;
+
+    // ===== Dispute =====
+    @Column(name = "dispute_flag")
+    private Boolean disputeFlag = false;
+
+    @Column(name = "dispute_resolved_at")
+    private LocalDateTime disputeResolvedAt;
+
+    // ===== Payout Control =====
+    @Column(name = "eligible_for_payout")
+    private Boolean eligibleForPayout = false;   // true khi item này đủ điều kiện để tính vào payout
+
+    @Column(name = "is_payout")
+    private Boolean isPayout = false;           // true khi đã được thanh toán trong bill rồi
+
+    @Column(name = "is_returned")
+    private Boolean isReturned = false;         // true nếu item này đã được trả hàng hoàn tiền
 }
