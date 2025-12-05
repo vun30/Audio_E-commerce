@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -111,20 +112,34 @@ public class StoreOrderServiceImpl implements StoreOrderService {
             UUID storeId,
             int page,
             int size,
-            String orderCodeKeyword   // ✅ thêm tham số filter
+            String orderCodeKeyword,
+            OrderStatus status,
+            LocalDate fromDate,
+            LocalDate toDate
     ) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? 20 : size;
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<StoreOrder> ordersPage;
-
-        if (orderCodeKeyword != null && !orderCodeKeyword.isBlank()) {
-            ordersPage = storeOrderRepository
-                    .findByStore_StoreIdAndOrderCodeContainingIgnoreCase(storeId, orderCodeKeyword.trim(), pageable);
-        } else {
-            ordersPage = storeOrderRepository.findByStore_StoreId(storeId, pageable);
+        // chuyển LocalDate -> LocalDateTime
+        LocalDateTime fromDateTime = null;
+        LocalDateTime toDateTime = null;
+        if (fromDate != null) {
+            fromDateTime = fromDate.atStartOfDay();
         }
+        if (toDate != null) {
+            // lấy hết ngày toDate -> +1 ngày rồi < ...
+            toDateTime = toDate.plusDays(1).atStartOfDay();
+        }
+
+        Page<StoreOrder> ordersPage = storeOrderRepository.searchStoreOrders(
+                storeId,
+                orderCodeKeyword,
+                status,
+                fromDateTime,
+                toDateTime,
+                pageable
+        );
 
         List<StoreOrderDetailResponse> items = ordersPage.getContent().stream()
                 .map(this::toDetailResponse)
@@ -138,6 +153,7 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .size(ordersPage.getSize())
                 .build();
     }
+
 
 
     @Override

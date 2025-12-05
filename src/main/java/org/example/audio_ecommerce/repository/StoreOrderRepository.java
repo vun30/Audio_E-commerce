@@ -1,16 +1,19 @@
 package org.example.audio_ecommerce.repository;
 
 import org.example.audio_ecommerce.entity.CustomerOrder;
+import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID> {
+public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, JpaSpecificationExecutor<StoreOrder> {
 
     List<StoreOrder> findAllByCustomerOrder_Id(UUID customerOrderId);
 
@@ -39,4 +42,44 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID> {
     List<StoreOrder> findAllByStore_StoreIdAndPaidByShopFalse(UUID storeId);
 
     boolean existsByStore_StoreIdAndPaidByShopFalse(UUID storeId);
+
+    // 🔹 Thêm default method searchStoreOrders dùng Specification
+    default Page<StoreOrder> searchStoreOrders(
+            UUID storeId,
+            String orderCodeKeyword,
+            OrderStatus status,
+            LocalDateTime fromDateTime,
+            LocalDateTime toDateTime,
+            Pageable pageable
+    ) {
+        return findAll((root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+
+            // filter theo storeId (bắt buộc)
+            predicates.add(cb.equal(root.get("store").get("storeId"), storeId));
+
+            // filter theo status (optional)
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+
+            // filter theo createdAt from/to (optional)
+            if (fromDateTime != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), fromDateTime));
+            }
+            if (toDateTime != null) {
+                predicates.add(cb.lessThan(root.get("createdAt"), toDateTime));
+            }
+
+            // filter theo orderCodeKeyword (optional)
+            if (orderCodeKeyword != null && !orderCodeKeyword.isBlank()) {
+                String pattern = "%" + orderCodeKeyword.toLowerCase() + "%";
+                predicates.add(
+                        cb.like(cb.lower(root.get("orderCode")), pattern)
+                );
+            }
+
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        }, pageable);
+    }
 }
