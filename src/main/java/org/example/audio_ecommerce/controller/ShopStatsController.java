@@ -1,108 +1,127 @@
 package org.example.audio_ecommerce.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.response.OrderStatusCountsResponse;
-import org.example.audio_ecommerce.dto.response.OrderStatusRatioResponse;
-import org.example.audio_ecommerce.dto.response.OrdersByDayResponse;
-import org.example.audio_ecommerce.dto.response.ProfitStatsResponse;
-import org.example.audio_ecommerce.dto.response.ShopOverviewStatsResponse;
-import org.example.audio_ecommerce.dto.response.TopSellingProductResponse;
-import org.example.audio_ecommerce.dto.response.ProductViewAnalyticsResponse;
-import org.example.audio_ecommerce.dto.response.OutOfStockProductResponse;
+import org.example.audio_ecommerce.dto.response.LifetimeStatsResponse;
+import org.example.audio_ecommerce.dto.response.MonthlyGrowthPoint;
 import org.example.audio_ecommerce.service.ShopStatsService;
-import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/shop/stats")
+@RequestMapping("/api/v1/shop-stats")
 @RequiredArgsConstructor
 public class ShopStatsController {
 
     private final ShopStatsService shopStatsService;
 
-    // ✅ 1. API tổng quan (Dashboard Overview)
-    // GET /api/shop/stats/overview?storeId=...&date=YYYY-MM-DD
-    @GetMapping("/overview")
-    public ResponseEntity<ShopOverviewStatsResponse> overview(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam(value = "startDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam(value = "endDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+    // ===============================================================
+    // 1) LIFETIME STATS — thống kê trọn đời
+    // ===============================================================
+    @Operation(
+            summary = "📊 Lifetime Statistics — Thống kê trọn đời",
+            description = """
+                    **API trả về full thống kê trọn đời của một store**, bao gồm:
+                    
+                    🔹 Tổng số đơn đã giao  
+                    🔹 Tổng doanh thu  
+                    🔹 Tổng phí nền tảng  
+                    🔹 Doanh thu thực (sau platform fee)  
+                    🔹 Tổng số đơn return thành công  
+                    🔹 Tỉ lệ return (%)  
+                    🔹 Top 10 sản phẩm bán chạy nhất (trọn đời)  
+                    🔹 Sản phẩm bị return nhiều nhất  
+                    🔹 Tổng phí ship chênh lệch GHN shop phải trả
+                    """,
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Thành công",
+                            content = @Content(schema = @Schema(implementation = LifetimeStatsResponse.class))
+                    ),
+                    @ApiResponse(responseCode = "404", description = "Store không tồn tại"),
+                    @ApiResponse(responseCode = "500", description = "Lỗi hệ thống")
+            }
+    )
+    @GetMapping("/{storeId}/lifetime")
+    public LifetimeStatsResponse getLifetimeStats(
+            @Parameter(description = "ID cửa hàng (UUID của Store)", required = true)
+            @PathVariable UUID storeId
     ) {
-        ShopOverviewStatsResponse resp = shopStatsService.getOverview(storeId, date, startDate, endDate);
-        return ResponseEntity.ok(resp);
+        return shopStatsService.getLifetimeStats(storeId);
     }
 
-    @GetMapping("/orders")
-    public ResponseEntity<OrderStatusCountsResponse> orderStatusCounts(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "fromDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(value = "toDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    // ===============================================================
+    // 2) RANGE STATS — thống kê theo khoảng ngày
+    // ===============================================================
+    @Operation(
+            summary = "📅 Range Statistics — Thống kê theo khoảng thời gian",
+            description = """
+                    API trả về thống kê **giống Lifetime**, nhưng chỉ trong khoảng ngày FE truyền lên.
+                    
+                    Các dữ liệu gồm:
+                    - Tổng số đơn đã giao
+                    - Tổng doanh thu
+                    - Phí nền tảng
+                    - Doanh thu thực
+                    - Tỉ lệ return
+                    - Top sản phẩm bán chạy (trong khoảng ngày)
+                    - Sản phẩm return nhiều nhất
+                    """,
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Thành công",
+                            content = @Content(schema = @Schema(implementation = LifetimeStatsResponse.class))
+                    )
+            }
+    )
+    @GetMapping("/{storeId}/range")
+    public LifetimeStatsResponse getLifetimeStatsByRange(
+            @PathVariable UUID storeId,
+            @Parameter(description = "Ngày bắt đầu (yyyy-MM-dd)", required = true)
+            @RequestParam LocalDate from,
+            @Parameter(description = "Ngày kết thúc (yyyy-MM-dd)", required = true)
+            @RequestParam LocalDate to
     ) {
-        return ResponseEntity.ok(shopStatsService.getOrderStatusCounts(storeId, fromDate, toDate));
+        return shopStatsService.getLifetimeStatsByRange(storeId, from, to);
     }
 
-    @GetMapping("/orders-by-day")
-    public ResponseEntity<OrdersByDayResponse> ordersByDay(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "fromDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(value = "toDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    // ===============================================================
+    // 3) YEAR GROWTH — biểu đồ tăng trưởng theo 12 tháng
+    // ===============================================================
+    @Operation(
+            summary = "📈 Yearly Growth — Tăng trưởng theo 12 tháng",
+            description = """
+                    API trả về dữ liệu để FE vẽ biểu đồ doanh thu theo từng tháng trong năm:
+                    
+                    - Tháng (1–12)
+                    - Số đơn giao thành công
+                    - Tổng revenue của tháng
+                    
+                    **Dùng cho biểu đồ line chart / bar chart.**
+                    """,
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Thành công",
+                            content = @Content(schema = @Schema(implementation = MonthlyGrowthPoint.class))
+                    )
+            }
+    )
+    @GetMapping("/{storeId}/growth")
+    public List<MonthlyGrowthPoint> getYearGrowth(
+            @PathVariable UUID storeId,
+            @Parameter(description = "Năm muốn thống kê (VD: 2025)", required = true)
+            @RequestParam int year
     ) {
-        return ResponseEntity.ok(shopStatsService.getOrdersByDay(storeId, fromDate, toDate));
-    }
-
-    @GetMapping("/order-status-ratio")
-    public ResponseEntity<OrderStatusRatioResponse> orderStatusRatio(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "fromDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(value = "toDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
-    ) {
-        return ResponseEntity.ok(shopStatsService.getOrderStatusRatio(storeId, fromDate, toDate));
-    }
-
-    @GetMapping("/profit")
-    public ResponseEntity<ProfitStatsResponse> profitStats(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "fromDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(value = "toDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
-    ) {
-        return ResponseEntity.ok(shopStatsService.getProfitStats(storeId, fromDate, toDate));
-    }
-
-    // ============================================================
-    // 📊 PRODUCT ANALYTICS APIs
-    // ============================================================
-
-    @GetMapping("/products/top-selling")
-    public ResponseEntity<List<TopSellingProductResponse>> topSellingProducts(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "fromDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(value = "toDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
-            @RequestParam(value = "limit", defaultValue = "10") int limit
-    ) {
-        return ResponseEntity.ok(shopStatsService.getTopSellingProducts(storeId, fromDate, toDate, limit));
-    }
-
-    @GetMapping("/products/view-analytics")
-    public ResponseEntity<List<ProductViewAnalyticsResponse>> productViewAnalytics(
-            @RequestParam("storeId") UUID storeId
-    ) {
-        return ResponseEntity.ok(shopStatsService.getProductViewAnalytics(storeId));
-    }
-
-    @GetMapping("/products/out-of-stock")
-    public ResponseEntity<List<OutOfStockProductResponse>> outOfStockProducts(
-            @RequestParam("storeId") UUID storeId,
-            @RequestParam(value = "threshold", required = false) Integer threshold
-    ) {
-        return ResponseEntity.ok(shopStatsService.getOutOfStockProducts(storeId, threshold));
+        return shopStatsService.getYearGrowth(storeId, year);
     }
 }
