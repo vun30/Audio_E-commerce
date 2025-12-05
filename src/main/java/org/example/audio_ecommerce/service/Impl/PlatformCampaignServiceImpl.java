@@ -46,8 +46,8 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
             throw new RuntimeException("❌ campaignType is required (MEGA_SALE / FAST_SALE)");
 
         //// === FIX TIMEZONE HERE (subtract 7 hours) ===
-        LocalDateTime fixedStart = req.getStartTime().minusHours(7);
-        LocalDateTime fixedEnd = req.getEndTime().minusHours(7);
+        LocalDateTime fixedStart = req.getStartTime().minusHours(0);
+        LocalDateTime fixedEnd = req.getEndTime().minusHours(0);
 
         PlatformCampaign campaign = PlatformCampaign.builder()
                 .code(req.getCode())
