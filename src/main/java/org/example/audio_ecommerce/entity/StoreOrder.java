@@ -60,8 +60,21 @@ public class StoreOrder {
     @Column(name = "total_amount", precision = 18, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
+    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
     @Column(name = "shipping_fee")
-    private BigDecimal shippingFee; // phí ship GHN cho đơn của từng store
+    private BigDecimal shippingFee; // phí ship GHN  dự kến cho đơn của từng store
+
+    @Column(name = "shipping_fee_real")
+    private BigDecimal shippingFeeReal; // phí ship GHN thực tế cho đơn của từng store
+
+    @Column(name = "shipping_fee_for_store")
+    private BigDecimal shippingFeeForStore; // phí ship chên lêch đơn thật GHN - Phí dự kiến khách trả
+
+    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
 
     @Column(name = "store_voucher_discount", precision = 18, scale = 2)
     private BigDecimal storeVoucherDiscount = BigDecimal.ZERO; // giảm do voucher shop của chính store này
@@ -71,6 +84,7 @@ public class StoreOrder {
 
     @Column(name = "shipping_service_type_id")
     private Integer shippingServiceTypeId;
+
 
     @Lob
     @Column(name = "store_voucher_detail_json")
@@ -116,11 +130,19 @@ public class StoreOrder {
     @Column(name = "payment_method", length = 32, nullable = false)
     private PaymentMethod paymentMethod = PaymentMethod.COD;
 
+    @Column(name = "paid_by_shop")
+    private Boolean paidByShop = false;
+
+//    @Column(name = "paid_ship_price",nullable = true)
+//    private double paidShipPriceByShop;
+
     // ====== Settlement breakdown cho shop ======
 
     @Column(name = "platform_fee_amount", precision = 18, scale = 2)
     private BigDecimal platformFeeAmount = BigDecimal.ZERO;   // phí nền tảng (theo % product)
 
+    // phí ship thực tế GHN báo về
+    // phí ship thực tế GHN báo về
     @Column(name = "platform_fee_percentage", precision = 5, scale = 2)
     private BigDecimal platformFeePercentage;   // % phí nền tảng tại thời điểm checkout (snapshot từ PlatformFee)
 
@@ -129,6 +151,7 @@ public class StoreOrder {
 
     @Column(name = "shipping_extra_for_store", precision = 18, scale = 2)
     private BigDecimal shippingExtraForStore = BigDecimal.ZERO; // phần chênh GHN - shippingFee khách trả
+
 
     @Column(name = "net_payout_to_store", precision = 18, scale = 2)
     private BigDecimal netPayoutToStore = BigDecimal.ZERO;    // tiền cuối cùng chuyển vào ví shop

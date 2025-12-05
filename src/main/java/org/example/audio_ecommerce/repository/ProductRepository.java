@@ -75,11 +75,11 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
             @Param("keyword") String keyword,
             Pageable pageable);
 
-     @Query("""
+    @Query("""
 SELECT DISTINCT p FROM Product p
 JOIN p.store s
 LEFT JOIN s.storeAddresses addr
-WHERE (:status IS NULL OR p.status = :status)
+WHERE (:status IS NULL OR CAST(p.status AS string) = UPPER(:status))
   AND (:categoryId IS NULL OR p.category.categoryId = :categoryId)
   AND (:storeId IS NULL OR s.storeId = :storeId)
   AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
@@ -97,7 +97,6 @@ Page<Product> findAllWithAdvancedFilters(
         @Param("wardCode") String wardCode,
         Pageable pageable
 );
-
      @Query("SELECT p.store FROM Product p WHERE p.productId = :productId")
 Optional<Store> findStoreByProductId(UUID productId);
 

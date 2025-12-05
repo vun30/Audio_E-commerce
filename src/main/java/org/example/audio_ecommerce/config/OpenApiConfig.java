@@ -14,13 +14,18 @@ public class OpenApiConfig {
 
     @Bean
     public OpenAPI api() {
+         // 🔥 Server Local
+        Server localServer = new Server()
+                .url("http://localhost:8080")
+                .description("Local Server");
 
-        // 🔥 THÊM PHẦN SERVER URL CHO RAILWAY
+        // 🔥  SERVER URL CHO RAILWAY
         Server productionServer = new Server()
                 .url("https://audioe-commerce-production.up.railway.app")
                 .description("Railway Production");
 
         return new OpenAPI()
+                .addServersItem(localServer)        // 👈 thêm local
                 .addServersItem(productionServer) // ✔ Thêm server
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
                 .components(new Components().addSecuritySchemes(

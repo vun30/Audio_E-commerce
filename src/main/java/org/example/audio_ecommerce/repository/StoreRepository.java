@@ -45,5 +45,8 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
     @Query("SELECT p.store FROM Product p WHERE p.productId = :productId")
     Optional<Store> findStoreByProductId(UUID productId);
 
+    @Query("SELECT s.storeId FROM Store s")
+    List<UUID> findAllStoreIds();
+
 
 }
