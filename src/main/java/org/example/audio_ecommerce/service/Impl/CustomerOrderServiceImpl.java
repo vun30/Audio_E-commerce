@@ -180,6 +180,16 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                             // Image & variant url
                             .image(image)
                             .variantUrl(variantUrl)
+
+                            .unitPriceBeforeDiscount(item.getUnitPriceBeforeDiscount())
+                            .linePriceBeforeDiscount(item.getLinePriceBeforeDiscount())
+                            .platformVoucherDiscount(item.getPlatformVoucherDiscount())
+                            .shopItemDiscount(item.getShopItemDiscount())
+                            .shopOrderVoucherDiscount(item.getShopOrderVoucherDiscount())
+                            .totalItemDiscount(item.getTotalItemDiscount())
+                            .finalUnitPrice(item.getFinalUnitPrice())
+                            .finalLineTotal(item.getFinalLineTotal())
+                            .amountCharged(item.getAmountCharged())
                             .build();
                 })
                 .collect(Collectors.toList());
