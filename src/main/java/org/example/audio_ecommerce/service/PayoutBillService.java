@@ -1,7 +1,10 @@
 package org.example.audio_ecommerce.service;
 
+import org.example.audio_ecommerce.entity.Enum.PayoutBillStatus;
 import org.example.audio_ecommerce.entity.PayoutBill;
+import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,5 +46,14 @@ public interface PayoutBillService {
 
     List<PayoutBill> autoCreateBillsForAllStores();
 
-     PayoutBill getOrCreateBillForStore(UUID storeId);
+    PayoutBill getOrCreateBillForStore(UUID storeId);
+
+    List<PayoutBill> listBills(UUID storeId,
+                               PayoutBillStatus status,
+                               LocalDateTime fromDate,
+                               LocalDateTime toDate,
+                               String billCode);
+
+
+
 }

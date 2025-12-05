@@ -3,8 +3,10 @@ package org.example.audio_ecommerce.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.response.PayoutBillResponse;
+import org.example.audio_ecommerce.entity.Enum.PayoutBillStatus;
 import org.example.audio_ecommerce.entity.PayoutBill;
 import org.example.audio_ecommerce.service.PayoutBillService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +14,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import io.swagger.v3.oas.annotations.Parameter;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -162,5 +165,59 @@ public class PayoutBillController {
                 bills.stream().map(PayoutBillResponse::fromEntity).toList()
         );
     }
+
+    @Operation(
+        summary = "Lấy danh sách payout bill (kèm bộ lọc)",
+        description = """
+                API dùng cho FE để hiển thị danh sách bill payout của shop hoặc toàn hệ thống.
+
+                🎯 Bộ lọc hỗ trợ:
+                • storeId (UUID, optional)
+                    - Nếu truyền → trả về bill của shop đó
+                    - Nếu bỏ trống → admin lấy toàn bộ bill hệ thống
+
+                • status (PayoutBillStatus, optional)
+                    - PENDING / PAID / CANCELED / ... 
+                    - Cho phép FE lọc theo trạng thái bill
+
+                • fromDate, toDate (LocalDateTime ISO, optional)
+                    - Lọc theo khoảng ngày tạo bill
+                    - Format: yyyy-MM-dd'T'HH:mm:ss
+                    - Nếu bỏ trống → không giới hạn
+
+                • billCode (String, optional)
+                    - Search theo mã bill (PB-xxxx)
+                    - Hỗ trợ tìm gần đúng (LIKE)
+
+                🎁 Kết quả trả về:
+                • Danh sách PayoutBill đã apply đầy đủ filter
+                • Sắp xếp theo createdAt DESC (bill mới nhất nằm đầu)
+
+                ⚠️ Gợi ý FE:
+                • Luôn truyền fromDate/toDate khi làm màn lịch sử
+                • Để lấy bill shop hiện tại → chỉ cần truyền storeId
+                """
+)
+@GetMapping
+public ResponseEntity<List<PayoutBill>> getBills(
+        @RequestParam(required = false) UUID storeId,
+        @RequestParam(required = false) PayoutBillStatus status,
+        @RequestParam(required = false)
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fromDate,
+        @RequestParam(required = false)
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime toDate,
+        @RequestParam(required = false) String billCode
+) {
+
+    List<PayoutBill> list = payoutBillService.listBills(
+            storeId,
+            status,
+            fromDate,
+            toDate,
+            billCode
+    );
+
+    return ResponseEntity.ok(list);
+}
 
 }
