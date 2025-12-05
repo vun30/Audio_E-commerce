@@ -50,16 +50,6 @@ public class CustomerController {
         return customerService.search(keyword, status, pageable);
     }
 
-    @GetMapping("/{customerId}/orders")
-    public PagedResult<CustomerOrderDetailResponse> getCustomerOrders(
-            @PathVariable UUID customerId,
-            @RequestParam(required = false) OrderStatus status,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
-    ) {
-        return customerOrderService.getCustomerOrders(customerId, status,page, size);
-    }
-
     @PutMapping("/{id}")
     public CustomerResponse update(@PathVariable UUID id,
                                    @Valid @RequestBody CustomerUpdateRequest req) {
@@ -117,4 +107,13 @@ public class CustomerController {
         return BaseResponse.success("Fetched customer order detail", resp);
     }
 
+    @GetMapping("/{customerId}/orders")
+    public PagedResult<CustomerOrderDetailResponse> getCustomerOrders(
+            @PathVariable UUID customerId,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return customerOrderService.getCustomerOrders(customerId, status, page, size);
+    }
 }
