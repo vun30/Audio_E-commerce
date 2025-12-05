@@ -278,4 +278,21 @@ public class PayoutBillServiceImpl implements PayoutBillService {
         return payoutBillRepository.findById(billId)
                 .orElseThrow(() -> new RuntimeException("Bill not found"));
     }
+
+    @Override
+public List<PayoutBill> listBills(UUID storeId,
+                                  PayoutBillStatus status,
+                                  LocalDateTime fromDate,
+                                  LocalDateTime toDate,
+                                  String billCode) {
+
+    return payoutBillRepository.filterBills(
+            storeId,
+            status,
+            fromDate,
+            toDate,
+            billCode
+    );
+}
+
 }
