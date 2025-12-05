@@ -33,4 +33,14 @@ public class CustomerOrderItemResponse {
 
     private String image;      // ảnh sản phẩm (lấy ảnh đầu tiên)
     private String variantUrl;
+
+    private BigDecimal unitPriceBeforeDiscount;
+    private BigDecimal linePriceBeforeDiscount;
+    private BigDecimal platformVoucherDiscount;
+    private BigDecimal shopItemDiscount;
+    private BigDecimal shopOrderVoucherDiscount;
+    private BigDecimal totalItemDiscount;
+    private BigDecimal finalUnitPrice;
+    private BigDecimal finalLineTotal;
+    private BigDecimal amountCharged;
 }
