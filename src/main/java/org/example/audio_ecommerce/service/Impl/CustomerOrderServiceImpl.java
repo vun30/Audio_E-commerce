@@ -1,10 +1,7 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.response.CustomerOrderDetailResponse;
-import org.example.audio_ecommerce.dto.response.CustomerOrderItemResponse;
-import org.example.audio_ecommerce.dto.response.PagedResult;
-import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
+import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
@@ -20,10 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.Collections;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,6 +27,7 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
     private final CustomerOrderRepository customerOrderRepository;
     private final ProductRepository productRepo;
     private final ProductVariantRepository productVariantRepo;
+    private final StoreOrderRepository storeOrderRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -78,8 +73,27 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
     }
 
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
+        // 🔹 Lấy tất cả store_order thuộc customer_order này
+        List<StoreOrder> storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
 
-        List<CustomerOrderItemResponse> itemResponses = toCustomerOrderItemResponses(order.getItems());
+        // Map storeId -> storeOrderId để gán cho từng CustomerOrderItem
+        Map<UUID, UUID> storeIdToStoreOrderId = storeOrders.stream()
+                .filter(so -> so.getStore() != null && so.getStore().getStoreId() != null)
+                .collect(Collectors.toMap(
+                        so -> so.getStore().getStoreId(),
+                        StoreOrder::getId,
+                        (a, b) -> a // nếu trùng storeId thì lấy cái đầu tiên
+                ));
+
+        // 🔹 Map items (product detail + image + variant + storeOrderId)
+        List<CustomerOrderItemResponse> itemResponses =
+                toCustomerOrderItemResponses(order.getItems(), storeIdToStoreOrderId);
+
+        // 🔹 Map storeOrders (voucher detail, shipping, total,...)
+        List<StoreOrderSummaryResponse> storeOrderResponses =
+                storeOrders.stream()
+                        .map(this::toStoreOrderSummary)
+                        .collect(Collectors.toList());
 
         return CustomerOrderDetailResponse.builder()
                 .id(order.getId())
@@ -103,10 +117,14 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .postalCode(order.getShipPostalCode())
                 .note(order.getShipNote())
                 .items(itemResponses)
+                .storeOrders(storeOrderResponses)
                 .build();
     }
 
-    private List<CustomerOrderItemResponse> toCustomerOrderItemResponses(List<CustomerOrderItem> items) {
+    private List<CustomerOrderItemResponse> toCustomerOrderItemResponses(
+            List<CustomerOrderItem> items,
+            Map<UUID, UUID> storeIdToStoreOrderId
+    ) {
         if (items == null || items.isEmpty()) {
             return Collections.emptyList();
         }
@@ -138,6 +156,11 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                         }
                     }
 
+                    UUID storeOrderId = null;
+                    if (item.getStoreId() != null) {
+                        storeOrderId = storeIdToStoreOrderId.get(item.getStoreId());
+                    }
+
                     return CustomerOrderItemResponse.builder()
                             .id(item.getId())
                             .type(item.getType())
@@ -147,11 +170,14 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                             .unitPrice(item.getUnitPrice())
                             .lineTotal(item.getLineTotal())
                             .storeId(item.getStoreId())
+                            .storeOrderId(storeOrderId) // ⭐ NEW
+
                             // Variant info
                             .variantId(item.getVariantId())
                             .variantOptionName(item.getVariantOptionName())
                             .variantOptionValue(item.getVariantOptionValue())
-                            // 🔥 MỚI
+
+                            // Image & variant url
                             .image(image)
                             .variantUrl(variantUrl)
                             .build();
@@ -159,9 +185,32 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .collect(Collectors.toList());
     }
 
-
     private BigDecimal defaultBigDecimal(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
+    }
+
+    private StoreOrderSummaryResponse toStoreOrderSummary(StoreOrder so) {
+        Store store = so.getStore();
+
+        return StoreOrderSummaryResponse.builder()
+                .id(so.getId())
+                .orderCode(so.getOrderCode())
+                .storeId(store != null ? store.getStoreId() : null)
+                .storeName(store != null ? store.getStoreName() : null)
+                .status(so.getStatus())
+                .createdAt(so.getCreatedAt())
+                .deliveredAt(so.getDeliveredAt())
+                .totalAmount(defaultBigDecimal(so.getTotalAmount()))
+                .discountTotal(defaultBigDecimal(so.getDiscountTotal()))
+                .storeVoucherDiscount(defaultBigDecimal(so.getStoreVoucherDiscount()))
+                .platformVoucherDiscount(defaultBigDecimal(so.getPlatformVoucherDiscount()))
+                .shippingFee(defaultBigDecimal(so.getShippingFee()))
+                .shippingFeeReal(defaultBigDecimal(so.getShippingFeeReal()))
+                .shippingFeeForStore(defaultBigDecimal(so.getShippingFeeForStore()))
+                .grandTotal(defaultBigDecimal(so.getGrandTotal()))
+                .storeVoucherDetailJson(so.getStoreVoucherDetailJson())
+                .platformVoucherDetailJson(so.getPlatformVoucherDetailJson())
+                .build();
     }
 
 }
