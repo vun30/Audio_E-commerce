@@ -52,7 +52,8 @@ public class SecurityConfig {
                             "https://conicboulevard.vercel.app",
                             "https://manager.conicboulevard.pro.vn",
                             "http://localhost:8081",
-                            "https://audioe-commerce-production.up.railway.app"
+                            "https://audioe-commerce-production.up.railway.app",
+                            "https://audioe-commerce-production.up.railway.app/api/account/login"
                     ));
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
