@@ -25,7 +25,7 @@ public class CustomerOrderItemResponse {
 
     // Thông tin store
     private UUID storeId;
-
+    private UUID storeOrderId;
     // ===== Variant info =====
     private UUID variantId;           // có thể null
     private String variantOptionName; // Color, Size,...

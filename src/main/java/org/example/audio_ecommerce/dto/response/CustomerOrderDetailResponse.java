@@ -37,4 +37,8 @@ public class CustomerOrderDetailResponse {
     private String postalCode;
     private String note;
     private List<CustomerOrderItemResponse> items;
+
+
+    // 🏪 NEW: detail từng store trong đơn (vouchers theo store, shipping,..)
+    private List<StoreOrderSummaryResponse> storeOrders;
 }

@@ -43,4 +43,10 @@ public interface ReturnRequestService {
 
     // AUTO
     void autoRefundForUnresponsiveShop();
+    void autoApprovePendingReturns();
+    void autoCancelUnshippedReturns();
+    void autoHandleGhnPickupTimeout();
+
+    ReturnRequestResponse refundWithoutReturnByShop(UUID returnRequestId);
+
 }
