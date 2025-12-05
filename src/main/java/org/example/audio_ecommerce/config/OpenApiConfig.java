@@ -24,9 +24,14 @@ public class OpenApiConfig {
                 .url("https://audioe-commerce-production.up.railway.app")
                 .description("Railway Production");
 
+        Server baseServer = new Server()
+                .url("https://audioe-commerce-production.up.railway.app")
+                .description("Deployed Server");
+
         return new OpenAPI()
                 .addServersItem(localServer)        // 👈 thêm local
                 .addServersItem(productionServer) // ✔ Thêm server
+                .addServersItem(baseServer)
                 .addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
                 .components(new Components().addSecuritySchemes(
                         "bearerAuth",
