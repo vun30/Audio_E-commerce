@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.StoreOrderStatusUpdateRequest;
@@ -8,10 +9,13 @@ import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.example.audio_ecommerce.service.StoreOrderService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -29,9 +33,22 @@ public class StoreOrderController {
             @PathVariable UUID storeId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String orderCodeKeyword
+            @RequestParam(required = false) String orderCodeKeyword,
+            @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
     ) {
-        return storeOrderService.getOrdersForStore(storeId, page, size, orderCodeKeyword);
+        return storeOrderService.getOrdersForStore(
+                storeId,
+                page,
+                size,
+                orderCodeKeyword,
+                status,
+                fromDate,
+                toDate
+        );
     }
 
     @PatchMapping("/{orderId}/status")
@@ -82,23 +99,23 @@ public class StoreOrderController {
     }
 
     private StoreOrderSettlementResponse toSettlementResponse(StoreOrder so) {
-        java.math.BigDecimal productsTotal = java.util.Optional.ofNullable(so.getTotalAmount()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal discountTotal = java.util.Optional.ofNullable(so.getDiscountTotal()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal storeVoucherDiscount = java.util.Optional.ofNullable(so.getStoreVoucherDiscount()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal platformVoucherDiscount = java.util.Optional.ofNullable(so.getPlatformVoucherDiscount()).orElse(java.math.BigDecimal.ZERO);
+        BigDecimal productsTotal = java.util.Optional.ofNullable(so.getTotalAmount()).orElse(BigDecimal.ZERO);
+        BigDecimal discountTotal = java.util.Optional.ofNullable(so.getDiscountTotal()).orElse(BigDecimal.ZERO);
+        BigDecimal storeVoucherDiscount = java.util.Optional.ofNullable(so.getStoreVoucherDiscount()).orElse(BigDecimal.ZERO);
+        BigDecimal platformVoucherDiscount = java.util.Optional.ofNullable(so.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
 
-        java.math.BigDecimal customerShippingFee = java.util.Optional.ofNullable(so.getShippingFee()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal actualShippingFee = java.util.Optional.ofNullable(so.getActualShippingFee()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal shippingExtraForStore = java.util.Optional.ofNullable(so.getShippingExtraForStore()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal platformFeeAmount = java.util.Optional.ofNullable(so.getPlatformFeeAmount()).orElse(java.math.BigDecimal.ZERO);
-        java.math.BigDecimal netPayoutToStore = java.util.Optional.ofNullable(so.getNetPayoutToStore()).orElse(java.math.BigDecimal.ZERO);
+        BigDecimal customerShippingFee = java.util.Optional.ofNullable(so.getShippingFee()).orElse(BigDecimal.ZERO);
+        BigDecimal actualShippingFee = java.util.Optional.ofNullable(so.getActualShippingFee()).orElse(BigDecimal.ZERO);
+        BigDecimal shippingExtraForStore = java.util.Optional.ofNullable(so.getShippingExtraForStore()).orElse(BigDecimal.ZERO);
+        BigDecimal platformFeeAmount = java.util.Optional.ofNullable(so.getPlatformFeeAmount()).orElse(BigDecimal.ZERO);
+        BigDecimal netPayoutToStore = java.util.Optional.ofNullable(so.getNetPayoutToStore()).orElse(BigDecimal.ZERO);
 
-        java.math.BigDecimal platformFeeRate = null;
+        BigDecimal platformFeeRate = null;
         if (so.getSettlementDetailJson() != null) {
             try {
-                com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(so.getSettlementDetailJson());
+                JsonNode root = objectMapper.readTree(so.getSettlementDetailJson());
                 if (root.has("platformFeeRate")) {
-                    platformFeeRate = new java.math.BigDecimal(root.get("platformFeeRate").asText("0"));
+                    platformFeeRate = new BigDecimal(root.get("platformFeeRate").asText("0"));
                 }
             } catch (Exception ignored) {}
         }
