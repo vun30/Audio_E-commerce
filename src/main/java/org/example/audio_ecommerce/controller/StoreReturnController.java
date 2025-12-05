@@ -56,4 +56,10 @@ public class StoreReturnController {
         returnService.rejectReturnByShop(id, req);
     }
 
+    @PostMapping("/{id}/refund-without-return")
+    public ReturnRequestResponse refundWithoutReturn(@PathVariable UUID id) {
+        return returnService.refundWithoutReturnByShop(id);
+    }
+
+
 }

@@ -34,6 +34,9 @@ public class WalletServiceImpl implements WalletService {
     private final StoreWalletRepository storeWalletRepo;
     private final StoreWalletTransactionRepository storeWalletTxnRepo;
     private final CustomerOrderItemRepository customerOrderItemRepo;
+    private final PlatformWalletRepository platformWalletRepo;
+    private final PlatformTransactionRepository platformTxnRepo;
+
 
     @Override
     @Transactional(readOnly = true)
@@ -101,34 +104,45 @@ public class WalletServiceImpl implements WalletService {
         Wallet customerWallet = walletRepo.findByCustomerId(r.getCustomerId())
                 .orElseThrow(() -> new NoSuchElementException("Customer wallet not found"));
 
-        // ===== Lấy ví shop =====
-        StoreWallet shopWallet = storeWalletRepo.findByStore_StoreId(r.getShopId())
-                .orElseThrow(() -> new NoSuchElementException("Store wallet not found"));
+        // ===== Lấy ví PLATFORM (trung gian) =====
+        // Giả định ví nền tảng là 1 record có ownerType = PLATFORM và ownerId = null
+        PlatformWallet platformWallet = platformWalletRepo
+                .findByOwnerTypeAndOwnerId(WalletOwnerType.PLATFORM, null)
+                .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
-        // ===== SHOP: trừ pendingBalance + totalRevenue =====
-        BigDecimal shopPendingBefore = shopWallet.getPendingBalance();
-        BigDecimal shopPendingAfter = shopPendingBefore.subtract(amount);
-        ensureNonNegative(shopPendingAfter, "Shop pending balance cannot be negative");
+        // ===== PLATFORM: trừ pendingBalance + totalBalance, tăng refundedTotal =====
+        BigDecimal pfPendingBefore = platformWallet.getPendingBalance();
+        BigDecimal pfPendingAfter = pfPendingBefore.subtract(amount);
+        ensureNonNegative(pfPendingAfter, "Platform pending balance cannot be negative");
 
-        BigDecimal shopTotalBefore = shopWallet.getTotalRevenue();
-        BigDecimal shopTotalAfter = shopTotalBefore.subtract(amount);
-        ensureNonNegative(shopTotalAfter, "Shop totalRevenue cannot be negative");
+        BigDecimal pfTotalBefore = platformWallet.getTotalBalance();
+        BigDecimal pfTotalAfter = pfTotalBefore.subtract(amount);
+        ensureNonNegative(pfTotalAfter, "Platform totalBalance cannot be negative");
 
-        shopWallet.setPendingBalance(shopPendingAfter);
-        shopWallet.setTotalRevenue(shopTotalAfter);
-        storeWalletRepo.save(shopWallet);
+        platformWallet.setPendingBalance(pfPendingAfter);
+        platformWallet.setTotalBalance(pfTotalAfter);
+        platformWallet.setRefundedTotal(
+                platformWallet.getRefundedTotal() == null
+                        ? amount
+                        : platformWallet.getRefundedTotal().add(amount)
+        );
+        platformWallet.setUpdatedAt(LocalDateTime.now());
+        platformWalletRepo.save(platformWallet);
 
-        // 🔹 Log StoreWalletTransaction: hoàn trả hàng → trừ pendingBalance
-        StoreWalletTransaction shopTxn = StoreWalletTransaction.builder()
-                .wallet(shopWallet)
-                .type(StoreWalletTransactionType.REFUND) // hoặc REFUND_RETURN nếu bạn thêm enum
-                .amount(amount)                          // luôn dương, hướng nhìn theo type/description
-                .balanceAfter(shopPendingAfter)         // coi như "pendingBalance sau giao dịch"
-                .description("Hoàn tiền trả hàng (trừ pendingBalance), returnId=" + r.getId())
-                .orderId(orderId)                       // ✅ orderId của đơn gốc
+        // 🔹 Log PlatformTransaction: nền tảng trả tiền lại cho customer
+        PlatformTransaction pfTxn = PlatformTransaction.builder()
+                .wallet(platformWallet)
+                .orderId(orderId)
+                .storeId(r.getShopId())              // nếu muốn link shop liên quan
+                .customerId(r.getCustomerId())
+                .amount(amount)
+                .type(TransactionType.REFUND_CUSTOMER_RETURN)  // hoặc TransactionType.REFUND nếu enum bạn đang dùng vậy
+                .status(TransactionStatus.DONE)
+                .description("Refund trả hàng từ platform pending cho customer, returnId=" + r.getId())
                 .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
-        storeWalletTxnRepo.save(shopTxn);
+        platformTxnRepo.save(pfTxn);
 
         // ===== CUSTOMER: cộng balance + log WalletTransaction =====
         BigDecimal cusBefore = customerWallet.getBalance();
@@ -146,14 +160,15 @@ public class WalletServiceImpl implements WalletService {
                 .description("Hoàn tiền trả hàng, sản phẩm: " + r.getProductName())
                 .balanceBefore(cusBefore)
                 .balanceAfter(cusAfter)
-                .orderId(orderId)                       // ✅ link luôn về đơn gốc
+                .orderId(orderId)
                 .externalRef("RETURN:" + r.getId())
                 .build();
         txnRepo.save(cusTxn);
 
-        log.info("[RETURN REFUND] returnRequest={}, orderId={}, amount={} hoàn vào ví customer",
+        log.info("[RETURN REFUND] returnRequest={}, orderId={}, amount={} hoàn vào ví customer từ platform",
                 r.getId(), orderId, amount);
     }
+
 
 
     /**
