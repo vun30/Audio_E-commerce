@@ -11,7 +11,7 @@ public class ReturnRequestScheduler {
 
     private final ReturnRequestService returnRequestService;
 
-    @Scheduled(cron = "0 */1 * * * *")
+    @Scheduled(cron = "0 */5 * * * *")
     public void handleTimeouts() {
         returnRequestService.autoApprovePendingReturns();
         returnRequestService.autoCancelUnshippedReturns();
