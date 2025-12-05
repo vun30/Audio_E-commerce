@@ -21,12 +21,11 @@ import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.MediaType;
+import org.springframework.http.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.http.HttpHeaders;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -116,7 +115,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         UUID shopId = orderItem.getStoreId();
         UUID productId = orderItem.getRefId();
         String productName = orderItem.getName();
-        BigDecimal itemPrice = orderItem.getUnitPrice(); // hoặc lineTotal nếu hoàn theo cả dòng
+        BigDecimal itemPrice = orderItem.getFinalLineTotal(); // hoặc lineTotal nếu hoàn theo cả dòng
 
         // 2️⃣ Tạo ReturnRequest
         ReturnRequest entity = ReturnRequest.builder()
@@ -681,26 +680,77 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     // ========================= AUTO ==========================
     // =========================================================
 
+    /**
+     * CASE 3 — SHOP KHÔNG KHIẾU NẠI DÙ KHÁCH SAI
+     *
+     * Ngữ cảnh:
+     *  - GHN đã giao hàng trả về cho shop
+     *  - status của ReturnRequest vẫn là SHIPPING
+     *  - Shop KHÔNG bấm "Khiếu nại" (DISPUTE) trong vòng 48h sau khi nhận hàng
+     *
+     * Điều kiện auto xử lý:
+     *  - status = SHIPPING
+     *  - trackingStatus cho thấy là đã giao: "delivered" (tuỳ bạn map từ GHN)
+     *  - updatedAt (hoặc deliveredAt) <= now - 48h
+     *
+     * Hành vi:
+     *  - Đổi sang AUTO_REFUNDED (coi như hệ thống tự REFUND)
+     *  - faultType:
+     *      + Nếu reasonType = CUSTOMER_FAULT: vẫn set CUSTOMER
+     *        → khách bị xem là lỗi trong việc phát sinh return, nên KHÔNG hoàn phí ship.
+     *      + Nếu reasonType = SHOP_FAULT: set SHOP
+     *  - Gọi walletService.refundForReturn(r):
+     *      → chỉ hoàn tiền hàng (itemPrice), KHÔNG hoàn phí ship (shippingFee).
+     */
     @Override
     @Transactional
     public void autoRefundForUnresponsiveShop() {
-        LocalDateTime deadline = LocalDateTime.now().minusDays(3);
+        LocalDateTime deadline = LocalDateTime.now().minusHours(48);
+
+        // Giả định findUnresponsiveReturns(status, deadline) lọc theo:
+        //  - r.status = status
+        //  - r.updatedAt <= deadline  (hoặc createdAt tuỳ bạn implement)
         List<ReturnRequest> list =
                 returnRepo.findUnresponsiveReturns(ReturnStatus.SHIPPING, deadline);
 
         for (ReturnRequest r : list) {
+
+            // ✅ Bảo vệ: chỉ auto refund khi hàng ĐÃ GIAO cho shop
+            // Nếu bạn có mapping từ GHN thì chỉnh lại string này cho đúng.
+            String tracking = r.getTrackingStatus();
+            if (tracking == null || !tracking.equalsIgnoreCase("delivered")) {
+                // chưa chắc đã nhận hàng → bỏ qua, chờ scheduler lần sau
+                continue;
+            }
+
+            // ✅ Xác định faultType cuối cùng
+            // Trường hợp bài toán "khách thật sự sai nhưng shop KHÔNG khiếu nại":
+            //  - reasonType = CUSTOMER_FAULT
+            //  - shop im lặng → hệ thống auto hoàn tiền hàng, NHƯNG:
+            //      + giữ faultType = CUSTOMER để không hoàn phí ship
+            ReturnFaultType finalFault =
+                    (r.getReasonType() == ReturnReasonType.SHOP_FAULT)
+                            ? ReturnFaultType.SHOP
+                            : ReturnFaultType.CUSTOMER;   // mặc định CUSTOMER cho CUSTOMER_FAULT + không khiếu nại
+
             r.setStatus(ReturnStatus.AUTO_REFUNDED);
-            r.setFaultType(
-                    r.getReasonType() == ReturnReasonType.CUSTOMER_FAULT
-                            ? ReturnFaultType.CUSTOMER
-                            : ReturnFaultType.SHOP
-            );
+            r.setFaultType(finalFault);
             r.setUpdatedAt(LocalDateTime.now());
             returnRepo.save(r);
 
+            // 💰 Hoàn tiền HÀNG cho customer, KHÔNG hoàn phí ship
+            // refundForReturn chỉ dùng r.getItemPrice(), không dùng r.getShippingFee()
             walletService.refundForReturn(r);
+
+            log.info(
+                    "[AUTO REFUND RETURN][CASE 3] returnRequest={} auto-refunded after 48h without shop dispute, " +
+                            "reasonType={}, faultType={}",
+                    r.getId(), r.getReasonType(), finalFault
+            );
         }
     }
+
+
 
     @Override
     @Transactional
@@ -732,6 +782,182 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+    }
+
+    /**
+     * CASE 4.1 - Shop không phản hồi yêu cầu return trong 48h
+     * Điều kiện:
+     *  - status = PENDING
+     *  - createdAt (hoặc updatedAt) <= now - 48h
+     * Hành vi:
+     *  - Đổi sang APPROVED giống như shop bấm approve
+     */
+    @Override
+    @Transactional
+    public void autoApprovePendingReturns() {
+        LocalDateTime deadline = LocalDateTime.now().minusHours(48);
+
+        // Giả định findUnresponsiveReturns(status, deadline) lọc theo createdAt/updatedAt <= deadline
+        List<ReturnRequest> list =
+                returnRepo.findUnresponsiveReturns(ReturnStatus.PENDING, deadline);
+
+        for (ReturnRequest r : list) {
+            // Nếu sau 48h mà shop vẫn chưa reject → tự approve
+            r.setStatus(ReturnStatus.APPROVED);
+            r.setUpdatedAt(LocalDateTime.now());
+            returnRepo.save(r);
+
+            log.info("[AUTO APPROVE RETURN] returnRequest={} auto-approved after 48h pending", r.getId());
+        }
+    }
+
+    /**
+     * CASE 4.2 - Customer không gửi hàng sau khi shop approve (72h)
+     * Điều kiện:
+     *  - status = APPROVED
+     *  - ghnOrderCode IS NULL (chưa tạo đơn GHN)
+     *  - updatedAt (thời điểm approve) <= now - 72h
+     * Hành vi:
+     *  - Auto CANCEL return (trả về CANCELLED)
+     *  - Nếu có logic "lock tiền cho shop" thì ở đây sẽ phải unlock lại (chưa làm trong hàm này)
+     */
+    @Override
+    @Transactional
+    public void autoCancelUnshippedReturns() {
+        LocalDateTime deadline = LocalDateTime.now().minusHours(72);
+
+        List<ReturnRequest> list =
+                returnRepo.findUnresponsiveReturns(ReturnStatus.APPROVED, deadline);
+
+        for (ReturnRequest r : list) {
+            // chỉ xử lý những request chưa từng tạo đơn GHN
+            if (r.getGhnOrderCode() != null) continue;
+
+            r.setStatus(ReturnStatus.CANCELLED);   // nhớ thêm vào enum
+            r.setFaultType(ReturnFaultType.CUSTOMER); // khách không gửi hàng → xem như lỗi phía customer
+            r.setUpdatedAt(LocalDateTime.now());
+            returnRepo.save(r);
+
+            log.info("[AUTO CANCEL RETURN] returnRequest={} auto-cancelled after 72h not shipped", r.getId());
+        }
+    }
+
+    /**
+     * CASE 4.4 - GHN không pickup sau 48h
+     * Điều kiện:
+     *  - status = SHIPPING
+     *  - đã có ghnOrderCode
+     *  - trackingStatus vẫn ở trạng thái chờ lấy (ready_to_pick / null)
+     *  - updatedAt (hoặc createdAt GHN order) <= now - 48h
+     * Hành vi:
+     *  - (optional) gọi GHN hủy đơn cũ
+     *  - clear ghnOrderCode + trackingStatus
+     *  - đưa request về lại APPROVED để shop/customer tạo lệnh mới
+     */
+    @Override
+    @Transactional
+    public void autoHandleGhnPickupTimeout() {
+        LocalDateTime deadline = LocalDateTime.now().minusHours(48);
+        List<ReturnRequest> list = returnRepo.findUnresponsiveReturns(ReturnStatus.SHIPPING, deadline);
+
+        for (ReturnRequest r : list) {
+            String tracking = r.getTrackingStatus();
+            // Chỉ xử lý khi vẫn đang chờ lấy hàng (ready_to_pick, storing, hoặc null)
+            if (tracking != null &&
+                    !tracking.equalsIgnoreCase("ready_to_pick") &&
+                    !tracking.equalsIgnoreCase("storing")) {
+                continue;
+            }
+
+            String oldOrderCode = r.getGhnOrderCode();
+            if (oldOrderCode == null || oldOrderCode.isBlank()) {
+                continue;
+            }
+
+            // === GỌI API HỦY ĐƠN GHN THẬT SỰ ===
+            try {
+                String cancelUrl = "https://your-domain.com/api/ghn/cancel-order"; // Thay bằng domain thật của bạn
+                // Hoặc nếu cùng service thì dùng RestTemplate inject vào
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                // Token và ShopId sẽ được tự động thêm bởi GHNController → nhưng ở đây ta gửi thẳng body
+                String body = "{\"order_codes\": [\"" + oldOrderCode + "\"]}";
+
+                HttpEntity<String> requestEntity = new HttpEntity<>(body, headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        cancelUrl,
+                        HttpMethod.POST,
+                        requestEntity,
+                        String.class
+                );
+
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    log.info("[AUTO GHN CANCEL] SUCCESS - returnRequest={} cancelled GHN orderCode={}",
+                            r.getId(), oldOrderCode);
+                } else {
+                    log.warn("[AUTO GHN CANCEL] API returned non-200 - returnRequest={}, orderCode={}, status={}, response={}",
+                            r.getId(), oldOrderCode, response.getStatusCode(), response.getBody());
+                }
+
+            } catch (Exception ex) {
+                log.error("[AUTO GHN CANCEL] FAILED - returnRequest={} cannot cancel GHN orderCode={}: {}",
+                        r.getId(), oldOrderCode, ex.getMessage(), ex);
+                // Không throw → vẫn tiếp tục reset về APPROVED dù hủy thất bại
+            }
+
+            // === Dù hủy thành công hay không, vẫn reset để shop tạo lại đơn mới ===
+            r.setGhnOrderCode(null);
+            r.setTrackingStatus(null);
+            r.setStatus(ReturnStatus.APPROVED);
+            r.setUpdatedAt(LocalDateTime.now());
+            returnRepo.save(r);
+
+            log.info("[AUTO GHN PICKUP TIMEOUT] returnRequest={} has been reset to APPROVED for re-creating GHN order",
+                    r.getId());
+        }
+    }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse refundWithoutReturnByShop(UUID returnRequestId) {
+        UUID shopId = securityUtils.getCurrentStoreId();
+
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+
+        if (!r.getShopId().equals(shopId)) {
+            throw new AccessDeniedException("Not your return request");
+        }
+
+        // Chỉ allow khi request vẫn đang PENDING và chưa có GHN
+        if (r.getStatus() != ReturnStatus.PENDING) {
+            throw new IllegalStateException("ReturnRequest must be PENDING to refund without return");
+        }
+        if (r.getGhnOrderCode() != null) {
+            throw new IllegalStateException("ReturnRequest already has GHN order, cannot refund-only");
+        }
+
+        // CASE 8: Refund Only
+        // Mặc định đây là tình huống shop chấp nhận lỗi nhỏ / hỗ trợ khách
+        // → nếu faultType chưa rõ thì set về SHOP cho rõ nghĩa
+        if (r.getFaultType() == null || r.getFaultType() == ReturnFaultType.UNKNOWN) {
+            r.setFaultType(ReturnFaultType.SHOP);
+        }
+
+        r.setStatus(ReturnStatus.REFUNDED);
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+
+        // 💰 Refund tiền hàng cho customer (itemPrice)
+        // refundForReturn đã lo chuyện lấy từ platform pending → ví customer
+        walletService.refundForReturn(r);
+
+        log.info("[REFUND ONLY][SHOP] returnRequest={} refunded without physical return by shopId={}",
+                r.getId(), shopId);
+
+        return toResponse(r);
     }
 
 }
