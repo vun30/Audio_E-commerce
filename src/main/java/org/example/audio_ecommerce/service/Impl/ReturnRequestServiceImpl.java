@@ -705,7 +705,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     @Transactional
     public void autoRefundForUnresponsiveShop() {
-        LocalDateTime deadline = LocalDateTime.now().minusMinutes(3);
+        LocalDateTime deadline = LocalDateTime.now().minusMinutes(5);
 
         // Giả định findUnresponsiveReturns(status, deadline) lọc theo:
         //  - r.status = status
@@ -795,7 +795,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     @Transactional
     public void autoApprovePendingReturns() {
-        LocalDateTime deadline = LocalDateTime.now().minusMinutes(3);
+        LocalDateTime deadline = LocalDateTime.now().minusMinutes(5);
 
         // Giả định findUnresponsiveReturns(status, deadline) lọc theo createdAt/updatedAt <= deadline
         List<ReturnRequest> list =
@@ -824,7 +824,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     @Transactional
     public void autoCancelUnshippedReturns() {
-        LocalDateTime deadline = LocalDateTime.now().minusMinutes(3);
+        LocalDateTime deadline = LocalDateTime.now().minusMinutes(5);
 
         List<ReturnRequest> list =
                 returnRepo.findUnresponsiveReturns(ReturnStatus.APPROVED, deadline);
@@ -857,7 +857,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     @Transactional
     public void autoHandleGhnPickupTimeout() {
-        LocalDateTime deadline = LocalDateTime.now().minusMinutes(3);
+        LocalDateTime deadline = LocalDateTime.now().minusMinutes(5);
         List<ReturnRequest> list = returnRepo.findUnresponsiveReturns(ReturnStatus.SHIPPING, deadline);
 
         for (ReturnRequest r : list) {
