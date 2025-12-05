@@ -123,13 +123,12 @@ public class StoreOrderItem {
     @Column(name = "dispute_resolved_at")
     private LocalDateTime disputeResolvedAt;
 
-    // ===== Payout Control =====
-    @Column(name = "eligible_for_payout")
-    private Boolean eligibleForPayout = false;   // true khi item này đủ điều kiện để tính vào payout
+    @Column(name = "eligible_for_payout", columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    private Boolean eligibleForPayout = false;
 
-    @Column(name = "is_payout")
-    private Boolean isPayout = false;           // true khi đã được thanh toán trong bill rồi
+    @Column(name = "is_payout", columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    private Boolean isPayout = false;
 
-    @Column(name = "is_returned")
-    private Boolean isReturned = false;         // true nếu item này đã được trả hàng hoàn tiền
+    @Column(name = "is_returned", columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    private Boolean isReturned = false;
 }

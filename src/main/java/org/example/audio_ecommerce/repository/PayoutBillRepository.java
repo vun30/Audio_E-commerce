@@ -29,4 +29,7 @@ List<PayoutBill> filterBills(UUID storeId,
                              LocalDateTime fromDate,
                              LocalDateTime toDate,
                              String billCode);
+
+    boolean existsByShopIdAndStatusNot(UUID shopId, PayoutBillStatus status);
+
 }
