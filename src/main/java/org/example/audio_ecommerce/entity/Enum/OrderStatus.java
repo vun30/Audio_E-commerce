@@ -23,4 +23,16 @@ public enum OrderStatus {
        // KH đã gửi yêu cầu hoàn
     RETURNING,          // đang trên đường trả
 
+
+//    HOLD_FOR_RETURN,               // Đang giữ tiền chờ shop xử lý
+//    RETURN_APPROVED,               // Shop đồng ý trả hàng
+//    RETURN_REJECTED_BY_SHOP,       // Shop từ chối → chuyển tranh chấp
+//    AUTO_APPROVED,                 // Shop không phản hồi → tự động duyệt
+//    DISPUTE_PENDING,               // Đang tranh chấp (chờ sàn xử lý)
+//    DISPUTE_RESOLVED,              // Sàn đã xử lý xong tranh chấp
+//    REFUNDED,                      // Đã hoàn tiền cho khách
+//    RETURN_REJECTED_FINAL          // Từ chối cuối cùng (sàn từ chối)
+
+
+
 }

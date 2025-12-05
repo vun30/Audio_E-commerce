@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UUID> {
@@ -23,4 +24,8 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
     @Query("select r from ReturnRequest r where r.status = :status and r.updatedAt < :deadline")
     List<ReturnRequest> findUnresponsiveReturns(@Param("status") ReturnStatus status,
                                                 @Param("deadline") LocalDateTime deadline);
+
+    Optional<ReturnRequest> findTopByOrderItemIdOrderByCreatedAtDesc(UUID orderItemId);
+    List<ReturnRequest> findAllByStatus(ReturnStatus status);
+
 }

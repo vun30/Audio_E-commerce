@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.CampaignType;
+import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.repository.PlatformCampaignProductRepository;
 import org.example.audio_ecommerce.repository.ProductRepository;
@@ -266,6 +267,14 @@ public class ProductViewServiceImpl implements ProductViewService {
 
         Product p = productRepo.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
+
+           // 🔥 CHECK PRODUCT PHẢI ACTIVE — nếu không → báo lỗi luôn
+    if (p.getStatus() != ProductStatus.ACTIVE) {
+        return ResponseEntity
+                .badRequest()
+                .body(BaseResponse.error("❌ Product is not active"));
+    }
+
 
         Map<String, Object> productMap = new LinkedHashMap<>();
         productMap.put("productId", p.getProductId());
