@@ -1,0 +1,100 @@
+[33m940de37[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeat/deploy[m[33m)[m feat(deploy): add Firebase service account configuration and update entity fields to use LONGTEXT for image URLs
+[33m106ef9f[m feat(deploy): add Firebase service account configuration and update entity fields to use LONGTEXT for image URLs
+[33m55e04e9[m Merge remote-tracking branch 'origin/feat/deploy' into feat/deploy
+[33ma7720e8[m Merge pull request #203 from vun30/main
+[33m4fd90bf[m feat(deploy): add Firebase service account configuration and update entity fields to use LONGTEXT for image URLs
+[33ma365651[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/feat/deploy[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #202 from vun30/feat/notification
+[33m0b0b1f9[m[33m ([m[1;31morigin/feat/notification[m[33m)[m fix(cart): use legacy method for active campaign product retrieval
+[33mc482edc[m feat(cart): add campaign remaining usage count to cart response
+[33m55e16c6[m Merge pull request #201 from vun30/feat/notification
+[33m97da7cf[m feat(campaign): integrate platform campaign pricing and usage flag in cart
+[33mf7fd469[m Merge pull request #200 from vun30/feat/notification
+[33m0bda10b[m fix(returnRequest): set initial tracking status on return requests
+[33m0f6fcbb[m Merge pull request #199 from vun30/feat/notification
+[33m9fd7a6a[m feat(cart): add campaign discount total to order response
+[33me8aba21[m Merge pull request #198 from vun30/feat/notification
+[33mfb78f78[m feat(cart): update item quantity with voucher recalculation in cart
+[33mee5c66b[m Merge pull request #197 from vun30/feat/deploy
+[33m994c11f[m feat(deploy): enhance markBillAsPaid method to update related shipping fees and order items
+[33m03c608e[m Merge pull request #196 from vun30/main
+[33mf8ce7b2[m Merge pull request #195 from vun30/feat/deploy
+[33me14c083[m feat(deploy): update entity fields with default values and modify application properties for transaction isolation
+[33m5b75ba3[m Merge pull request #194 from vun30/feat/deploy
+[33m0128608[m feat(deploy): implement validation for unpaid bills in PayoutBillServiceImpl and update application properties
+[33m803348e[m Merge pull request #193 from vun30/feat/deploy
+[33mbdb2862[m feat(deploy): implement validation for unpaid bills in PayoutBillServiceImpl and update application properties
+[33mc01dea3[m Merge pull request #192 from vun30/feat/notification
+[33m944bfc4[m fix(scheduler): increase return request timeout check interval
+[33m0127da9[m Merge pull request #191 from vun30/feat/notification
+[33m7ef9850[m feat(order): add filtering by status and date range for store orders
+[33m33d0fea[m Merge pull request #190 from vun30/feat/notification
+[33m1d9bbc6[m Merge pull request #189 from vun30/feat/deploy
+[33m32b22c0[m feat(deploy): adjust timezone handling in PlatformCampaignServiceImpl for accurate campaign timing
+[33mecec029[m feat(order): add detailed pricing fields to CustomerOrderItemResponse
+[33mc4433d5[m Merge pull request #188 from vun30/feat/deploy
+[33m1edf767[m feat(deploy): add comprehensive application properties for server, database, and third-party integrations
+[33m86ac994[m Merge pull request #187 from vun30/feat/deploy
+[33m40193ab[m feat(deploy): add comprehensive application properties for server, database, and third-party integrations
+[33m6316ea5[m Merge pull request #186 from vun30/feat/notification
+[33md93efe2[m fix(return): increase timeout threshold from 3 to 5 minutes
+[33mef41991[m feat(deploy): fix timezone handling in ShopVoucherServiceImpl for accurate date validation
+[33m531337c[m Merge pull request #185 from vun30/feat/deploy
+[33m0ba0025[m feat(deploy): update time zone configuration for consistent date handling
+[33m1ab6eb8[m Merge pull request #184 from vun30/main
+[33m0a018f2[m Merge pull request #183 from vun30/feat/deploy
+[33mc5ee3e3[m feat(deploy): add Firebase configuration and policy management sample data
+[33md333d10[m Merge pull request #182 from vun30/feat/notification
+[33mddf29d4[m feat(order): add store order summary details to customer order responses
+[33mcfb433c[m Merge pull request #181 from vun30/feat/notification
+[33m94f9bb4[m fix(entity): add @JsonIgnore to prevent serialization recursion
+[33m95c7af6[m Merge pull request #180 from vun30/main
+[33m6564b3d[m Merge pull request #179 from vun30/feat/notification
+[33m76de62e[m test deploy
+[33m9dcb834[m Merge pull request #178 from vun30/feat/notification
+[33m23116e7[m test deploy
+[33mecaeaa8[m Merge pull request #177 from vun30/feat/notification
+[33m3e65e6b[m fix(return-request): shorten timeouts for auto-processing tasks
+[33mbadf571[m Merge pull request #176 from vun30/feat/notification
+[33m67d5486[m feat(return): automate handling of return request timeouts and shop refunds
+[33m3b8af65[m Merge pull request #175 from vun30/feat/deploy
+[33mbcbdd23[m feat(deploy): add payout bill management features including repositories, services, and response DTOs
+[33mf68c76b[m Merge pull request #174 from vun30/main
+[33m4182851[m Merge pull request #173 from vun30/feat/deploy
+[33m5045672[m feat(deploy): add payout bill management features including repositories, services, and response DTOs
+[33md7e4256[m Merge pull request #172 from vun30/main
+[33m8fcdb63[m Merge pull request #171 from vun30/feat/notification
+[33m99ee6dc[m fix(service): prevent updating GHN order status from PICKED to others
+[33m985749f[m Merge pull request #170 from vun30/feat/notification
+[33m05ce6c3[m feat(return-shipping-fee): add scheduler to sync picked status of return fees
+[33m0a23c0c[m Merge pull request #169 from vun30/feat/notification
+[33mf13d4fe[m refactor(cart): enhance order item pricing snapshot logic and cleanup
+[33m8726985[m Merge pull request #168 from vun30/feat/notification
+[33m508b1e1[m feat(return): add shop return rejection and update order status on return request
+[33m6bcf265[m Merge pull request #167 from vun30/feat/notification
+[33m9faba7a[m refactor(store-wallet): improve code formatting and add new transaction types
+[33m11277a0[m Merge pull request #166 from vun30/feat/notification
+[33mc5e5c9b[m feat(return): implement return request and complaint management system
+[33m169e0dc[m Merge pull request #165 from vun30/feat/deploy
+[33m0fd42b0[m Merge pull request #164 from vun30/feat/notification
+[33m2f7dfa7[m feat(deploy): refactor CORS configuration to use dynamic source for improved maintainability
+[33m49eb9ac[m Merge pull request #163 from vun30/main
+[33mb98b3ea[m Merge pull request #162 from vun30/feat/deploy
+[33m3349563[m feat(deploy): refactor CORS configuration to use dynamic source for improved maintainability
+[33m6440ed5[m Merge pull request #161 from vun30/feat/deploy
+[33md22bcd0[m feat(deploy): enhance CORS configuration to support dynamic origin patterns for improved flexibility
+[33md4514b5[m Merge pull request #160 from vun30/feat/deploy
+[33m41f1f21[m feat(deploy): update CORS configuration to allow requests from production audio e-commerce app
+[33m27b5b3b[m Merge pull request #159 from vun30/feat/deploy
+[33m32cedd3[m feat(deploy): update Firebase configuration to use credentials property
+[33m32f6ee8[m Merge pull request #158 from vun30/feat/deploy
+[33ma5cc9cc[m feat(deploy): update Firebase configuration to use environment variable for credentials
+[33m47e4bb8[m Merge pull request #157 from vun30/feat/deploy
+[33m4be025c[m feat(deploy): implement  FirebaseFileLoader
+[33m7c5af21[m Merge pull request #156 from vun30/main
+[33ma1344fe[m Merge branch 'feat/notification' into main
+[33m00859e4[m Merge pull request #155 from vun30/feat/deploy
+[33m28eb89a[m feat(deploy): add Docker configuration and application properties for deployment
+[33me0afb02[m Merge pull request #154 from vun30/fix/voucher
+[33me88ce11[m[33m ([m[1;31morigin/fix/voucher[m[33m, [m[1;32mfix/voucher[m[33m)[m feat(policy): add PolicyCategory and PolicyItem entities with CRUD operations
+[33m0bdbb87[m Merge pull request #153 from vun30/fix/voucher
+[33m5f18d01[m refactor(kyc): comment o
