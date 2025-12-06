@@ -46,5 +46,6 @@ public class CartResponse {
         private BigDecimal platformCampaignPrice;  // giá sau campaign (nếu có)
         private Boolean inPlatformCampaign;        // có đang nằm trong campaign không
         private Boolean campaignUsageExceeded;
+        private Integer campaignRemaining;
     }
 }

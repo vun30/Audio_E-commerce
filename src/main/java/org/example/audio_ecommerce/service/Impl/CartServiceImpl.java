@@ -1993,12 +1993,10 @@ public class CartServiceImpl implements CartService {
 
                 BigDecimal basePrice;
                 if (v != null) {
-                    basePrice = v.getVariantPrice();
-                    if (basePrice == null) basePrice = getBaseUnitPrice(p);
+                    basePrice = Optional.ofNullable(v.getVariantPrice()).orElse(getBaseUnitPrice(p));
                 } else {
                     basePrice = getUnitPriceWithBulk(p, item.getQuantity());
                 }
-                if (basePrice == null) basePrice = BigDecimal.ZERO;
 
                 LocalDateTime now = LocalDateTime.now();
                 List<PlatformCampaignProduct> cps =
@@ -2006,17 +2004,36 @@ public class CartServiceImpl implements CartService {
 
                 BigDecimal bestCampaignPrice = basePrice;
                 boolean hasCampaign = false;
+                PlatformCampaignProduct bestCampaign = null;
+
                 if (cps != null && !cps.isEmpty()) {
                     for (PlatformCampaignProduct cp : cps) {
                         BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
                         if (discounted.compareTo(bestCampaignPrice) < 0) {
                             bestCampaignPrice = discounted;
                             hasCampaign = true;
+                            bestCampaign = cp;
                         }
                     }
                 }
 
-                // đã có campaign và giá hiện tại bằng basePrice
+                // ==== NEW: tính remaining usage ====
+                Integer remaining = null;
+                if (bestCampaign != null && bestCampaign.getUsagePerUser() != null) {
+                    Integer usagePerUser = bestCampaign.getUsagePerUser();
+
+                    PlatformCampaignProductUsage usage =
+                            platformCampaignProductUsageRepository
+                                    .findByCampaignProductAndCustomer(bestCampaign, customer)
+                                    .orElse(null);
+
+                    int usedCount = (usage != null && usage.getUsedCount() != null)
+                            ? usage.getUsedCount()
+                            : 0;
+
+                    remaining = Math.max(usagePerUser - usedCount, 0);
+                }
+
                 boolean exceeded = false;
                 if (hasCampaign
                         && itDto.getUnitPrice() != null
@@ -2030,7 +2047,11 @@ public class CartServiceImpl implements CartService {
                 itDto.setPlatformCampaignPrice(hasCampaign ? bestCampaignPrice : null);
                 itDto.setInPlatformCampaign(hasCampaign);
                 itDto.setCampaignUsageExceeded(exceeded);
+
+                // === NEW: gán remaining vào response ===
+                itDto.setCampaignRemaining(remaining);
             }
+
         }
 
         return resp;
