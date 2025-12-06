@@ -1054,7 +1054,15 @@ public class CartServiceImpl implements CartService {
         resp.setStatus(order.getStatus().name());
         resp.setMessage(order.getMessage());
         resp.setCreatedAt(order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
-
+        BigDecimal campaignDiscountTotal = order.getItems().stream()
+                .map(i -> {
+                    BigDecimal lineBefore = Optional.ofNullable(i.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                    BigDecimal finalLine = Optional.ofNullable(i.getAmountCharged()).orElse(
+                            Optional.ofNullable(i.getFinalLineTotal()).orElse(BigDecimal.ZERO)
+                    );
+                    return lineBefore.subtract(finalLine).max(BigDecimal.ZERO);
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         // Lấy storeOrders
         var storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
         UUID storeId = null;
@@ -1076,7 +1084,7 @@ public class CartServiceImpl implements CartService {
         resp.setStoreId(storeId);
         resp.setStoreName(storeName);
         resp.setShippingServiceTypeId(svTypeId);
-
+        resp.setCampaignDiscountTotal(campaignDiscountTotal);
         // Tổng số
         resp.setTotalAmount(Optional.ofNullable(order.getTotalAmount()).orElse(BigDecimal.ZERO));
         resp.setShippingFeeTotal(Optional.ofNullable(order.getShippingFeeTotal()).orElse(BigDecimal.ZERO));
