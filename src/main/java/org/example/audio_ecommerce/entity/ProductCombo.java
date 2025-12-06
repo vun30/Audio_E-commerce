@@ -52,7 +52,7 @@ public class ProductCombo {
     // 📸 Media
     @ElementCollection
     @CollectionTable(name = "combo_images", joinColumns = @JoinColumn(name = "combo_id"))
-    @Column(name = "image_url")
+    @Column(name = "image_url", columnDefinition = "LONGTEXT")
     private List<String> images;
 
     private String videoUrl;

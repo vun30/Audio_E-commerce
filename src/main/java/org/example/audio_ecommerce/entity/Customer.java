@@ -16,8 +16,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Builder
 @Entity
 @Table(
@@ -41,14 +43,16 @@ public class Customer extends BaseEntity {
     @Column(name = "username", length = 100, nullable = false)
     private String userName;
 
-    @Email @NotBlank
+    @Email
+    @NotBlank
     @Column(name = "email", length = 255, nullable = false)
     private String email;
 
     @Column(name = "phone_number", length = 30, nullable = true)
     private String phoneNumber;
 
-    @NotBlank @Size(min = 6)
+    @NotBlank
+    @Size(min = 6)
     @Column(name = "password_hash", length = 255, nullable = false)
     private String passwordHash;
 
@@ -59,8 +63,9 @@ public class Customer extends BaseEntity {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
-    @Column(name = "avatar_url", length = 1000)
+    @Column(name = "avatar_url", columnDefinition = "LONGTEXT")
     private String avatarURL;
+
 
     // ===== Status / Security / KYC =====
     @Enumerated(EnumType.STRING)
