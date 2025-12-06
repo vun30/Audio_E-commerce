@@ -50,4 +50,6 @@ public class CustomerOrderResponse {
 
     // ===== NEW: service type GHN đã chọn cho shop này (2 | 5), tiện hiển thị/trace =====
     private Integer shippingServiceTypeId;
+    private BigDecimal campaignDiscountTotal; // mới
+
 }
