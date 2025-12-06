@@ -33,6 +33,9 @@ public class PayoutBillServiceImpl implements PayoutBillService {
     @Override
     public PayoutBill createBillForShop(UUID storeId) {
 
+        // ❗ STOP nếu shop có bill chưa thanh toán
+        validateNoUnpaidBill(storeId);
+
         PayoutBill created = PayoutBill.builder()
                 .shopId(storeId)
                 .billCode(generateBillCode())
@@ -222,31 +225,40 @@ public class PayoutBillServiceImpl implements PayoutBillService {
     }
 
     @Override
-    public List<PayoutBill> autoCreateBillsForAllStores() {
+public List<PayoutBill> autoCreateBillsForAllStores() {
 
-        List<UUID> storeIds = storeRepository.findAllStoreIds();
-        List<PayoutBill> res = new ArrayList<>();
+    List<UUID> storeIds = storeRepository.findAllStoreIds();
+    List<PayoutBill> res = new ArrayList<>();
 
-        for (UUID storeId : storeIds) {
+    for (UUID storeId : storeIds) {
 
-            boolean hasOrderItems =
-                    storeOrderItemRepository
-                            .existsByStoreOrder_Store_StoreIdAndEligibleForPayoutTrueAndIsPayoutFalse(storeId);
+        // ❗ Bỏ qua shop có bill chưa thanh toán
+        boolean hasUnpaid =
+                payoutBillRepository.existsByShopIdAndStatusNot(storeId, PayoutBillStatus.PAID);
 
-            boolean hasShippingFees =
-                    storeOrderRepository.findPendingShippingOrders(storeId).size() > 0;
-
-            boolean hasReturnFees =
-                    returnShippingFeeRepository.existsByStoreIdAndPaidByShopFalse(storeId);
-
-            if (!hasOrderItems && !hasShippingFees && !hasReturnFees)
-                continue;
-
-            res.add(createBillForShop(storeId));
+        if (hasUnpaid) {
+            System.out.println("⛔ SKIP shop " + storeId + " — đang có bill chưa thanh toán.");
+            continue;
         }
 
-        return res;
+        boolean hasOrderItems =
+                storeOrderItemRepository
+                        .existsByStoreOrder_Store_StoreIdAndEligibleForPayoutTrueAndIsPayoutFalse(storeId);
+
+        boolean hasShippingFees =
+                storeOrderRepository.findPendingShippingOrders(storeId).size() > 0;
+
+        boolean hasReturnFees =
+                returnShippingFeeRepository.existsByStoreIdAndPaidByShopFalse(storeId);
+
+        if (!hasOrderItems && !hasShippingFees && !hasReturnFees)
+            continue;
+
+        res.add(createBillForShop(storeId)); // Không còn throw lỗi trong createBillForShop()
     }
+
+    return res;
+}
 
     @Override
     public PayoutBill getOrCreateBillForStore(UUID storeId) {
@@ -293,6 +305,18 @@ public class PayoutBillServiceImpl implements PayoutBillService {
                 toDate,
                 billCode
         );
+    }
+
+
+    private void validateNoUnpaidBill(UUID storeId) {
+        boolean exists = payoutBillRepository
+                .existsByShopIdAndStatusNot(storeId, PayoutBillStatus.PAID);
+
+        if (exists) {
+            throw new RuntimeException(
+                    "❌ Shop hiện đang có bill payout CHƯA THANH TOÁN. Vui lòng thanh toán bill cũ trước khi tạo bill mới."
+            );
+        }
     }
 
 }

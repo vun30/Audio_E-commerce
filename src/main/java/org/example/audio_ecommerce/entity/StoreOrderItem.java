@@ -117,19 +117,36 @@ public class StoreOrderItem {
 //    private String refundReason;
 
     // ===== Dispute =====
-    @Column(name = "dispute_flag")
+    @Column(
+            name = "dispute_flag",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
     private Boolean disputeFlag = false;
 
-    @Column(name = "dispute_resolved_at")
-    private LocalDateTime disputeResolvedAt;
+    @Column(
+            name = "eligible_for_payout",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
+    private Boolean eligibleForPayout = false;
 
-    // ===== Payout Control =====
-    @Column(name = "eligible_for_payout")
-    private Boolean eligibleForPayout = false;   // true khi item này đủ điều kiện để tính vào payout
+    @Column(
+            name = "is_payout",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
+    private Boolean isPayout = false;
 
-    @Column(name = "is_payout")
-    private Boolean isPayout = false;           // true khi đã được thanh toán trong bill rồi
+    @Column(
+            name = "is_returned",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
+    private Boolean isReturned = false;
 
-    @Column(name = "is_returned")
-    private Boolean isReturned = false;         // true nếu item này đã được trả hàng hoàn tiền
 }
