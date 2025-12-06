@@ -2000,7 +2000,7 @@ public class CartServiceImpl implements CartService {
 
                 LocalDateTime now = LocalDateTime.now();
                 List<PlatformCampaignProduct> cps =
-                        platformCampaignProductRepository.findAllActiveByProduct(p.getProductId(), now);
+                        platformCampaignProductRepository.findAllActiveByProductLegacy(p.getProductId(), now);
 
                 BigDecimal bestCampaignPrice = basePrice;
                 boolean hasCampaign = false;
