@@ -42,5 +42,9 @@ public class CartResponse {
         private String variantOptionName;
         private String variantOptionValue;
         private String variantUrl;
+        private BigDecimal baseUnitPrice;          // giá gốc (chưa campaign)
+        private BigDecimal platformCampaignPrice;  // giá sau campaign (nếu có)
+        private Boolean inPlatformCampaign;        // có đang nằm trong campaign không
+        private Boolean campaignUsageExceeded;
     }
 }
