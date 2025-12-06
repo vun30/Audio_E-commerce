@@ -43,6 +43,8 @@ public class CartServiceImpl implements CartService {
     private final PlatformCampaignProductRepository platformCampaignProductRepository;
     private final NotificationCreatorService notificationCreatorService;
     private final PlatformFeeRepository platformFeeRepository;
+    private final PlatformCampaignProductUsageRepository platformCampaignProductUsageRepository;
+
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -140,9 +142,7 @@ public class CartServiceImpl implements CartService {
 
                 if (it == null) {
                     int totalQty = qty;
-
-                    BigDecimal unitPrice = resolveUnitPrice(product, variant, totalQty);
-
+                    BigDecimal unitPrice = resolveUnitPriceForCustomer(product, variant, totalQty, customer);
                     it = CartItem.builder()
                             .cart(cart)
                             .type(type)
@@ -161,9 +161,7 @@ public class CartServiceImpl implements CartService {
                     existingMap.put(k, it);
                 } else {
                     int totalQty = it.getQuantity() + qty;
-
-                    BigDecimal unitPrice = resolveUnitPrice(product, variant, totalQty);
-
+                    BigDecimal unitPrice = resolveUnitPriceForCustomer(product, variant, totalQty, customer);
                     it.setQuantity(totalQty);
                     it.setUnitPrice(unitPrice);
                     it.setLineTotal(unitPrice.multiply(BigDecimal.valueOf(totalQty)));
@@ -398,11 +396,16 @@ public class CartServiceImpl implements CartService {
                 // Nếu không tìm được thì để null (FE tự xử lý hiển thị)
             }
 
-            // ✅ Lấy thông tin variant từ CartItem
-            UUID variantId = ci.getVariantIdOrNull();                    // helper bạn đã có
+            // ✅ Variant info
+            UUID variantId = ci.getVariantIdOrNull();
             String variantOptionName = ci.getVariantOptionNameSnapshot();
             String variantOptionValue = ci.getVariantOptionValueSnapshot();
-            String variantUrl = null;
+            String variantUrl = (ci.getVariant() != null) ? ci.getVariant().getVariantUrl() : null;
+
+            // ✅ NEW: tính baseUnitPrice + platformCampaignPrice để hiển thị
+            BigDecimal baseUnitPrice = null;
+            BigDecimal platformCampaignPrice = null;
+            boolean inPlatformCampaign = false;
             if (ci.getVariant() != null) {
                 variantUrl = ci.getVariant().getVariantUrl();
             }
@@ -423,6 +426,9 @@ public class CartServiceImpl implements CartService {
                     .variantOptionName(variantOptionName)
                     .variantOptionValue(variantOptionValue)
                     .variantUrl(variantUrl)
+                    .baseUnitPrice(baseUnitPrice)
+                    .platformCampaignPrice(platformCampaignPrice)
+                    .inPlatformCampaign(inPlatformCampaign)
                     .build();
         }).toList();
 
@@ -860,7 +866,7 @@ public class CartServiceImpl implements CartService {
             int q = request.getQuantity();
             item.setQuantity(q);
 
-            BigDecimal unit = resolveUnitPrice(p, v, q);
+            BigDecimal unit = resolveUnitPriceForCustomer(p, v, q, customer);
 
             item.setUnitPrice(unit);
             item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
@@ -964,13 +970,14 @@ public class CartServiceImpl implements CartService {
 
             if (type == CartItemType.PRODUCT && item.getProduct() != null) {
                 Product p = item.getProduct();
-                Integer stock = p.getStockQuantity();
+                ProductVariantEntity v = item.getVariant();
+                Integer stock = (v != null ? v.getVariantStock() : p.getStockQuantity());
                 if (stock != null && stock < q) {
                     throw new IllegalStateException("Product out of stock: " + p.getName());
                 }
 
                 item.setQuantity(q);
-                BigDecimal unit = getUnitPriceWithBulk(p, q);
+                BigDecimal unit = resolveUnitPriceForCustomer(p, v, q, customer);
                 item.setUnitPrice(unit);
                 item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
             } else {
@@ -1048,22 +1055,24 @@ public class CartServiceImpl implements CartService {
         resp.setMessage(order.getMessage());
         resp.setCreatedAt(order.getCreatedAt() != null ? order.getCreatedAt().toString() : null);
 
-        // Lấy storeId/storeName từ StoreOrder của order (1 shop/1 order)
+        // Lấy storeOrders
         var storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
         UUID storeId = null;
         String storeName = null;
         Integer svTypeId = null;
-        BigDecimal storeVoucherDiscount = BigDecimal.ZERO;
+        BigDecimal storeVoucherDiscountTotal = BigDecimal.ZERO;
         BigDecimal platformVoucherDiscount = BigDecimal.ZERO;
 
+        StoreOrder firstSo = null;
         if (!storeOrders.isEmpty()) {
-            StoreOrder so = storeOrders.get(0);
-            storeId = so.getStore().getStoreId();
-            storeName = so.getStore().getStoreName();
-            svTypeId = so.getShippingServiceTypeId();
-            storeVoucherDiscount = Optional.ofNullable(so.getStoreVoucherDiscount()).orElse(BigDecimal.ZERO);
-            platformVoucherDiscount = Optional.ofNullable(so.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+            firstSo = storeOrders.get(0);
+            storeId = firstSo.getStore().getStoreId();
+            storeName = firstSo.getStore().getStoreName();
+            svTypeId = firstSo.getShippingServiceTypeId();
+            storeVoucherDiscountTotal = Optional.ofNullable(firstSo.getStoreVoucherDiscount()).orElse(BigDecimal.ZERO);
+            platformVoucherDiscount = Optional.ofNullable(firstSo.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
         }
+
         resp.setStoreId(storeId);
         resp.setStoreName(storeName);
         resp.setShippingServiceTypeId(svTypeId);
@@ -1072,16 +1081,30 @@ public class CartServiceImpl implements CartService {
         resp.setTotalAmount(Optional.ofNullable(order.getTotalAmount()).orElse(BigDecimal.ZERO));
         resp.setShippingFeeTotal(Optional.ofNullable(order.getShippingFeeTotal()).orElse(BigDecimal.ZERO));
 
-        // discountTotal của riêng shop này
-        BigDecimal discountTotal = Optional.ofNullable(order.getDiscountTotal()).orElse(
-                storeVoucherDiscount.add(platformVoucherDiscount)
-        );
+        // discountTotal ưu tiên lấy từ order (đã set sẵn), fallback nếu null
+        BigDecimal discountTotal = Optional.ofNullable(order.getDiscountTotal())
+                .orElse(storeVoucherDiscountTotal.add(platformVoucherDiscount));
         resp.setDiscountTotal(discountTotal);
 
         resp.setGrandTotal(Optional.ofNullable(order.getGrandTotal())
-                .orElse(resp.getTotalAmount().add(resp.getShippingFeeTotal()).subtract(discountTotal)));
+                .orElse(resp.getTotalAmount()
+                        .add(resp.getShippingFeeTotal())
+                        .subtract(discountTotal)));
 
-        // Map detail platformDiscount: parse JSON rồi lọc phần số tiền (nếu JSON không chia theo shop thì trả nguyên map)
+        // ===== NEW: parse STORE voucher detail từ StoreOrder.storeVoucherDetailJson =====
+        Map<String, BigDecimal> storeVoucherMap = new LinkedHashMap<>();
+        try {
+            if (firstSo != null && firstSo.getStoreVoucherDetailJson() != null) {
+                var node = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(firstSo.getStoreVoucherDetailJson());
+                node.fields().forEachRemaining(e -> {
+                    storeVoucherMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
+                });
+            }
+        } catch (Exception ignore) {}
+        resp.setStoreVoucherDiscount(storeVoucherMap.isEmpty() ? null : storeVoucherMap);
+
+        // ===== Platform voucher detail (giữ nguyên như cũ) =====
         Map<String, BigDecimal> platformDiscountMap = new LinkedHashMap<>();
         try {
             if (order.getPlatformVoucherDetailJson() != null) {
@@ -1091,12 +1114,8 @@ public class CartServiceImpl implements CartService {
                     platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {
-        }
+        } catch (Exception ignore) {}
         resp.setPlatformDiscount(platformDiscountMap);
-
-        // Nếu bạn đã lưu JSON chi tiết cho store-voucher per order, parse vào resp.setStoreVoucherDiscount(map)
-        // Nếu chưa có detail theo mã, có thể set null hoặc map rỗng.
 
         // Shipping snapshot
         resp.setReceiverName(order.getShipReceiverName());
@@ -1112,6 +1131,7 @@ public class CartServiceImpl implements CartService {
 
         return resp;
     }
+
 
     @Transactional
     protected List<CustomerOrder> createOrdersSplitByStore_StoreShipNoFee(
@@ -1516,12 +1536,29 @@ public class CartServiceImpl implements CartService {
     /**
      * Tính giá base theo variant/product, rồi áp campaign (nếu có).
      */
+    // Public cũ: dùng khi không cần check usage_per_user (nếu chỗ nào khác đang gọi)
     private BigDecimal resolveUnitPrice(Product product,
                                         ProductVariantEntity variant,
                                         int quantity) {
+        return resolveUnitPriceInternal(product, variant, quantity, null);
+    }
+
+    // NEW: dùng cho Cart, có customer để check usage_per_user
+    private BigDecimal resolveUnitPriceForCustomer(Product product,
+                                                   ProductVariantEntity variant,
+                                                   int quantity,
+                                                   Customer customer) {
+        return resolveUnitPriceInternal(product, variant, quantity, customer);
+    }
+
+    // Internal: chứa toàn bộ logic base + campaign + usage_per_user
+    private BigDecimal resolveUnitPriceInternal(Product product,
+                                                ProductVariantEntity variant,
+                                                int quantity,
+                                                Customer customer) {
         if (product == null) return BigDecimal.ZERO;
 
-        // 1) Base price: nếu có variant → lấy variantPrice, không thì lấy theo bulk
+        // 1) Base price: variant -> variantPrice, nếu không thì theo bulk
         BigDecimal basePrice;
         if (variant != null) {
             basePrice = variant.getVariantPrice();
@@ -1542,15 +1579,56 @@ public class CartServiceImpl implements CartService {
 
         // 3) Áp tất cả campaign, chọn giá thấp nhất (giảm nhiều nhất)
         BigDecimal bestPrice = basePrice;
+        PlatformCampaignProduct bestCampaign = null;
+
         for (PlatformCampaignProduct cp : cps) {
             BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
             if (discounted.compareTo(bestPrice) < 0) {
                 bestPrice = discounted;
+                bestCampaign = cp;
             }
         }
 
+        // 4) Nếu không có customer (chỗ dùng chung) → return như cũ
+        if (customer == null || bestCampaign == null) {
+            return bestPrice;
+        }
+
+        // 5) Check usage_per_user cho campaign áp dụng giá tốt nhất
+        Integer usagePerUser = bestCampaign.getUsagePerUser();
+        if (usagePerUser == null || usagePerUser <= 0) {
+            // Không giới hạn số lần sử dụng → dùng bestPrice
+            return bestPrice;
+        }
+
+        // Lấy usage hiện tại của customer cho campaignProduct này
+        PlatformCampaignProductUsage usage =
+                platformCampaignProductUsageRepository
+                        .findByCampaignProductAndCustomer(bestCampaign, customer)
+                        .orElse(null);
+
+        int usedCount = (usage != null && usage.getUsedCount() != null)
+                ? usage.getUsedCount()
+                : 0;
+
+        int remaining = usagePerUser - usedCount;
+
+        // ❗ CASE 1: đã dùng hết hoặc vượt từ trước -> không còn ưu đãi → về base
+        if (remaining <= 0) {
+            return basePrice;
+        }
+
+        // ❗ CASE 2: số lượng mới (trong cart) > remaining
+        // Ví dụ: usage_per_user = 1, usedCount = 0, quantity = 2
+        // → vượt quyền lợi, theo yêu cầu: "quay về giá gốc cho 2 sản phẩm đó"
+        if (quantity > remaining) {
+            return basePrice;
+        }
+
+        // CASE 3: quantity <= remaining → vẫn được hưởng ưu đãi
         return bestPrice;
     }
+
 
     /**
      * Áp giảm giá theo 1 record PlatformCampaignProduct
@@ -1725,4 +1803,178 @@ public class CartServiceImpl implements CartService {
         if (p == null) return false;
         return p.getStatus() == ProductStatus.ACTIVE;
     }
+
+    @Override
+    @Transactional
+    public CartResponse updateItemQuantityWithVouchers(UUID customerId,
+                                                       UpdateCartItemQtyWithVoucherRequest request) {
+        if (request.getCartItemId() == null
+                || request.getQuantity() == null
+                || request.getQuantity() < 1) {
+            throw new IllegalArgumentException("cartItemId & quantity >= 1 are required");
+        }
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        CartItem item = cart.getItems().stream()
+                .filter(ci -> ci.getCartItemId().equals(request.getCartItemId()))
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("Cart item not found"));
+
+        // ===== 1) Cập nhật quantity + unitPrice (đã có usage_per_user bên trong) =====
+        if (item.getType() == CartItemType.PRODUCT && item.getProduct() != null) {
+            Product p = item.getProduct();
+            ProductVariantEntity v = item.getVariant();
+
+            Integer stock = (v != null ? v.getVariantStock() : p.getStockQuantity());
+            if (stock != null && stock < request.getQuantity()) {
+                throw new IllegalStateException("Product/Variant out of stock: " + p.getName());
+            }
+
+            int q = request.getQuantity();
+            item.setQuantity(q);
+
+            BigDecimal unit = resolveUnitPriceForCustomer(p, v, q, customer);
+            item.setUnitPrice(unit);
+            item.setLineTotal(unit.multiply(BigDecimal.valueOf(q)));
+
+        } else {
+            // COMBO
+            ProductCombo combo = item.getCombo();
+            Integer stock = combo != null ? combo.getStockQuantity() : null;
+            if (stock != null && stock < request.getQuantity()) {
+                throw new IllegalStateException("Combo out of stock: " + (combo != null ? combo.getName() : ""));
+            }
+            item.setQuantity(request.getQuantity());
+            item.setLineTotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
+        }
+
+        // ===== 2) TÍNH LẠI VOUCHER nếu cần (platform + store) =====
+        // Giống phần trong checkout, nhưng đây chỉ là preview trên cart
+
+        // Group items theo store để xây storeItemsMap cho voucherService
+        Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
+
+        for (CartItem ci : Optional.ofNullable(cart.getItems()).orElse(List.of())) {
+            UUID storeId = (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null)
+                    ? ci.getProduct().getStore().getStoreId()
+                    : (ci.getCombo() != null ? ci.getCombo().getStore().getStoreId() : null);
+            if (storeId == null) continue;
+
+            // build StoreOrderItem "ảo" để tính voucher
+            StoreOrderItem soi = StoreOrderItem.builder()
+                    .type(ci.getType().name())
+                    .refId(ci.getReferenceId())
+                    .name(ci.getNameSnapshot())
+                    .quantity(ci.getQuantity())
+                    .variantId(ci.getVariantIdOrNull())
+                    .variantOptionName(ci.getVariantOptionNameSnapshot())
+                    .variantOptionValue(ci.getVariantOptionValueSnapshot())
+                    .unitPrice(ci.getUnitPrice())
+                    .lineTotal(ci.getLineTotal())
+                    .build();
+
+            storeItemsMap.computeIfAbsent(storeId, k -> new ArrayList<>()).add(soi);
+        }
+
+        // Gọi voucher service (nếu FE có truyền voucher)
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                request.getStoreVouchers(),
+                storeItemsMap
+        );
+        var platformResult = voucherService.computePlatformDiscounts(
+                customerId,
+                request.getPlatformVouchers(),
+                storeItemsMap
+        );
+
+        // ===== 3) Recalc subtotal / discount / grandTotal ở CART =====
+        // (Tuỳ bạn muốn hiển thị tổng cart như nào, ở đây là đơn giản)
+
+        BigDecimal subtotal = cart.getItems().stream()
+                .map(CartItem::getLineTotal)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // tổng discount từ voucher theo từng store
+        BigDecimal totalStoreDiscount = storeResult.discountByStore.values().stream()
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalPlatformDiscount = platformResult.discountByStore.values().stream()
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal discountTotal = totalStoreDiscount.add(totalPlatformDiscount);
+        BigDecimal grandTotal = subtotal.subtract(discountTotal);
+        if (grandTotal.compareTo(BigDecimal.ZERO) < 0) grandTotal = BigDecimal.ZERO;
+
+        cart.setSubtotal(subtotal);
+        cart.setDiscountTotal(discountTotal);
+        cart.setGrandTotal(grandTotal);
+
+        cartRepo.save(cart);
+        cartItemRepo.save(item);
+
+        // ===== 4) Build CartResponse + cắm flag campaignUsageExceeded =====
+        CartResponse resp = toResponse(cart);
+
+        // tìm lại item tương ứng trong response
+        for (CartResponse.Item itDto : resp.getItems()) {
+            if (!itDto.getCartItemId().equals(item.getCartItemId())) continue;
+
+            // tính basePrice & bestCampaignPrice không xét usage_per_user
+            if (item.getType() == CartItemType.PRODUCT && item.getProduct() != null) {
+                Product p = item.getProduct();
+                ProductVariantEntity v = item.getVariant();
+
+                BigDecimal basePrice;
+                if (v != null) {
+                    basePrice = v.getVariantPrice();
+                    if (basePrice == null) basePrice = getBaseUnitPrice(p);
+                } else {
+                    basePrice = getUnitPriceWithBulk(p, item.getQuantity());
+                }
+                if (basePrice == null) basePrice = BigDecimal.ZERO;
+
+                LocalDateTime now = LocalDateTime.now();
+                List<PlatformCampaignProduct> cps =
+                        platformCampaignProductRepository.findAllActiveByProduct(p.getProductId(), now);
+
+                BigDecimal bestCampaignPrice = basePrice;
+                boolean hasCampaign = false;
+                if (cps != null && !cps.isEmpty()) {
+                    for (PlatformCampaignProduct cp : cps) {
+                        BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
+                        if (discounted.compareTo(bestCampaignPrice) < 0) {
+                            bestCampaignPrice = discounted;
+                            hasCampaign = true;
+                        }
+                    }
+                }
+
+                // đã có campaign và giá hiện tại bằng basePrice
+                boolean exceeded = false;
+                if (hasCampaign
+                        && itDto.getUnitPrice() != null
+                        && itDto.getUnitPrice().compareTo(basePrice) == 0
+                        && bestCampaignPrice.compareTo(basePrice) < 0
+                        && item.getQuantity() > 1) {
+                    exceeded = true;
+                }
+
+                itDto.setBaseUnitPrice(basePrice);
+                itDto.setPlatformCampaignPrice(hasCampaign ? bestCampaignPrice : null);
+                itDto.setInPlatformCampaign(hasCampaign);
+                itDto.setCampaignUsageExceeded(exceeded);
+            }
+        }
+
+        return resp;
+    }
+
 }

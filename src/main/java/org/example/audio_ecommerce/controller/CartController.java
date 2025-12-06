@@ -11,6 +11,7 @@ import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
 import org.example.audio_ecommerce.service.CartService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -211,5 +212,31 @@ public class CartController {
 //        List<CustomerOrderResponse> resp = cartService.checkoutStoreShip(customerId, request);
 //        return ResponseEntity.ok(resp);
 //    }
+
+    @Operation(
+            summary = "Cập nhật số lượng 1 item kèm tính lại voucher/platform campaign",
+            description = """
+                Dùng cho nút cộng/trừ số lượng trong giỏ hàng.
+                - Body bao gồm: cartItemId, quantity mới, danh sách storeVouchers, platformVouchers.
+                - BE sẽ:
+                  + Cập nhật quantity và unitPrice (đã kiểm tra usage_per_user của campaign).
+                  + Tính lại tổng giỏ hàng + discount từ voucher.
+                  + Trả về CartResponse, trong đó mỗi item có thể có flag campaignUsageExceeded để FE hiển thị cảnh báo.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Cập nhật thành công",
+                    content = @Content(schema = @Schema(implementation = CartResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ"),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy customer / cartItem")
+    })
+    @PostMapping("/items/quantity-with-vouchers")
+    public CartResponse updateItemQuantityWithVouchers(
+            @Parameter(description = "ID khách hàng (UUID)", required = true)
+            @PathVariable UUID customerId,
+            @Valid @RequestBody UpdateCartItemQtyWithVoucherRequest request
+    ) {
+        return cartService.updateItemQuantityWithVouchers(customerId, request);
+    }
 
 }

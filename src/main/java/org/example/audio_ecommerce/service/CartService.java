@@ -20,4 +20,7 @@ public interface CartService {
     CartResponse clearCart(UUID customerId);
     CartResponse bulkUpdateQuantities(UUID customerId, BulkUpdateCartQtyRequest request);
     List<CustomerOrderResponse> checkoutStoreShip(UUID customerId, CheckoutCODRequest request);
+    CartResponse updateItemQuantityWithVouchers(UUID customerId,
+                                                UpdateCartItemQtyWithVoucherRequest request);
+
 }
