@@ -365,7 +365,7 @@ public class CartServiceImpl implements CartService {
         cart.setGrandTotal(subtotal.subtract(cart.getDiscountTotal()));
     }
 
-    private static CartResponse toResponse(Cart cart) {
+    private CartResponse toResponse(Cart cart) {
         var items = cart.getItems() == null ? List.<CartItem>of() : cart.getItems();
 
         List<CartResponse.Item> itemDtos = items.stream().map(ci -> {
@@ -402,10 +402,57 @@ public class CartServiceImpl implements CartService {
             String variantOptionValue = ci.getVariantOptionValueSnapshot();
             String variantUrl = (ci.getVariant() != null) ? ci.getVariant().getVariantUrl() : null;
 
-            // ✅ NEW: tính baseUnitPrice + platformCampaignPrice để hiển thị
+// ✅ TÍNH GIÁ CHIẾN DỊCH (không tính usage_per_user, chỉ để FE hiển thị)
+// mặc định
             BigDecimal baseUnitPrice = null;
             BigDecimal platformCampaignPrice = null;
             boolean inPlatformCampaign = false;
+            Boolean campaignUsageExceeded = null;
+
+            if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                Product p = ci.getProduct();
+                ProductVariantEntity v = ci.getVariant();
+
+                // basePrice: variantPrice hoặc bulk theo product
+                if (v != null) {
+                    baseUnitPrice = v.getVariantPrice();
+                    if (baseUnitPrice == null) baseUnitPrice = getBaseUnitPrice(p);
+                } else {
+                    baseUnitPrice = getUnitPriceWithBulk(p, ci.getQuantity());
+                }
+                if (baseUnitPrice == null) baseUnitPrice = BigDecimal.ZERO;
+
+                LocalDateTime now = LocalDateTime.now();
+                List<PlatformCampaignProduct> cps =
+                        platformCampaignProductRepository.findAllActiveByProductLegacy(p.getProductId(), now);
+
+                BigDecimal bestCampaignPrice = baseUnitPrice;
+                boolean hasCampaign = false;
+                if (cps != null && !cps.isEmpty()) {
+                    for (PlatformCampaignProduct cp : cps) {
+                        BigDecimal discounted = applyCampaignDiscount(baseUnitPrice, cp);
+                        if (discounted.compareTo(bestCampaignPrice) < 0) {
+                            bestCampaignPrice = discounted;
+                            hasCampaign = true;
+                        }
+                    }
+                }
+
+                inPlatformCampaign = hasCampaign;
+                platformCampaignPrice = hasCampaign ? bestCampaignPrice : null;
+
+                // flag usage_exceeded (chỉ dựa vào unitPrice hiện tại vs base + bestCampaign)
+                if (hasCampaign
+                        && ci.getUnitPrice() != null
+                        && ci.getUnitPrice().compareTo(baseUnitPrice) == 0
+                        && bestCampaignPrice.compareTo(baseUnitPrice) < 0
+                        && ci.getQuantity() > 1) {
+                    campaignUsageExceeded = true;
+                } else {
+                    campaignUsageExceeded = false;
+                }
+            }
+
             if (ci.getVariant() != null) {
                 variantUrl = ci.getVariant().getVariantUrl();
             }
@@ -429,6 +476,7 @@ public class CartServiceImpl implements CartService {
                     .baseUnitPrice(baseUnitPrice)
                     .platformCampaignPrice(platformCampaignPrice)
                     .inPlatformCampaign(inPlatformCampaign)
+                    .campaignUsageExceeded(campaignUsageExceeded)
                     .build();
         }).toList();
 
@@ -1565,7 +1613,9 @@ public class CartServiceImpl implements CartService {
                                                 int quantity,
                                                 Customer customer) {
         if (product == null) return BigDecimal.ZERO;
-
+        // DEBUG
+        log.info("[CAMPAIGN-CHECK] productId={}, quantity={}, customerId={}",
+                product.getProductId(), quantity, customer != null ? customer.getId() : null);
         // 1) Base price: variant -> variantPrice, nếu không thì theo bulk
         BigDecimal basePrice;
         if (variant != null) {
@@ -1579,7 +1629,8 @@ public class CartServiceImpl implements CartService {
         LocalDateTime now = LocalDateTime.now();
         List<PlatformCampaignProduct> cps =
                 platformCampaignProductRepository.findAllActiveByProduct(product.getProductId(), now);
-
+        log.info("[CAMPAIGN-CHECK] campaignsFound={} for productId={} at now={}",
+                (cps == null ? 0 : cps.size()), product.getProductId(), now);
         if (cps == null || cps.isEmpty()) {
             // Không có chiến dịch active → trả giá base
             return basePrice;
