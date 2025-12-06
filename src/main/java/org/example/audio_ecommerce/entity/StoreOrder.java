@@ -130,8 +130,14 @@ public class StoreOrder {
     @Column(name = "payment_method", length = 32, nullable = false)
     private PaymentMethod paymentMethod = PaymentMethod.COD;
 
-    @Column(name = "paid_by_shop")
+    @Builder.Default
+    @Column(
+            name = "paid_by_shop",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
     private Boolean paidByShop = false;
+
 
 //    @Column(name = "paid_ship_price",nullable = true)
 //    private double paidShipPriceByShop;
