@@ -46,8 +46,11 @@ public class Store {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    private String logoUrl;
-    private String coverImageUrl;
+    @Column(name = "logo_url", columnDefinition = "LONGTEXT")
+private String logoUrl;
+
+@Column(name = "cover_image_url", columnDefinition = "LONGTEXT")
+private String coverImageUrl;
 
     @Column(length = 500)
     private String address;

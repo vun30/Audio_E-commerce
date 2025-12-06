@@ -21,7 +21,7 @@ public class SellBannerImage {
     @JoinColumn(name = "banner_id", nullable = false)
     private SellBanner banner;
 
-    @Column(nullable = false, length = 500)
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String imageUrl; // URL ảnh
 
     @Column(length = 500)
