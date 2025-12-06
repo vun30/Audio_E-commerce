@@ -117,18 +117,36 @@ public class StoreOrderItem {
 //    private String refundReason;
 
     // ===== Dispute =====
-    @Column(name = "dispute_flag")
+    @Column(
+            name = "dispute_flag",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
     private Boolean disputeFlag = false;
 
-    @Column(name = "dispute_resolved_at")
-    private LocalDateTime disputeResolvedAt;
-
-    @Column(name = "eligible_for_payout", columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    @Column(
+            name = "eligible_for_payout",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
     private Boolean eligibleForPayout = false;
 
-    @Column(name = "is_payout", columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    @Column(
+            name = "is_payout",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
     private Boolean isPayout = false;
 
-    @Column(name = "is_returned", columnDefinition = "TINYINT(1) NOT NULL DEFAULT 0")
+    @Column(
+            name = "is_returned",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
     private Boolean isReturned = false;
+
 }

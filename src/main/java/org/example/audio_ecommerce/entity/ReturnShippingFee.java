@@ -46,11 +46,22 @@ public class ReturnShippingFee extends BaseEntity {
     @Column(name = "shop_fault")
     private Boolean shopFault;
 
-    @Column(name = "paid_by_shop")
+    @Builder.Default
+    @Column(
+            name = "paid_by_shop",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
     private Boolean paidByShop = false;
+
 
     // ===== STATUS =====
     @Builder.Default
-    @Column(name = "picked", nullable = false)
+    @Column(
+            name = "picked",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
     private boolean picked = false;
+
 }
