@@ -281,14 +281,11 @@ public class VoucherServiceImpl implements VoucherService {
             List<StoreOrderItem> items = storeItems.getOrDefault(storeId, List.of());
             if (codes.isEmpty() || items.isEmpty()) continue;
 
+            BigDecimal applied = BigDecimal.ZERO;
             BigDecimal storeSubtotal = items.stream()
                     .map(StoreOrderItem::getLineTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
 
             Map<String, BigDecimal> detail = out.detailByStore.computeIfAbsent(storeId, k -> new LinkedHashMap<>());
-
-            // ===== BƯỚC 1: Áp dụng TẤT CẢ FIXED vouchers trước =====
-            BigDecimal fixedDiscountTotal = BigDecimal.ZERO;
-            List<ShopVoucher> validFixedVouchers = new ArrayList<>();
 
             for (String raw : codes) {
                 String code = raw == null ? "" : raw.trim();
@@ -296,7 +293,6 @@ public class VoucherServiceImpl implements VoucherService {
 
                 ShopVoucher v = voucherRepo.findByShop_StoreIdAndCodeIgnoreCase(storeId, code).orElse(null);
                 if (v == null || v.getStatus() != VoucherStatus.ACTIVE) continue;
-                if (v.getType() != VoucherType.FIXED) continue; // Chỉ lấy FIXED
                 if (v.getStartTime()!=null && now.isBefore(v.getStartTime())) continue;
                 if (v.getEndTime()!=null && now.isAfter(v.getEndTime())) continue;
                 if (v.getRemainingUsage()!=null && v.getRemainingUsage()<=0) continue;
@@ -308,6 +304,7 @@ public class VoucherServiceImpl implements VoucherService {
 
                     int usedCount = usage != null ? usage.getUsedCount() : 0;
                     if (usedCount >= v.getUsagePerUser()) {
+                        // user này hết lượt dùng voucher này
                         continue;
                     }
                 }
@@ -316,114 +313,48 @@ public class VoucherServiceImpl implements VoucherService {
                 if (v.getMinOrderValue()!=null && eligibleSubtotal.compareTo(v.getMinOrderValue())<0) continue;
 
                 BigDecimal discount = discountOf(v, eligibleSubtotal);
-                BigDecimal cap = storeSubtotal.subtract(fixedDiscountTotal);
+                BigDecimal cap = storeSubtotal.subtract(applied);
                 if (cap.signum()<=0) break;
                 if (discount.compareTo(cap)>0) discount = cap;
 
                 if (discount.signum() > 0) {
-                    fixedDiscountTotal = fixedDiscountTotal.add(discount);
+                    applied = applied.add(discount);
+                    // ✅ lưu chi tiết theo mã
                     detail.merge(code, discount, BigDecimal::add);
-                    validFixedVouchers.add(v);
-                }
-            }
 
-            // ===== BƯỚC 2: Tính baseAmount sau khi trừ FIXED discount =====
-            BigDecimal baseAmountForPercent = storeSubtotal.subtract(fixedDiscountTotal);
-            if (baseAmountForPercent.signum() < 0) baseAmountForPercent = BigDecimal.ZERO;
-
-            // ===== BƯỚC 3: Áp dụng PERCENT và SHIPPING vouchers =====
-            BigDecimal percentAndShippingTotal = BigDecimal.ZERO;
-            List<ShopVoucher> validPercentVouchers = new ArrayList<>();
-
-            for (String raw : codes) {
-                String code = raw == null ? "" : raw.trim();
-                if (code.isEmpty()) continue;
-
-                ShopVoucher v = voucherRepo.findByShop_StoreIdAndCodeIgnoreCase(storeId, code).orElse(null);
-                if (v == null || v.getStatus() != VoucherStatus.ACTIVE) continue;
-                if (v.getType() == VoucherType.FIXED) continue; // Bỏ qua FIXED đã xử lý
-                if (v.getStartTime()!=null && now.isBefore(v.getStartTime())) continue;
-                if (v.getEndTime()!=null && now.isAfter(v.getEndTime())) continue;
-                if (v.getRemainingUsage()!=null && v.getRemainingUsage()<=0) continue;
-
-                if (customerId != null && v.getUsagePerUser() != null && v.getUsagePerUser() > 0) {
-                    ShopVoucherUsage usage = shopVoucherUsageRepo
-                            .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
-                            .orElse(null);
-
-                    int usedCount = usage != null ? usage.getUsedCount() : 0;
-                    if (usedCount >= v.getUsagePerUser()) {
-                        continue;
+                    // ✅ trừ remainingUsage
+                    if (v.getRemainingUsage() != null && v.getRemainingUsage() > 0) {
+                        v.setRemainingUsage(v.getRemainingUsage() - 1);
                     }
-                }
 
-                // Đối với PERCENT: tính trên baseAmountForPercent (đã trừ FIXED)
-                BigDecimal eligibleSubtotal = eligibleSubtotal(v, items);
-                if (v.getMinOrderValue()!=null && eligibleSubtotal.compareTo(v.getMinOrderValue())<0) continue;
+                    // ✅ update usage per customer
+                    if (customerId != null) {
+                        ShopVoucherUsage usage = shopVoucherUsageRepo
+                                .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
+                                .orElseGet(() -> {
+                                    Customer c = new Customer();
+                                    c.setId(customerId);
 
-                BigDecimal discount;
-                if (v.getType() == VoucherType.PERCENT) {
-                    // Tính % trên baseAmountForPercent
-                    int pct = v.getDiscountPercent() == null ? 0 : v.getDiscountPercent();
-                    BigDecimal percentDiscount = baseAmountForPercent.multiply(BigDecimal.valueOf(pct))
-                            .divide(BigDecimal.valueOf(100), java.math.RoundingMode.HALF_UP);
-                    BigDecimal cap = v.getMaxDiscountValue() == null ? percentDiscount : v.getMaxDiscountValue();
-                    discount = percentDiscount.min(cap).max(BigDecimal.ZERO);
-                } else {
-                    // SHIPPING hoặc loại khác
-                    discount = discountOf(v, eligibleSubtotal);
-                }
+                                    return ShopVoucherUsage.builder()
+                                            .voucher(v)
+                                            .customer(c)
+                                            .usedCount(0)
+                                            .build();
+                                });
 
-                BigDecimal cap = baseAmountForPercent.subtract(percentAndShippingTotal);
-                if (cap.signum()<=0) break;
-                if (discount.compareTo(cap)>0) discount = cap;
 
-                if (discount.signum() > 0) {
-                    percentAndShippingTotal = percentAndShippingTotal.add(discount);
-                    detail.merge(code, discount, BigDecimal::add);
-                    validPercentVouchers.add(v);
+                        int newCount = usage.getUsedCount() + 1;
+                        usage.setUsedCount(newCount);
+                        LocalDateTime nowL = LocalDateTime.now();
+                        if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(nowL);
+                        usage.setLastUsedAt(nowL);
+                        shopVoucherUsageRepo.save(usage);
+                    }
+
                 }
             }
-
-            // ===== BƯỚC 4: Cập nhật usage cho tất cả vouchers đã dùng =====
-            List<ShopVoucher> allValidVouchers = new ArrayList<>();
-            allValidVouchers.addAll(validFixedVouchers);
-            allValidVouchers.addAll(validPercentVouchers);
-
-            for (ShopVoucher v : allValidVouchers) {
-                // ✅ trừ remainingUsage
-                if (v.getRemainingUsage() != null && v.getRemainingUsage() > 0) {
-                    v.setRemainingUsage(v.getRemainingUsage() - 1);
-                }
-
-                // ✅ update usage per customer
-                if (customerId != null) {
-                    ShopVoucherUsage usage = shopVoucherUsageRepo
-                            .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
-                            .orElseGet(() -> {
-                                Customer c = new Customer();
-                                c.setId(customerId);
-
-                                return ShopVoucherUsage.builder()
-                                        .voucher(v)
-                                        .customer(c)
-                                        .usedCount(0)
-                                        .build();
-                            });
-
-                    int newCount = usage.getUsedCount() + 1;
-                    usage.setUsedCount(newCount);
-                    LocalDateTime nowL = LocalDateTime.now();
-                    if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(nowL);
-                    usage.setLastUsedAt(nowL);
-                    shopVoucherUsageRepo.save(usage);
-                }
-            }
-
-            // ===== BƯỚC 5: Lưu tổng discount cho store =====
-            BigDecimal totalApplied = fixedDiscountTotal.add(percentAndShippingTotal);
-            if (totalApplied.signum()>0) {
-                out.discountByStore.merge(storeId, totalApplied, BigDecimal::add);
+            if (applied.signum()>0) {
+                out.discountByStore.merge(storeId, applied, BigDecimal::add);
             }
         }
         return out;
