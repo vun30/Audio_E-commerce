@@ -5,11 +5,15 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.request.PreviewCampaignPriceRequest;
 import org.example.audio_ecommerce.dto.request.ProductRequest;
 import org.example.audio_ecommerce.dto.request.UpdateProductRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.dto.response.PreviewCampaignPriceResponse;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.service.CartService;
 import org.example.audio_ecommerce.service.ProductService;
+import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,7 +27,7 @@ import java.util.UUID;
 public class ProductController {
 
     private final ProductService productService;
-
+    private final CartService cartService;
     // ============================================================
     // 📜 GET: Danh sách sản phẩm (filter + pagination)
     // ============================================================
@@ -228,4 +232,22 @@ public ResponseEntity<BaseResponse> getAllProducts(
     ) {
         return productService.incrementViewCount(productId);
     }
+
+    @PostMapping("/{productId}/campaign-preview")
+    public PreviewCampaignPriceResponse previewCampaign(
+            @PathVariable UUID productId,
+            @RequestBody PreviewCampaignPriceRequest req
+    ) {
+        if (req.getCustomerId() == null) {
+            throw new IllegalArgumentException("customerId is required");
+        }
+
+        return cartService.previewCampaignPrice(
+                req.getCustomerId(),
+                productId,
+                req
+        );
+    }
+
+
 }
