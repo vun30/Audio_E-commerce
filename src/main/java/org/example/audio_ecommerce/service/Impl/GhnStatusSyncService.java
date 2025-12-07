@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.GhnStatus;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetail;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetailWrapper;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
@@ -37,6 +38,7 @@ public class GhnStatusSyncService {
     private final CustomerOrderRepository customerOrderRepo;
     private final ObjectMapper objectMapper;
     private final ReturnShippingFeeRepository returnShippingFeeRepo;
+    private final SettlementService settlementService;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -332,6 +334,15 @@ public class GhnStatusSyncService {
 
             log.info("🎉 [GHN Sync] CustomerOrder {} đã DELIVERY_SUCCESS (deliveredAt={})",
                     customerOrder.getId(), customerOrder.getDeliveredAt());
+
+            if (customerOrder.getPaymentMethod() == PaymentMethod.COD) {
+                try {
+                    settlementService.recordCodDeliverySuccess(customerOrder);
+                } catch (Exception e) {
+                    log.error("❌ [GHN Sync] Lỗi khi record COD settlement cho order {}: {}",
+                            customerOrder.getId(), e.getMessage(), e);
+                }
+            }
         } else {
             // Nếu chưa giao hết: có thể set trạng thái “SHIPPING” (nếu hiện tại chưa phải CANCEL/UNPAID)
             if (customerOrder.getStatus() != OrderStatus.CANCELLED
