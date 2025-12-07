@@ -95,7 +95,7 @@ public class Product {
     // =========================================================
     @ElementCollection
     @CollectionTable(name = "product_images", joinColumns = @JoinColumn(name = "product_id"))
-    @Column(name = "image_url")
+    @Column(name = "image_url", columnDefinition = "LONGTEXT")
     private List<String> images;
     // 📝 NOTE: Danh sách URL ảnh | Ví dụ: `["https://cdn.img1/jbl1.jpg", "https://cdn.img2/jbl2.jpg"]`
 
@@ -107,6 +107,7 @@ public class Product {
     // =========================================================
     private String sku;
     // 📝 NOTE: Mã SKU duy nhất | Ví dụ: `JBL-CHG5-BLK-32`
+
 
     @Column(nullable = true)
     private BigDecimal price;

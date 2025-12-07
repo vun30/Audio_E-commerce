@@ -12,4 +12,5 @@ public final class WeightUtils {
                 .setScale(0, java.math.RoundingMode.CEILING)
                 .intValue();
     }
+
 }

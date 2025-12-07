@@ -31,7 +31,7 @@ public class ProductVariantEntity {
     @Column(nullable = false)
     private Integer variantStock;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
     private String variantUrl;
 
     @Column(unique = false)

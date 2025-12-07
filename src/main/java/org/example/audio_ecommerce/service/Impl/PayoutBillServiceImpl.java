@@ -180,49 +180,57 @@ public class PayoutBillServiceImpl implements PayoutBillService {
     // ===================================================================
     // MARK BILL PAID
     // ===================================================================
-    @Override
-    public PayoutBill markBillAsPaid(UUID billId, String reference, String receiptUrl, String note) {
+ @Override
+public PayoutBill markBillAsPaid(UUID billId, String reference, String receiptUrl, String note) {
 
-        PayoutBill bill = payoutBillRepository.findById(billId)
-                .orElseThrow(() -> new RuntimeException("Bill not found"));
+    PayoutBill bill = payoutBillRepository.findById(billId)
+            .orElseThrow(() -> new RuntimeException("Bill not found"));
 
-        bill.setTransferReference(reference);
-        bill.setReceiptImageUrl(receiptUrl);
-        bill.setAdminNote(note);
-        bill.setStatus(PayoutBillStatus.PAID);
+    bill.setTransferReference(reference);
+    bill.setReceiptImageUrl(receiptUrl);
+    bill.setAdminNote(note);
+    bill.setStatus(PayoutBillStatus.PAID);
 
-        // Return Shipping Fee
-        bill.getReturnShipFees().forEach(f -> {
-            ReturnShippingFee fee = returnShippingFeeRepository
-                    .findById(f.getReturnRequestId())
-                    .orElseThrow();
+    UUID storeId = bill.getShopId();
 
-            fee.setPaidByShop(true);
-            returnShippingFeeRepository.save(fee);
-        });
+    // =====================================================
+    // 1) SET ReturnShippingFee.paidByShop = true (THEO STORE)
+    // =====================================================
+    List<ReturnShippingFee> returnFees =
+            returnShippingFeeRepository.findAllByStoreIdAndPaidByShopFalse(storeId);
 
-        // Shipping Fee
-        bill.getShippingOrders().forEach(s -> {
-            StoreOrder order = storeOrderRepository
-                    .findById(s.getStoreOrderId())
-                    .orElseThrow();
+    returnFees.forEach(f -> {
+        f.setPaidByShop(true);
+        returnShippingFeeRepository.save(f);
+    });
 
-            order.setPaidByShop(true);
-            storeOrderRepository.save(order);
-        });
+    // =====================================================
+    // 2) SET StoreOrder.paidByShop = true (THEO STORE)
+    // =====================================================
+    bill.getShippingOrders().forEach(s -> {
+        StoreOrder order = storeOrderRepository
+                .findById(s.getStoreOrderId())
+                .orElseThrow();
 
-        // Order Items
-        bill.getItems().forEach(i -> {
-            StoreOrderItem item = storeOrderItemRepository
-                    .findById(i.getOrderItemId())
-                    .orElseThrow();
+        order.setPaidByShop(true);
+        storeOrderRepository.save(order);
+    });
 
-            item.setIsPayout(true);
-            storeOrderItemRepository.save(item);
-        });
+    // =====================================================
+    // 3) SET StoreOrderItem.isPayout = true (THEO STORE)
+    // =====================================================
+    bill.getItems().forEach(i -> {
+        StoreOrderItem item = storeOrderItemRepository
+                .findById(i.getOrderItemId())
+                .orElseThrow();
 
-        return payoutBillRepository.save(bill);
-    }
+        item.setIsPayout(true);
+        storeOrderItemRepository.save(item);
+    });
+
+    return payoutBillRepository.save(bill);
+}
+
 
     @Override
 public List<PayoutBill> autoCreateBillsForAllStores() {
