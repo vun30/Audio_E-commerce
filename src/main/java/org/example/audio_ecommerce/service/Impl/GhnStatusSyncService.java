@@ -272,22 +272,27 @@ public class GhnStatusSyncService {
 
         storeOrder.setStatus(mappedStatus);
 
-        // khi GHN sang trạng thái đang ship → cập nhật phí ship thật
+        // 🔥 Khi GHN sang trạng thái đang ship → cập nhật phí ship thật
         if (newGhnStatus == GhnStatus.PICKED) {
             updateActualShippingFeeForStoreOrder(storeOrder, ghnOrder);
         }
 
-
-        // Nếu GHN đã DELIVERED → set deliveredAt cho StoreOrder
+        // ✅ Khi GHN đã DELIVERED → set deliveredAt cho StoreOrder (lần đầu)
         if (newGhnStatus == GhnStatus.DELIVERED) {
             LocalDateTime finish = parseOffsetDateTime(detail.getFinish_date());
-            if (finish == null) finish = LocalDateTime.now();
-            storeOrder.setDeliveredAt(finish);
+            if (finish == null) {
+                finish = LocalDateTime.now();
+            }
+
+            // chỉ set nếu chưa có (tránh override nếu đã set tay ở chỗ khác)
+            if (storeOrder.getDeliveredAt() == null) {
+                storeOrder.setDeliveredAt(finish);
+            }
         }
 
         storeOrderRepo.save(storeOrder);
-        log.info("✅ [GHN Sync] Cập nhật StoreOrder {} → status={}",
-                storeOrder.getId(), storeOrder.getStatus());
+        log.info("✅ [GHN Sync] Cập nhật StoreOrder {} → status={} deliveredAt={}",
+                storeOrder.getId(), storeOrder.getStatus(), storeOrder.getDeliveredAt());
 
         // ==== Cập nhật CustomerOrder ====
         CustomerOrder customerOrder = storeOrder.getCustomerOrder();
@@ -315,14 +320,17 @@ public class GhnStatusSyncService {
                             .max(LocalDateTime::compareTo)
                             .orElse(LocalDateTime.now());
 
-            customerOrder.setDeliveredAt(maxDelivered);
+            // cũng chỉ set nếu chưa tồn tại, để giữ "lần đầu giao xong"
+            if (customerOrder.getDeliveredAt() == null) {
+                customerOrder.setDeliveredAt(maxDelivered);
+            }
+
             customerOrderRepo.save(customerOrder);
 
             log.info("🎉 [GHN Sync] CustomerOrder {} đã DELIVERY_SUCCESS (deliveredAt={})",
                     customerOrder.getId(), customerOrder.getDeliveredAt());
         } else {
             // Nếu chưa giao hết: có thể set trạng thái “SHIPPING” (nếu hiện tại chưa phải CANCEL/UNPAID)
-            // Tùy business, ông có thể bỏ đoạn này nếu không cần
             if (customerOrder.getStatus() != OrderStatus.CANCELLED
                     && customerOrder.getStatus() != OrderStatus.UNPAID) {
                 customerOrder.setStatus(OrderStatus.SHIPPING);
@@ -332,4 +340,5 @@ public class GhnStatusSyncService {
             }
         }
     }
+
 }
