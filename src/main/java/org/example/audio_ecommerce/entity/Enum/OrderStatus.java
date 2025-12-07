@@ -22,7 +22,7 @@ public enum OrderStatus {
 
        // KH đã gửi yêu cầu hoàn
     RETURNING,          // đang trên đường trả
-
+    GHN_CREATED
 
 //    HOLD_FOR_RETURN,               // Đang giữ tiền chờ shop xử lý
 //    RETURN_APPROVED,               // Shop đồng ý trả hàng
