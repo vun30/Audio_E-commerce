@@ -17,8 +17,9 @@ public interface VoucherService {
 
     StoreVoucherResult computeDiscountByStoreWithDetail(
             UUID customerId,
-            List<StoreVoucherUse> vouchersInput,
-            Map<UUID, List<StoreOrderItem>> storeItems
+            List<StoreVoucherUse> input,
+            Map<UUID, List<StoreOrderItem>> storeItems,
+            Map<UUID, BigDecimal> platformDiscountByStore
     );
 
     // a) Tổng giảm theo từng store (để phân bổ xuống StoreOrder)

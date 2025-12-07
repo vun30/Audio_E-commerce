@@ -6,6 +6,7 @@ import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
+import org.example.audio_ecommerce.dto.response.PreviewCampaignPriceResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
@@ -782,8 +783,20 @@ public class CartServiceImpl implements CartService {
 
         // === PHẦN SAU GIỮ NGUYÊN (voucher, cập nhật grand total, xóa cart...) ===
         // 5) Áp voucher theo shop + platform cho từng shop
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
+        // 5) TÍNH voucher NỀN TẢNG TRƯỚC
+        var platformResult = voucherService.computePlatformDiscounts(
+                customerId,
+                platformVouchers,
+                storeItemsMap
+        );
+
+// 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                storeVouchers,
+                storeItemsMap,
+                platformResult.discountByStore   // map<storeId, platformDiscount>
+        );
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -1157,7 +1170,8 @@ public class CartServiceImpl implements CartService {
                     storeVoucherMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         resp.setStoreVoucherDiscount(storeVoucherMap.isEmpty() ? null : storeVoucherMap);
 
         // ===== Platform voucher detail (giữ nguyên như cũ) =====
@@ -1170,7 +1184,8 @@ public class CartServiceImpl implements CartService {
                     platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         resp.setPlatformDiscount(platformDiscountMap);
 
         // Shipping snapshot
@@ -1374,13 +1389,13 @@ public class CartServiceImpl implements CartService {
                 BigDecimal baseListUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
                         ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
                         : (ci.getVariant() != null
-                            ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
-                            : getBaseUnitPrice(ci.getProduct()));
+                        ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
+                        : getBaseUnitPrice(ci.getProduct()));
                 BigDecimal bulkUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
                         ? baseListUnit
                         : (ci.getVariant() != null
-                            ? baseListUnit
-                            : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+                        ? baseListUnit
+                        : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
                 BigDecimal lineBefore = baseListUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
 
                 BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
@@ -1429,8 +1444,21 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
+        // 5) TÍNH voucher NỀN TẢNG TRƯỚC
+        var platformResult = voucherService.computePlatformDiscounts(
+                customerId,
+                platformVouchers,
+                storeItemsMap
+        );
+
+// 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                storeVouchers,
+                storeItemsMap,
+                platformResult.discountByStore   // map<storeId, platformDiscount>
+        );
+
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -1489,7 +1517,9 @@ public class CartServiceImpl implements CartService {
 
     // ================= BULK DISCOUNT HELPERS =================
 
-    /** Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price. */
+    /**
+     * Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price.
+     */
     private BigDecimal getBaseUnitPrice(Product p) {
         if (p == null) return BigDecimal.ZERO;
         if (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0) {
@@ -1589,6 +1619,7 @@ public class CartServiceImpl implements CartService {
                 .findFirst()
                 .orElse(store.getStoreAddresses().get(0)); // fallback: lấy địa chỉ đầu tiên
     }
+
     /**
      * Tính giá base theo variant/product, rồi áp campaign (nếu có).
      */
@@ -1723,7 +1754,7 @@ public class CartServiceImpl implements CartService {
         if (result.compareTo(BigDecimal.ZERO) < 0) result = BigDecimal.ZERO;
 
         // FE sẽ tính và hiển thị giá discount dựa trên giá biến thể
-        
+
         return result;
     }
 
@@ -1940,16 +1971,19 @@ public class CartServiceImpl implements CartService {
         }
 
         // Gọi voucher service (nếu FE có truyền voucher)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(
-                customerId,
-                request.getStoreVouchers(),
-                storeItemsMap
-        );
         var platformResult = voucherService.computePlatformDiscounts(
                 customerId,
                 request.getPlatformVouchers(),
                 storeItemsMap
         );
+
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                request.getStoreVouchers(),
+                storeItemsMap,
+                platformResult.discountByStore
+        );
+
 
         // ===== 3) Recalc subtotal / discount / grandTotal ở CART =====
         // (Tuỳ bạn muốn hiển thị tổng cart như nào, ở đây là đơn giản)
@@ -2056,5 +2090,136 @@ public class CartServiceImpl implements CartService {
 
         return resp;
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PreviewCampaignPriceResponse previewCampaignPrice(
+            UUID customerId,
+            UUID productId,
+            PreviewCampaignPriceRequest request
+    ) {
+
+        if (request.getQuantity() == null || request.getQuantity() < 1) {
+            throw new IllegalArgumentException("quantity >= 1 is required");
+        }
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+
+        UUID variantId = request.getVariantId();
+        int quantity = request.getQuantity();
+
+        Product product;
+        ProductVariantEntity variant = null;
+
+        // Ưu tiên variantId nếu có
+        if (variantId != null) {
+            variant = productVariantRepo.findById(variantId)
+                    .orElseThrow(() -> new NoSuchElementException("Variant not found: " + variantId));
+            product = variant.getProduct();
+            if (product == null) {
+                throw new IllegalStateException("Variant has no product: " + variantId);
+            }
+            // optional: validate variant thuộc đúng product trên path
+            if (productId != null && !product.getProductId().equals(productId)) {
+                throw new IllegalArgumentException("Variant does not belong to product");
+            }
+        } else {
+            // không có variant => phải có productId trên path
+            if (productId == null) {
+                throw new IllegalArgumentException("productId is required");
+            }
+            product = productRepo.findById(productId)
+                    .orElseThrow(() -> new NoSuchElementException("Product not found: " + productId));
+        }
+
+        // check tồn kho
+        Integer stock = (variant != null ? variant.getVariantStock() : product.getStockQuantity());
+        if (stock != null && stock < quantity) {
+            throw new IllegalStateException("Product/Variant out of stock: " + product.getName());
+        }
+
+        // ===== 1) Tính basePrice (không xét usage_per_user) =====
+        BigDecimal basePrice;
+        if (variant != null) {
+            basePrice = Optional.ofNullable(variant.getVariantPrice())
+                    .orElse(getBaseUnitPrice(product));
+        } else {
+            basePrice = getUnitPriceWithBulk(product, quantity);
+        }
+        if (basePrice == null) basePrice = BigDecimal.ZERO;
+
+        // ===== 2) Tìm campaign tốt nhất (không xét usage_per_user) =====
+        LocalDateTime now = LocalDateTime.now();
+        List<PlatformCampaignProduct> cps =
+                platformCampaignProductRepository.findAllActiveByProductLegacy(product.getProductId(), now);
+
+        BigDecimal bestCampaignPrice = basePrice;
+        boolean hasCampaign = false;
+        PlatformCampaignProduct bestCampaign = null;
+
+        if (cps != null && !cps.isEmpty()) {
+            for (PlatformCampaignProduct cp : cps) {
+                BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
+                if (discounted.compareTo(bestCampaignPrice) < 0) {
+                    bestCampaignPrice = discounted;
+                    hasCampaign = true;
+                    bestCampaign = cp;
+                }
+            }
+        }
+
+        // ===== 3) Tính remaining usage cho campaign tốt nhất =====
+        Integer remaining = null;
+        if (hasCampaign && bestCampaign != null && bestCampaign.getUsagePerUser() != null) {
+            Integer usagePerUser = bestCampaign.getUsagePerUser();
+
+            PlatformCampaignProductUsage usage =
+                    platformCampaignProductUsageRepository
+                            .findByCampaignProductAndCustomer(bestCampaign, customer)
+                            .orElse(null);
+
+            int usedCount = (usage != null && usage.getUsedCount() != null)
+                    ? usage.getUsedCount()
+                    : 0;
+
+            remaining = Math.max(usagePerUser - usedCount, 0);
+        }
+
+        // ===== 4) Tính effectiveUnitPrice (giống khi add/update cart) =====
+        BigDecimal effectiveUnit = resolveUnitPriceForCustomer(product, variant, quantity, customer);
+        if (effectiveUnit == null) effectiveUnit = BigDecimal.ZERO;
+
+        BigDecimal lineTotal = effectiveUnit.multiply(BigDecimal.valueOf(quantity));
+
+        // ===== 5) Flag usage_exceeded giống bên cart =====
+        boolean exceeded = false;
+        if (hasCampaign
+                && effectiveUnit.compareTo(basePrice) == 0
+                && bestCampaignPrice.compareTo(basePrice) < 0
+                && quantity > 1) {
+            exceeded = true;
+        }
+
+        return PreviewCampaignPriceResponse.builder()
+                .productId(product.getProductId())
+                .variantId(variant != null ? variant.getId() : null)
+                .quantity(quantity)
+                .baseUnitPrice(basePrice)
+                .campaignUnitPrice(hasCampaign ? bestCampaignPrice : null)
+                .effectiveUnitPrice(effectiveUnit)
+                .lineTotal(lineTotal)
+                .inCampaign(hasCampaign)
+                .campaignUsageExceeded(exceeded)
+                .campaignRemaining(remaining)
+                .campaignName(bestCampaign != null && bestCampaign.getCampaign() != null
+                        ? bestCampaign.getCampaign().getName()
+                        : null)
+                .campaignCode(bestCampaign != null && bestCampaign.getCampaign() != null
+                        ? bestCampaign.getCampaign().getCode()
+                        : null)
+                .build();
+    }
+
 
 }
