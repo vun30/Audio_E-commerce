@@ -4,6 +4,7 @@ import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
+import org.example.audio_ecommerce.dto.response.PreviewCampaignPriceResponse;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 
 import java.util.List;
@@ -22,5 +23,9 @@ public interface CartService {
     List<CustomerOrderResponse> checkoutStoreShip(UUID customerId, CheckoutCODRequest request);
     CartResponse updateItemQuantityWithVouchers(UUID customerId,
                                                 UpdateCartItemQtyWithVoucherRequest request);
-
+    PreviewCampaignPriceResponse previewCampaignPrice(
+            UUID customerId,
+            UUID productId,
+            PreviewCampaignPriceRequest request
+    );
 }

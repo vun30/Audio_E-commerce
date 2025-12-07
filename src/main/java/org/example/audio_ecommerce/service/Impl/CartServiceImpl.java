@@ -6,6 +6,7 @@ import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
 import org.example.audio_ecommerce.dto.response.CartResponse;
 import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
+import org.example.audio_ecommerce.dto.response.PreviewCampaignPriceResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
@@ -2089,5 +2090,136 @@ public class CartServiceImpl implements CartService {
 
         return resp;
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PreviewCampaignPriceResponse previewCampaignPrice(
+            UUID customerId,
+            UUID productId,
+            PreviewCampaignPriceRequest request
+    ) {
+
+        if (request.getQuantity() == null || request.getQuantity() < 1) {
+            throw new IllegalArgumentException("quantity >= 1 is required");
+        }
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+
+        UUID variantId = request.getVariantId();
+        int quantity = request.getQuantity();
+
+        Product product;
+        ProductVariantEntity variant = null;
+
+        // Ưu tiên variantId nếu có
+        if (variantId != null) {
+            variant = productVariantRepo.findById(variantId)
+                    .orElseThrow(() -> new NoSuchElementException("Variant not found: " + variantId));
+            product = variant.getProduct();
+            if (product == null) {
+                throw new IllegalStateException("Variant has no product: " + variantId);
+            }
+            // optional: validate variant thuộc đúng product trên path
+            if (productId != null && !product.getProductId().equals(productId)) {
+                throw new IllegalArgumentException("Variant does not belong to product");
+            }
+        } else {
+            // không có variant => phải có productId trên path
+            if (productId == null) {
+                throw new IllegalArgumentException("productId is required");
+            }
+            product = productRepo.findById(productId)
+                    .orElseThrow(() -> new NoSuchElementException("Product not found: " + productId));
+        }
+
+        // check tồn kho
+        Integer stock = (variant != null ? variant.getVariantStock() : product.getStockQuantity());
+        if (stock != null && stock < quantity) {
+            throw new IllegalStateException("Product/Variant out of stock: " + product.getName());
+        }
+
+        // ===== 1) Tính basePrice (không xét usage_per_user) =====
+        BigDecimal basePrice;
+        if (variant != null) {
+            basePrice = Optional.ofNullable(variant.getVariantPrice())
+                    .orElse(getBaseUnitPrice(product));
+        } else {
+            basePrice = getUnitPriceWithBulk(product, quantity);
+        }
+        if (basePrice == null) basePrice = BigDecimal.ZERO;
+
+        // ===== 2) Tìm campaign tốt nhất (không xét usage_per_user) =====
+        LocalDateTime now = LocalDateTime.now();
+        List<PlatformCampaignProduct> cps =
+                platformCampaignProductRepository.findAllActiveByProductLegacy(product.getProductId(), now);
+
+        BigDecimal bestCampaignPrice = basePrice;
+        boolean hasCampaign = false;
+        PlatformCampaignProduct bestCampaign = null;
+
+        if (cps != null && !cps.isEmpty()) {
+            for (PlatformCampaignProduct cp : cps) {
+                BigDecimal discounted = applyCampaignDiscount(basePrice, cp);
+                if (discounted.compareTo(bestCampaignPrice) < 0) {
+                    bestCampaignPrice = discounted;
+                    hasCampaign = true;
+                    bestCampaign = cp;
+                }
+            }
+        }
+
+        // ===== 3) Tính remaining usage cho campaign tốt nhất =====
+        Integer remaining = null;
+        if (hasCampaign && bestCampaign != null && bestCampaign.getUsagePerUser() != null) {
+            Integer usagePerUser = bestCampaign.getUsagePerUser();
+
+            PlatformCampaignProductUsage usage =
+                    platformCampaignProductUsageRepository
+                            .findByCampaignProductAndCustomer(bestCampaign, customer)
+                            .orElse(null);
+
+            int usedCount = (usage != null && usage.getUsedCount() != null)
+                    ? usage.getUsedCount()
+                    : 0;
+
+            remaining = Math.max(usagePerUser - usedCount, 0);
+        }
+
+        // ===== 4) Tính effectiveUnitPrice (giống khi add/update cart) =====
+        BigDecimal effectiveUnit = resolveUnitPriceForCustomer(product, variant, quantity, customer);
+        if (effectiveUnit == null) effectiveUnit = BigDecimal.ZERO;
+
+        BigDecimal lineTotal = effectiveUnit.multiply(BigDecimal.valueOf(quantity));
+
+        // ===== 5) Flag usage_exceeded giống bên cart =====
+        boolean exceeded = false;
+        if (hasCampaign
+                && effectiveUnit.compareTo(basePrice) == 0
+                && bestCampaignPrice.compareTo(basePrice) < 0
+                && quantity > 1) {
+            exceeded = true;
+        }
+
+        return PreviewCampaignPriceResponse.builder()
+                .productId(product.getProductId())
+                .variantId(variant != null ? variant.getId() : null)
+                .quantity(quantity)
+                .baseUnitPrice(basePrice)
+                .campaignUnitPrice(hasCampaign ? bestCampaignPrice : null)
+                .effectiveUnitPrice(effectiveUnit)
+                .lineTotal(lineTotal)
+                .inCampaign(hasCampaign)
+                .campaignUsageExceeded(exceeded)
+                .campaignRemaining(remaining)
+                .campaignName(bestCampaign != null && bestCampaign.getCampaign() != null
+                        ? bestCampaign.getCampaign().getName()
+                        : null)
+                .campaignCode(bestCampaign != null && bestCampaign.getCampaign() != null
+                        ? bestCampaign.getCampaign().getCode()
+                        : null)
+                .build();
+    }
+
 
 }
