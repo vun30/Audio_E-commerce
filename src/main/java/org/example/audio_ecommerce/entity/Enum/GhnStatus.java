@@ -25,8 +25,8 @@ public enum GhnStatus {
     RETURNED,               // returned
     EXCEPTION,              // exception
     DAMAGE,                 // damage
-    LOST;                   // lost
-
+    LOST,                   // lost
+    GHN_CREATED;
     public static GhnStatus fromGhnCode(String code) {
         if (code == null) return null;
         return switch (code) {
@@ -52,6 +52,7 @@ public enum GhnStatus {
             case "exception" -> EXCEPTION;
             case "damage" -> DAMAGE;
             case "lost" -> LOST;
+            case "ghn_created" -> GHN_CREATED;
             default -> null;
         };
     }
