@@ -7,10 +7,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.GhnStatus;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetail;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetailWrapper;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
 import org.example.audio_ecommerce.repository.GhnOrderRepository;
+import org.example.audio_ecommerce.repository.ReturnShippingFeeRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.EnumSet;
@@ -34,6 +37,8 @@ public class GhnStatusSyncService {
     private final StoreOrderRepository storeOrderRepo;
     private final CustomerOrderRepository customerOrderRepo;
     private final ObjectMapper objectMapper;
+    private final ReturnShippingFeeRepository returnShippingFeeRepo;
+    private final SettlementService settlementService;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -213,6 +218,42 @@ public class GhnStatusSyncService {
         };
     }
 
+    /**
+     * ✅ NEW: cập nhật phí ship thật + chênh lệch cho StoreOrder
+     * Gọi khi GHN chuyển sang trạng thái đang ship (PICKED)
+     * Phí ship thật lấy từ GhnOrder.totalFee
+     */
+    private void updateActualShippingFeeForStoreOrder(StoreOrder storeOrder,
+                                                      GhnOrder ghnOrder) {
+        if (storeOrder == null || ghnOrder == null) return;
+
+        BigDecimal actualFee = ghnOrder.getTotalFee();
+        if (actualFee == null) {
+            log.warn("⚠ [GHN Sync] GhnOrder {} không có totalFee (StoreOrder={})",
+                    ghnOrder.getId(), storeOrder.getId());
+            return;
+        }
+
+        BigDecimal estimated = storeOrder.getShippingFee() != null
+                ? storeOrder.getShippingFee()
+                : BigDecimal.ZERO;
+
+        // Lưu phí ship GHN thực tế
+        storeOrder.setActualShippingFee(actualFee);
+
+        // Chênh lệch: GHN thực tế - khách đã trả
+        BigDecimal diff = actualFee.subtract(estimated);
+        storeOrder.setShippingExtraForStore(diff);
+
+        log.info("🚚 [GHN Sync] StoreOrder {} - shippingFee(est)={} | actualShippingFee={} | diff={}",
+                storeOrder.getId(), estimated, actualFee, diff);
+
+        // ⚠ Không đổi grandTotal khách phải trả
+        // grandTotal vẫn dùng shippingFee (estimate) trong @PrePersist/@PreUpdate của StoreOrder.
+        // diff sẽ dùng cho settlement / ví sau này.
+    }
+
+
     private void updateStoreAndCustomerOrder(GhnOrder ghnOrder,
                                              GhnOrderDetail detail,
                                              GhnStatus newGhnStatus) {
@@ -235,16 +276,28 @@ public class GhnStatusSyncService {
 
         storeOrder.setStatus(mappedStatus);
 
-        // Nếu GHN đã DELIVERED → set deliveredAt cho StoreOrder
+        // 🔥 Khi GHN sang trạng thái đang ship → cập nhật phí ship thật
+        if (newGhnStatus == GhnStatus.PICKED) {
+            updateActualShippingFeeForStoreOrder(storeOrder, ghnOrder);
+            updateReturnShippingFeeWhenPicked(ghnOrder);
+        }
+
+        // ✅ Khi GHN đã DELIVERED → set deliveredAt cho StoreOrder (lần đầu)
         if (newGhnStatus == GhnStatus.DELIVERED) {
             LocalDateTime finish = parseOffsetDateTime(detail.getFinish_date());
-            if (finish == null) finish = LocalDateTime.now();
-            storeOrder.setDeliveredAt(finish);
+            if (finish == null) {
+                finish = LocalDateTime.now();
+            }
+
+            // chỉ set nếu chưa có (tránh override nếu đã set tay ở chỗ khác)
+            if (storeOrder.getDeliveredAt() == null) {
+                storeOrder.setDeliveredAt(finish);
+            }
         }
 
         storeOrderRepo.save(storeOrder);
-        log.info("✅ [GHN Sync] Cập nhật StoreOrder {} → status={}",
-                storeOrder.getId(), storeOrder.getStatus());
+        log.info("✅ [GHN Sync] Cập nhật StoreOrder {} → status={} deliveredAt={}",
+                storeOrder.getId(), storeOrder.getStatus(), storeOrder.getDeliveredAt());
 
         // ==== Cập nhật CustomerOrder ====
         CustomerOrder customerOrder = storeOrder.getCustomerOrder();
@@ -272,14 +325,26 @@ public class GhnStatusSyncService {
                             .max(LocalDateTime::compareTo)
                             .orElse(LocalDateTime.now());
 
-            customerOrder.setDeliveredAt(maxDelivered);
+            // cũng chỉ set nếu chưa tồn tại, để giữ "lần đầu giao xong"
+            if (customerOrder.getDeliveredAt() == null) {
+                customerOrder.setDeliveredAt(maxDelivered);
+            }
+
             customerOrderRepo.save(customerOrder);
 
             log.info("🎉 [GHN Sync] CustomerOrder {} đã DELIVERY_SUCCESS (deliveredAt={})",
                     customerOrder.getId(), customerOrder.getDeliveredAt());
+
+            if (customerOrder.getPaymentMethod() == PaymentMethod.COD) {
+                try {
+                    settlementService.recordCodDeliverySuccess(customerOrder);
+                } catch (Exception e) {
+                    log.error("❌ [GHN Sync] Lỗi khi record COD settlement cho order {}: {}",
+                            customerOrder.getId(), e.getMessage(), e);
+                }
+            }
         } else {
             // Nếu chưa giao hết: có thể set trạng thái “SHIPPING” (nếu hiện tại chưa phải CANCEL/UNPAID)
-            // Tùy business, ông có thể bỏ đoạn này nếu không cần
             if (customerOrder.getStatus() != OrderStatus.CANCELLED
                     && customerOrder.getStatus() != OrderStatus.UNPAID) {
                 customerOrder.setStatus(OrderStatus.SHIPPING);
@@ -289,4 +354,35 @@ public class GhnStatusSyncService {
             }
         }
     }
+
+    /**
+     * ✅ NEW: Khi GHN đơn RETURN được shipper PICKED
+     *  - Cập nhật shippingFee = totalFee (phí thật GHN)
+     *  - Đánh dấu picked = true để cron job khác xử lý trừ tiền sau
+     */
+    private void updateReturnShippingFeeWhenPicked(GhnOrder ghnOrder) {
+        String orderCode = ghnOrder.getOrderGhn();
+        if (orderCode == null || orderCode.isBlank()) return;
+
+        returnShippingFeeRepo.findByGhnOrderCode(orderCode).ifPresent(feeLog -> {
+            // nếu đã marked picked rồi thì khỏi làm lại
+            if (feeLog.isPicked()) {
+                log.info("[RETURN FEE] ghnOrderCode={} đã picked trước đó, bỏ qua", orderCode);
+                return;
+            }
+
+            BigDecimal actualFee = ghnOrder.getTotalFee();
+            if (actualFee != null && actualFee.compareTo(BigDecimal.ZERO) > 0) {
+                // nếu muốn dùng phí ship thật GHN thì set lại shippingFee
+                feeLog.setShippingFee(actualFee);
+            }
+
+            feeLog.setPicked(true);
+            returnShippingFeeRepo.save(feeLog);
+
+            log.info("🚚 [RETURN FEE] Mark picked=true for returnRequestId={} | ghnOrderCode={} | shippingFee={}",
+                    feeLog.getReturnRequestId(), orderCode, feeLog.getShippingFee());
+        });
+    }
+
 }

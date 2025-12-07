@@ -22,5 +22,5 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
      List<ReturnShippingFee> findAllByStoreIdAndPaidByShopFalse(UUID storeId);
 
      boolean existsByStoreIdAndPaidByShopFalse(UUID storeId);
-
+    Optional<ReturnShippingFee> findByGhnOrderCode(String ghnOrderCode);
 }
