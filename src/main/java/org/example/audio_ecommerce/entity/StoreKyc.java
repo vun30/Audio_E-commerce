@@ -62,21 +62,22 @@ public class StoreKyc {
     private String bankAccountNumber;
     // so tai khoan ngan hang
 
-    @Column(name = "id_card_front_url", nullable = false, length = 2000)
+    @Column(name = "id_card_front_url", nullable = false, columnDefinition = "LONGTEXT")
     private String idCardFrontUrl;
-    // duong dan anh mat truoc CCCD/CMND
+// duong dan anh mat truoc CCCD/CMND
 
-    @Column(name = "id_card_back_url", nullable = false, length = 2000)
+    @Column(name = "id_card_back_url", nullable = false, columnDefinition = "LONGTEXT")
     private String idCardBackUrl;
-    // duong dan anh mat sau CCCD/CMND
+// duong dan anh mat sau CCCD/CMND
 
     @Column(name = "is_official", nullable = false)
     private boolean isOfficial = false;
-    // neu la cua hang chinh hang -> true
+// neu la cua hang chinh hang -> true
 
-    @Column(name = "business_license_url", length = 2000)
+    @Column(name = "business_license_url", columnDefinition = "LONGTEXT")
     private String businessLicenseUrl;
-    // neu la cua hang chinh hang thi co link giay phep kinh doanh upload len
+// neu la cua hang chinh hang thi co link giay phep kinh doanh upload len
+
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

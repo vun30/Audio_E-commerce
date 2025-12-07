@@ -11,6 +11,7 @@ application-*.yml
 application-*.yaml
 .env
 *.env
+src/main/resources/audio-560a3-firebase-adminsdk-fbsvc-3838837dd0.json
 
 # User-specific stuff
 .idea/**/workspace.xml

@@ -123,7 +123,7 @@ public class ReturnRequest extends BaseEntity {
             name = "return_request_shop_images",
             joinColumns = @JoinColumn(name = "return_request_id")
     )
-    @Column(name = "image_url", length = 512)
+    @Column(name = "image_url", columnDefinition = "LONGTEXT")
     private List<String> shopImageUrls;
 
     @Column(name = "shop_dispute_reason", length = 1000)

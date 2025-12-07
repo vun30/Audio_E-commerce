@@ -27,6 +27,6 @@ public class ProductReviewMedia {
     @Column(name = "type", length = 20, nullable = false)
     private ReviewMediaType type; // IMAGE / VIDEO
 
-    @Column(name = "url", length = 1000, nullable = false)
+    @Column(name = "url", columnDefinition = "LONGTEXT", nullable = false)
     private String url;
 }
