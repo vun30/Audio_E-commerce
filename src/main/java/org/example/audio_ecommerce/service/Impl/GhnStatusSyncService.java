@@ -11,6 +11,7 @@ import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetail;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetailWrapper;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
 import org.example.audio_ecommerce.repository.GhnOrderRepository;
+import org.example.audio_ecommerce.repository.ReturnShippingFeeRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -35,6 +36,7 @@ public class GhnStatusSyncService {
     private final StoreOrderRepository storeOrderRepo;
     private final CustomerOrderRepository customerOrderRepo;
     private final ObjectMapper objectMapper;
+    private final ReturnShippingFeeRepository returnShippingFeeRepo;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -275,6 +277,7 @@ public class GhnStatusSyncService {
         // 🔥 Khi GHN sang trạng thái đang ship → cập nhật phí ship thật
         if (newGhnStatus == GhnStatus.PICKED) {
             updateActualShippingFeeForStoreOrder(storeOrder, ghnOrder);
+            updateReturnShippingFeeWhenPicked(ghnOrder);
         }
 
         // ✅ Khi GHN đã DELIVERED → set deliveredAt cho StoreOrder (lần đầu)
@@ -339,6 +342,36 @@ public class GhnStatusSyncService {
                         customerOrder.getId());
             }
         }
+    }
+
+    /**
+     * ✅ NEW: Khi GHN đơn RETURN được shipper PICKED
+     *  - Cập nhật shippingFee = totalFee (phí thật GHN)
+     *  - Đánh dấu picked = true để cron job khác xử lý trừ tiền sau
+     */
+    private void updateReturnShippingFeeWhenPicked(GhnOrder ghnOrder) {
+        String orderCode = ghnOrder.getOrderGhn();
+        if (orderCode == null || orderCode.isBlank()) return;
+
+        returnShippingFeeRepo.findByGhnOrderCode(orderCode).ifPresent(feeLog -> {
+            // nếu đã marked picked rồi thì khỏi làm lại
+            if (feeLog.isPicked()) {
+                log.info("[RETURN FEE] ghnOrderCode={} đã picked trước đó, bỏ qua", orderCode);
+                return;
+            }
+
+            BigDecimal actualFee = ghnOrder.getTotalFee();
+            if (actualFee != null && actualFee.compareTo(BigDecimal.ZERO) > 0) {
+                // nếu muốn dùng phí ship thật GHN thì set lại shippingFee
+                feeLog.setShippingFee(actualFee);
+            }
+
+            feeLog.setPicked(true);
+            returnShippingFeeRepo.save(feeLog);
+
+            log.info("🚚 [RETURN FEE] Mark picked=true for returnRequestId={} | ghnOrderCode={} | shippingFee={}",
+                    feeLog.getReturnRequestId(), orderCode, feeLog.getShippingFee());
+        });
     }
 
 }

@@ -320,6 +320,10 @@ public class SettlementService {
 
     @Transactional
     public void refundEntireOrderToCustomerWallet(CustomerOrder order) {
+        if (order.getPaymentMethod() != PaymentMethod.ONLINE) {
+            log.info("[Settlement] Skip refundEntireOrderToCustomerWallet – paymentMethod={}", order.getPaymentMethod());
+            return;
+        }
         // ===== 0) Tính các khoản =====
         BigDecimal productsTotal = order.getItems().stream()
                 .map(CustomerOrderItem::getLineTotal)
@@ -430,6 +434,12 @@ public class SettlementService {
     /** Refund một PHẦN theo storeOrder (KH đã thanh toán online, đơn đang AWAITING_SHIPMENT, shop duyệt). */
     @Transactional
     public void refundStorePartToCustomerWallet(StoreOrder storeOrder) {
+        CustomerOrder order = storeOrder.getCustomerOrder();
+        if (order == null || order.getPaymentMethod() != PaymentMethod.ONLINE) {
+            log.info("[Settlement] Skip refundStorePartToCustomerWallet – paymentMethod={}",
+                    order != null ? order.getPaymentMethod() : null);
+            return;
+        }
         // ===== 0) Tính các khoản theo store =====
         BigDecimal productsTotal = storeOrder.getItems().stream()
                 .map(StoreOrderItem::getLineTotal)
@@ -457,8 +467,6 @@ public class SettlementService {
         if (refundAmount.compareTo(BigDecimal.ZERO) < 0) {
             refundAmount = BigDecimal.ZERO;
         }
-
-        CustomerOrder order = storeOrder.getCustomerOrder();
 
         // 1) Trả từ Platform → Customer
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
