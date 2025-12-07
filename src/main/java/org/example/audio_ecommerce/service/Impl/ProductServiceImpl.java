@@ -759,8 +759,12 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
     public ResponseEntity<BaseResponse> disableProduct(UUID id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+        if (product.getStatus() == ProductStatus.INACTIVE) {
+           product.setStatus(ProductStatus.ACTIVE);
+        }else {
+            product.setStatus(ProductStatus.INACTIVE);
+        }
 
-        product.setStatus(ProductStatus.INACTIVE);
         product.setUpdatedAt(LocalDateTime.now());
         productRepository.save(product);
 
