@@ -268,8 +268,16 @@ public class VoucherServiceImpl implements VoucherService {
     }
 
     @Override
-    public StoreVoucherResult computeDiscountByStoreWithDetail(UUID customerId,List<StoreVoucherUse> input,
-                                                               Map<UUID, List<StoreOrderItem>> storeItems) {
+    public StoreVoucherResult computeDiscountByStoreWithDetail(
+            UUID customerId,
+            List<StoreVoucherUse> input,
+            Map<UUID, List<StoreOrderItem>> storeItems,
+            Map<UUID, BigDecimal> platformDiscountByStore
+    ) {
+        if (platformDiscountByStore == null) {
+            platformDiscountByStore = Collections.emptyMap();
+        }
+
         StoreVoucherResult out = new StoreVoucherResult();
         if (input == null || input.isEmpty()) return out;
 
@@ -285,7 +293,12 @@ public class VoucherServiceImpl implements VoucherService {
             BigDecimal storeSubtotal = items.stream()
                     .map(StoreOrderItem::getLineTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            Map<String, BigDecimal> detail = out.detailByStore.computeIfAbsent(storeId, k -> new LinkedHashMap<>());
+            // tổng giảm nền tảng của store này
+            BigDecimal platformDiscountForStore = platformDiscountByStore
+                    .getOrDefault(storeId, BigDecimal.ZERO);
+
+            Map<String, BigDecimal> detail = out.detailByStore
+                    .computeIfAbsent(storeId, k -> new LinkedHashMap<>());
 
             for (String raw : codes) {
                 String code = raw == null ? "" : raw.trim();
@@ -309,10 +322,22 @@ public class VoucherServiceImpl implements VoucherService {
                     }
                 }
 
+                // subtotal đủ điều kiện áp voucher (dùng để check minOrder)
                 BigDecimal eligibleSubtotal = eligibleSubtotal(v, items);
                 if (v.getMinOrderValue()!=null && eligibleSubtotal.compareTo(v.getMinOrderValue())<0) continue;
 
-                BigDecimal discount = discountOf(v, eligibleSubtotal);
+                // ✅ Base để tính giảm shop
+                BigDecimal baseForShop;
+                if (v.getType() == VoucherType.SHIPPING) {
+                    // shipping voucher không phụ thuộc giảm nền tảng
+                    baseForShop = eligibleSubtotal;
+                } else {
+                    baseForShop = eligibleSubtotal.subtract(platformDiscountForStore);
+                }
+
+                if (baseForShop.signum() <= 0) continue;
+
+                BigDecimal discount = discountOf(v, baseForShop);
                 BigDecimal cap = storeSubtotal.subtract(applied);
                 if (cap.signum()<=0) break;
                 if (discount.compareTo(cap)>0) discount = cap;

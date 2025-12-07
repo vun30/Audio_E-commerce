@@ -782,8 +782,20 @@ public class CartServiceImpl implements CartService {
 
         // === PHẦN SAU GIỮ NGUYÊN (voucher, cập nhật grand total, xóa cart...) ===
         // 5) Áp voucher theo shop + platform cho từng shop
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
+        // 5) TÍNH voucher NỀN TẢNG TRƯỚC
+        var platformResult = voucherService.computePlatformDiscounts(
+                customerId,
+                platformVouchers,
+                storeItemsMap
+        );
+
+// 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                storeVouchers,
+                storeItemsMap,
+                platformResult.discountByStore   // map<storeId, platformDiscount>
+        );
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -1157,7 +1169,8 @@ public class CartServiceImpl implements CartService {
                     storeVoucherMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         resp.setStoreVoucherDiscount(storeVoucherMap.isEmpty() ? null : storeVoucherMap);
 
         // ===== Platform voucher detail (giữ nguyên như cũ) =====
@@ -1170,7 +1183,8 @@ public class CartServiceImpl implements CartService {
                     platformDiscountMap.put(e.getKey(), new BigDecimal(e.getValue().asText("0")));
                 });
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         resp.setPlatformDiscount(platformDiscountMap);
 
         // Shipping snapshot
@@ -1374,13 +1388,13 @@ public class CartServiceImpl implements CartService {
                 BigDecimal baseListUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
                         ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
                         : (ci.getVariant() != null
-                            ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
-                            : getBaseUnitPrice(ci.getProduct()));
+                        ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
+                        : getBaseUnitPrice(ci.getProduct()));
                 BigDecimal bulkUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
                         ? baseListUnit
                         : (ci.getVariant() != null
-                            ? baseListUnit
-                            : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+                        ? baseListUnit
+                        : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
                 BigDecimal lineBefore = baseListUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
 
                 BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
@@ -1429,8 +1443,21 @@ public class CartServiceImpl implements CartService {
         }
 
         // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(customerId, storeVouchers, storeItemsMap);
-        var platformResult = voucherService.computePlatformDiscounts(customerId, platformVouchers, storeItemsMap);
+        // 5) TÍNH voucher NỀN TẢNG TRƯỚC
+        var platformResult = voucherService.computePlatformDiscounts(
+                customerId,
+                platformVouchers,
+                storeItemsMap
+        );
+
+// 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                storeVouchers,
+                storeItemsMap,
+                platformResult.discountByStore   // map<storeId, platformDiscount>
+        );
+
         Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
         Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
 
@@ -1489,7 +1516,9 @@ public class CartServiceImpl implements CartService {
 
     // ================= BULK DISCOUNT HELPERS =================
 
-    /** Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price. */
+    /**
+     * Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price.
+     */
     private BigDecimal getBaseUnitPrice(Product p) {
         if (p == null) return BigDecimal.ZERO;
         if (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0) {
@@ -1589,6 +1618,7 @@ public class CartServiceImpl implements CartService {
                 .findFirst()
                 .orElse(store.getStoreAddresses().get(0)); // fallback: lấy địa chỉ đầu tiên
     }
+
     /**
      * Tính giá base theo variant/product, rồi áp campaign (nếu có).
      */
@@ -1723,7 +1753,7 @@ public class CartServiceImpl implements CartService {
         if (result.compareTo(BigDecimal.ZERO) < 0) result = BigDecimal.ZERO;
 
         // FE sẽ tính và hiển thị giá discount dựa trên giá biến thể
-        
+
         return result;
     }
 
@@ -1940,16 +1970,19 @@ public class CartServiceImpl implements CartService {
         }
 
         // Gọi voucher service (nếu FE có truyền voucher)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(
-                customerId,
-                request.getStoreVouchers(),
-                storeItemsMap
-        );
         var platformResult = voucherService.computePlatformDiscounts(
                 customerId,
                 request.getPlatformVouchers(),
                 storeItemsMap
         );
+
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                request.getStoreVouchers(),
+                storeItemsMap,
+                platformResult.discountByStore
+        );
+
 
         // ===== 3) Recalc subtotal / discount / grandTotal ở CART =====
         // (Tuỳ bạn muốn hiển thị tổng cart như nào, ở đây là đơn giản)
