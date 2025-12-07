@@ -403,12 +403,12 @@ public class CartServiceImpl implements CartService {
             String variantOptionValue = ci.getVariantOptionValueSnapshot();
             String variantUrl = (ci.getVariant() != null) ? ci.getVariant().getVariantUrl() : null;
 
-// ✅ TÍNH GIÁ CHIẾN DỊCH (không tính usage_per_user, chỉ để FE hiển thị)
-// mặc định
+            // ✅ TÍNH GIÁ CHIẾN DỊCH + CHECK USAGE_PER_USER
             BigDecimal baseUnitPrice = null;
             BigDecimal platformCampaignPrice = null;
             boolean inPlatformCampaign = false;
             Boolean campaignUsageExceeded = null;
+            Integer campaignRemaining = null;
 
             if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
                 Product p = ci.getProduct();
@@ -429,30 +429,53 @@ public class CartServiceImpl implements CartService {
 
                 BigDecimal bestCampaignPrice = baseUnitPrice;
                 boolean hasCampaign = false;
+                PlatformCampaignProduct bestCampaign = null;
+
                 if (cps != null && !cps.isEmpty()) {
                     for (PlatformCampaignProduct cp : cps) {
                         BigDecimal discounted = applyCampaignDiscount(baseUnitPrice, cp);
                         if (discounted.compareTo(bestCampaignPrice) < 0) {
                             bestCampaignPrice = discounted;
                             hasCampaign = true;
+                            bestCampaign = cp;
                         }
                     }
                 }
 
+                // Mặc định: nếu còn lượt thì vẫn được xem là inCampaign
                 inPlatformCampaign = hasCampaign;
                 platformCampaignPrice = hasCampaign ? bestCampaignPrice : null;
+                campaignUsageExceeded = false;
 
-                // flag usage_exceeded (chỉ dựa vào unitPrice hiện tại vs base + bestCampaign)
-                if (hasCampaign
-                        && ci.getUnitPrice() != null
-                        && ci.getUnitPrice().compareTo(baseUnitPrice) == 0
-                        && bestCampaignPrice.compareTo(baseUnitPrice) < 0
-                        && ci.getQuantity() > 1) {
-                    campaignUsageExceeded = true;
-                } else {
-                    campaignUsageExceeded = false;
+                // ==== CHECK USAGE_PER_USER + USEDCOUNT ====
+                if (hasCampaign != false && bestCampaign != null
+                        && bestCampaign.getUsagePerUser() != null
+                        && bestCampaign.getUsagePerUser() > 0) {
+
+                    Integer usagePerUser = bestCampaign.getUsagePerUser();
+
+                    PlatformCampaignProductUsage usage =
+                            platformCampaignProductUsageRepository
+                                    .findByCampaignProductAndCustomer(bestCampaign, cart.getCustomer())
+                                    .orElse(null);
+
+                    int usedCount = (usage != null && usage.getUsedCount() != null)
+                            ? usage.getUsedCount()
+                            : 0;
+
+                    int remaining = usagePerUser - usedCount;
+                    if (remaining < 0) remaining = 0;
+                    campaignRemaining = remaining;
+
+                    // Nếu đã dùng hết lượt → không còn được hưởng campaign
+                    if (remaining <= 0) {
+                        inPlatformCampaign = false;
+                        platformCampaignPrice = null;      // ẩn giá campaign, FE chỉ thấy base price
+                        campaignUsageExceeded = true;      // flag cho FE biết đã hết quyền lợi
+                    }
                 }
             }
+
 
             if (ci.getVariant() != null) {
                 variantUrl = ci.getVariant().getVariantUrl();
@@ -478,6 +501,7 @@ public class CartServiceImpl implements CartService {
                     .platformCampaignPrice(platformCampaignPrice)
                     .inPlatformCampaign(inPlatformCampaign)
                     .campaignUsageExceeded(campaignUsageExceeded)
+                    .campaignRemaining(campaignRemaining)
                     .build();
         }).toList();
 
