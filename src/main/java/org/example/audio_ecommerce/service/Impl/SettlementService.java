@@ -320,6 +320,10 @@ public class SettlementService {
 
     @Transactional
     public void refundEntireOrderToCustomerWallet(CustomerOrder order) {
+        if (order.getPaymentMethod() != PaymentMethod.ONLINE) {
+            log.info("[Settlement] Skip refundEntireOrderToCustomerWallet – paymentMethod={}", order.getPaymentMethod());
+            return;
+        }
         // ===== 0) Tính các khoản =====
         BigDecimal productsTotal = order.getItems().stream()
                 .map(CustomerOrderItem::getLineTotal)
@@ -430,6 +434,12 @@ public class SettlementService {
     /** Refund một PHẦN theo storeOrder (KH đã thanh toán online, đơn đang AWAITING_SHIPMENT, shop duyệt). */
     @Transactional
     public void refundStorePartToCustomerWallet(StoreOrder storeOrder) {
+        CustomerOrder order = storeOrder.getCustomerOrder();
+        if (order == null || order.getPaymentMethod() != PaymentMethod.ONLINE) {
+            log.info("[Settlement] Skip refundStorePartToCustomerWallet – paymentMethod={}",
+                    order != null ? order.getPaymentMethod() : null);
+            return;
+        }
         // ===== 0) Tính các khoản theo store =====
         BigDecimal productsTotal = storeOrder.getItems().stream()
                 .map(StoreOrderItem::getLineTotal)
@@ -457,8 +467,6 @@ public class SettlementService {
         if (refundAmount.compareTo(BigDecimal.ZERO) < 0) {
             refundAmount = BigDecimal.ZERO;
         }
-
-        CustomerOrder order = storeOrder.getCustomerOrder();
 
         // 1) Trả từ Platform → Customer
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
@@ -527,4 +535,67 @@ public class SettlementService {
                 .build();
         walletTxRepo.save(wtx);
     }
+
+    @Transactional
+    public void recordCodDeliverySuccess(CustomerOrder order) {
+        // Chỉ xử lý COD
+        if (order == null || order.getPaymentMethod() != PaymentMethod.COD) {
+            log.info("[Settlement] Skip recordCodDeliverySuccess – paymentMethod={}",
+                    order != null ? order.getPaymentMethod() : null);
+            return;
+        }
+
+        // Nếu đã có HOLD PENDING cho order này rồi thì bỏ (idempotent)
+        var existingPending = platformTxRepo.findAllByOrderIdAndStatus(
+                order.getId(), TransactionStatus.PENDING
+        );
+        boolean alreadyHasHold = existingPending.stream()
+                .anyMatch(tx -> tx.getType() == TransactionType.HOLD);
+        if (alreadyHasHold) {
+            log.info("[Settlement] COD HOLD already exists for order {} → skip", order.getId());
+            return;
+        }
+
+        // ===== 1) Tính tổng tiền hàng (KH đã trả cho shipper) =====
+        BigDecimal productsTotal = order.getItems().stream()
+                .map(CustomerOrderItem::getLineTotal)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (productsTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("[Settlement] recordCodDeliverySuccess order={} productsTotal<=0 → skip", order.getId());
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // ===== 2) Đẩy tiền vào ví PLATFORM (pending) + log HOLD =====
+        PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
+                .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
+
+        plat.setTotalBalance(plat.getTotalBalance().add(productsTotal));
+        plat.setPendingBalance(plat.getPendingBalance().add(productsTotal));
+        plat.setReceivedTotal(plat.getReceivedTotal().add(productsTotal));
+        plat.setUpdatedAt(now);
+        platformWalletRepo.save(plat);
+
+        PlatformTransaction holdTx = PlatformTransaction.builder()
+                .wallet(plat)
+                .orderId(order.getId())
+                .amount(productsTotal)
+                .type(TransactionType.HOLD)
+                .status(TransactionStatus.PENDING)
+                .description("COD collected – holding 7 days")
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        platformTxRepo.save(holdTx);
+
+        // ===== 3) Allocate sang pending của từng store (giống online) =====
+        allocateToStoresPending(order);
+
+        log.info("[Settlement] recordCodDeliverySuccess DONE | orderId={} | productsTotal={}",
+                order.getId(), productsTotal);
+    }
+
 }
