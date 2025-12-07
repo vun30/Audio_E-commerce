@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.EnumSet;
@@ -213,6 +214,42 @@ public class GhnStatusSyncService {
         };
     }
 
+    /**
+     * ✅ NEW: cập nhật phí ship thật + chênh lệch cho StoreOrder
+     * Gọi khi GHN chuyển sang trạng thái đang ship (PICKED)
+     * Phí ship thật lấy từ GhnOrder.totalFee
+     */
+    private void updateActualShippingFeeForStoreOrder(StoreOrder storeOrder,
+                                                      GhnOrder ghnOrder) {
+        if (storeOrder == null || ghnOrder == null) return;
+
+        BigDecimal actualFee = ghnOrder.getTotalFee();
+        if (actualFee == null) {
+            log.warn("⚠ [GHN Sync] GhnOrder {} không có totalFee (StoreOrder={})",
+                    ghnOrder.getId(), storeOrder.getId());
+            return;
+        }
+
+        BigDecimal estimated = storeOrder.getShippingFee() != null
+                ? storeOrder.getShippingFee()
+                : BigDecimal.ZERO;
+
+        // Lưu phí ship GHN thực tế
+        storeOrder.setActualShippingFee(actualFee);
+
+        // Chênh lệch: GHN thực tế - khách đã trả
+        BigDecimal diff = actualFee.subtract(estimated);
+        storeOrder.setShippingExtraForStore(diff);
+
+        log.info("🚚 [GHN Sync] StoreOrder {} - shippingFee(est)={} | actualShippingFee={} | diff={}",
+                storeOrder.getId(), estimated, actualFee, diff);
+
+        // ⚠ Không đổi grandTotal khách phải trả
+        // grandTotal vẫn dùng shippingFee (estimate) trong @PrePersist/@PreUpdate của StoreOrder.
+        // diff sẽ dùng cho settlement / ví sau này.
+    }
+
+
     private void updateStoreAndCustomerOrder(GhnOrder ghnOrder,
                                              GhnOrderDetail detail,
                                              GhnStatus newGhnStatus) {
@@ -234,6 +271,12 @@ public class GhnStatusSyncService {
         }
 
         storeOrder.setStatus(mappedStatus);
+
+        // khi GHN sang trạng thái đang ship → cập nhật phí ship thật
+        if (newGhnStatus == GhnStatus.PICKED) {
+            updateActualShippingFeeForStoreOrder(storeOrder, ghnOrder);
+        }
+
 
         // Nếu GHN đã DELIVERED → set deliveredAt cho StoreOrder
         if (newGhnStatus == GhnStatus.DELIVERED) {
