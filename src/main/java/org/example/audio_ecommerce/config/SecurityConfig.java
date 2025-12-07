@@ -60,7 +60,8 @@ public class SecurityConfig {
                 }))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/v3/api-docs/**",
+                        .requestMatchers("/api/payos/webhook",
+                                "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/api/account/register/**",
                                 "/api/account/login/**",
