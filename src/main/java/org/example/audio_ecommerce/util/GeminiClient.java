@@ -78,80 +78,91 @@ public class GeminiClient {
         }
     }
 
-    // ============================================================
-    // 💬 CHAT TỰ DO — GIỚI HẠN CHỦ ĐỀ ÂM THANH
-    // ============================================================
-    public String chat(String userId, String message) {
-        if (message == null || message.isBlank()) {
-            throw new IllegalArgumentException("❌ Câu hỏi không hợp lệ hoặc trống.");
-        }
-        if (userId == null || userId.isBlank()) userId = "guest";
-
-        userConversations.putIfAbsent(userId, new SessionData());
-        SessionData session = userConversations.get(userId);
-        session.lastActive = Instant.now().toEpochMilli();
-
-        // Giới hạn dung lượng hội thoại
-        if (session.history.length() > 4000) {
-            session.history.delete(0, session.history.length() - 2000);
-        }
-
-        session.history.append("User: ").append(message).append("\nAI: ");
-
-        String topicPrompt = """
-            Bạn là chuyên gia trong lĩnh vực Âm thanh, Thiết bị Audio và Điện tử âm thanh.
-
-            Quy tắc:
-            - Chỉ trả lời các câu hỏi liên quan đến loa, tai nghe, ampli, DAC, mixer, micro, nhạc số, kỹ thuật nghe nhạc, phòng nghe, thiết bị thu âm,...
-            - Nếu câu hỏi không liên quan đến âm thanh hoặc thiết bị audio, hãy trả lời:
-              "Xin lỗi, tôi chỉ hỗ trợ các chủ đề liên quan đến âm thanh và thiết bị audio."
-            - Trả lời bằng tiếng Việt, thân thiện, chính xác và ngắn gọn.
-
-            Câu hỏi người dùng:
-            %s
-        """.formatted(message);
-
-        try {
-            String body = """
-            {
-              "contents": [{
-                "role": "user",
-                "parts": [{ "text": "%s" }]
-              }]
-            }
-            """.formatted(topicPrompt.replace("\"", "\\\""));
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(BASE_URL + "/models/" + MODEL + ":generateContent?key=" + API_KEY))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .build();
-
-            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200)
-                throw new RuntimeException("Gemini Error (chat): " + response.body());
-
-            JSONObject json = new JSONObject(response.body());
-            JSONArray candidates = json.optJSONArray("candidates");
-            if (candidates == null || candidates.isEmpty())
-                throw new RuntimeException("❌ Không có phản hồi hợp lệ từ Gemini.");
-
-            JSONObject first = candidates.getJSONObject(0);
-            JSONObject content = first.optJSONObject("content");
-            JSONArray parts = (content != null) ? content.optJSONArray("parts") : null;
-            if (parts == null || parts.isEmpty())
-                throw new RuntimeException("❌ Không có phần text trả về.");
-
-            String result = parts.getJSONObject(0).optString("text", "").trim();
-            session.history.append(result).append("\n");
-
-            System.out.printf("🎧 [Chat User %s] Gemini trả lời: %s%n", userId, result);
-            return result;
-
-        } catch (Exception e) {
-            throw new RuntimeException("Gemini API Error (chat): " + e.getMessage(), e);
-        }
+   // ============================================================
+// 💬 CHAT TỰ DO — GIỚI HẠN CHỦ ĐỀ ÂM THANH (KHÔNG GIỚI HẠN BỘ NHỚ)
+// ============================================================
+public String chat(String userId, String message) {
+    if (message == null || message.isBlank()) {
+        throw new IllegalArgumentException("❌ Câu hỏi không hợp lệ hoặc trống.");
     }
+    if (userId == null || userId.isBlank()) userId = "guest";
+
+    // 🔥 Mỗi user có 1 session riêng
+    userConversations.putIfAbsent(userId, new SessionData());
+    SessionData session = userConversations.get(userId);
+
+    // 🔥 Cập nhật thời gian hoạt động
+    session.lastActive = Instant.now().toEpochMilli();
+
+    // ❌ KHÔNG CẮT BỘ NHỚ NỮA — GIỮ TOÀN BỘ LỊCH SỬ CHAT
+    // (XÓA hoàn toàn đoạn if (session.history.length() > 4000) ... )
+
+    // 🔥 Append hội thoại mới vào bộ nhớ
+    session.history.append("User: ").append(message).append("\n");
+
+    // 🔥 Prompt chuyên gia âm thanh
+    String topicPrompt = """
+        Bạn là chuyên gia trong lĩnh vực Âm thanh, Thiết bị Audio và Điện tử âm thanh.
+
+        Quy tắc:
+        - Chỉ trả lời các câu hỏi liên quan đến loa, tai nghe, ampli, DAC, mixer, micro, nhạc số, kỹ thuật nghe nhạc, phòng nghe, thiết bị thu âm,...
+        - Nếu câu hỏi không liên quan đến âm thanh hoặc thiết bị audio, hãy trả lời:
+          "Xin lỗi, tôi chỉ hỗ trợ các chủ đề liên quan đến âm thanh và thiết bị audio."
+        - Trả lời bằng tiếng Việt, thân thiện, chính xác và ngắn gọn.
+
+        Lịch sử hội thoại trước đó:
+        %s
+
+        Câu hỏi mới:
+        %s
+    """.formatted(session.history.toString(), message);
+
+    try {
+        // 🔥 Tạo body JSON gửi vào Gemini
+        String body = """
+        {
+          "contents": [{
+            "role": "user",
+            "parts": [{ "text": "%s" }]
+          }]
+        }
+        """.formatted(topicPrompt.replace("\"", "\\\""));
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + "/models/" + MODEL + ":generateContent?key=" + API_KEY))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200)
+            throw new RuntimeException("Gemini Error (chat): " + response.body());
+
+        JSONObject json = new JSONObject(response.body());
+        JSONArray candidates = json.optJSONArray("candidates");
+        if (candidates == null || candidates.isEmpty())
+            throw new RuntimeException("❌ Không có phản hồi hợp lệ từ Gemini.");
+
+        JSONObject first = candidates.getJSONObject(0);
+        JSONObject content = first.optJSONObject("content");
+        JSONArray parts = (content != null) ? content.optJSONArray("parts") : null;
+        if (parts == null || parts.isEmpty())
+            throw new RuntimeException("❌ Không có phần text trả về.");
+
+        // 🔥 Kết quả Gemini
+        String result = parts.getJSONObject(0).optString("text", "").trim();
+
+        // 🔥 Lưu vào lịch sử hội thoại user
+        session.history.append("AI: ").append(result).append("\n");
+
+        System.out.printf("🎧 [Chat User %s] Gemini trả lời: %s%n", userId, result);
+
+        return result;
+
+    } catch (Exception e) {
+        throw new RuntimeException("Gemini API Error (chat): " + e.getMessage(), e);
+    }
+}
 
     // ============================================================
     // 🧠 GENERATE SQL — DÙNG SCHEMA TOÀN CỤC, KHÔNG NHỚ CHAT
