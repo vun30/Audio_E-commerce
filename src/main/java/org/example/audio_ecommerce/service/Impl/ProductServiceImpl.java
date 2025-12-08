@@ -8,6 +8,7 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.ProductResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ProductService;
 import org.springframework.data.domain.*;
@@ -134,6 +135,12 @@ public class ProductServiceImpl implements ProductService {
             Store store = storeRepository.findByAccount_Email(email)
                     .orElseThrow(() -> new RuntimeException("❌ Store not found for logged-in account"));
 
+            // ❌ Không cho tạo sản phẩm khi store bị Admin khóa
+            if (store.getStatus() == StoreStatus.SUSPENDED) {
+                throw new RuntimeException("❌ Store is suspended by the admin. You cannot create new products.");
+            }
+
+
             if (req.getCategoryName() == null || req.getCategoryName().isBlank())
                 throw new RuntimeException("❌ Category Name must not be null");
 
@@ -244,252 +251,262 @@ public class ProductServiceImpl implements ProductService {
     // ============================================================
 // ✏️ UPDATE PRODUCT — SHOPEE VERSION
 // ============================================================
-   @Override
-public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest req) {
-    try {
+    @Override
+    public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest req) {
+        try {
 
-        // =======================
-        // 0️⃣ CHECK LOGIN STORE
-        // =======================
-        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+            // =======================
+            // 0️⃣ CHECK LOGIN STORE
+            // =======================
+            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+            String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
-        Store store = storeRepository.findByAccount_Email(email)
-                .orElseThrow(() -> new RuntimeException("❌ Store not found for current account"));
+            Store store = storeRepository.findByAccount_Email(email)
+                    .orElseThrow(() -> new RuntimeException("❌ Store not found for current account"));
 
-        Product p = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+            Product p = productRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
-        if (!p.getStore().getStoreId().equals(store.getStoreId())) {
-            throw new RuntimeException("❌ You are not allowed to update another store's product");
-        }
-
-        // =====================================================
-        // 🛡️ CAMPAIGN PRICE PROTECTION RULES
-        // =====================================================
-        LocalDateTime now = LocalDateTime.now();
-        List<PlatformCampaignProduct> activeCampaignEntries = platformCampaignProductRepository.findAllActiveByProduct(p.getProductId(), now);
-        boolean inFlashSale = activeCampaignEntries.stream()
-                .anyMatch(e -> e.getCampaign() != null && "FAST_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
-        boolean inMegaSale = activeCampaignEntries.stream()
-                .anyMatch(e -> e.getCampaign() != null && "MEGA_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
-
-        // 🔒 FAST_SALE: Không được phép sửa giá sản phẩm hoặc giá biến thể
-        if (inFlashSale) {
-            if (req.getPrice() != null) {
-                throw new RuntimeException("⚠️ Product is in an ACTIVE FAST_SALE campaign. Price update is not allowed.");
+            // ==========================
+// 0.5️⃣ VALIDATE PRODUCT STATUS
+// ==========================
+            if (!(p.getStatus() == ProductStatus.ACTIVE || p.getStatus() == ProductStatus.UNLISTED)) {
+                throw new RuntimeException(
+                        "❌ Product is currently in status: " + p.getStatus() +
+                                ". Only ACTIVE or PAUSED products can be updated."
+                );
             }
-            if (req.getVariantsToUpdate() != null && req.getVariantsToUpdate().stream().anyMatch(v -> v.getVariantPrice() != null)) {
-                throw new RuntimeException("⚠️ Product is in FAST_SALE. Variant price update is not allowed.");
-            }
-            if (req.getVariantsToAdd() != null && req.getVariantsToAdd().stream().anyMatch(v -> v.getVariantPrice() != null)) {
-                throw new RuntimeException("⚠️ Product is in FAST_SALE. Adding variants with price modification is not allowed.");
-            }
-        }
 
-        // 🔒 MEGA_SALE: Chỉ cho phép tăng giá (product & variant), không giảm
-        if (inMegaSale) {
-            // Sản phẩm không có biến thể -> kiểm tra trực tiếp price
-            if (req.getPrice() != null && p.getPrice() != null && req.getPrice().compareTo(p.getPrice()) < 0) {
-                throw new RuntimeException("⚠️ Product is in an ACTIVE MEGA_SALE campaign. Price decrease is not allowed.");
+            if (!p.getStore().getStoreId().equals(store.getStoreId())) {
+                throw new RuntimeException("❌ You are not allowed to update another store's product");
             }
-            // Kiểm tra biến thể cập nhật
-            if (req.getVariantsToUpdate() != null) {
-                for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
-                    if (v.getVariantPrice() != null) {
-                        ProductVariantEntity existingVariant = productVariantRepository
-                                .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
-                                .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
-                        if (v.getVariantPrice().compareTo(existingVariant.getVariantPrice()) < 0) {
-                            throw new RuntimeException("⚠️ Variant price decrease is not allowed during MEGA_SALE (variantId=" + v.getVariantId() + ")");
+
+            // =====================================================
+            // 🛡️ CAMPAIGN PRICE PROTECTION RULES
+            // =====================================================
+            LocalDateTime now = LocalDateTime.now();
+            List<PlatformCampaignProduct> activeCampaignEntries = platformCampaignProductRepository.findAllActiveByProduct(p.getProductId(), now);
+            boolean inFlashSale = activeCampaignEntries.stream()
+                    .anyMatch(e -> e.getCampaign() != null && "FAST_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
+            boolean inMegaSale = activeCampaignEntries.stream()
+                    .anyMatch(e -> e.getCampaign() != null && "MEGA_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
+
+            // 🔒 FAST_SALE: Không được phép sửa giá sản phẩm hoặc giá biến thể
+            if (inFlashSale) {
+                if (req.getPrice() != null) {
+                    throw new RuntimeException("⚠️ Product is in an ACTIVE FAST_SALE campaign. Price update is not allowed.");
+                }
+                if (req.getVariantsToUpdate() != null && req.getVariantsToUpdate().stream().anyMatch(v -> v.getVariantPrice() != null)) {
+                    throw new RuntimeException("⚠️ Product is in FAST_SALE. Variant price update is not allowed.");
+                }
+                if (req.getVariantsToAdd() != null && req.getVariantsToAdd().stream().anyMatch(v -> v.getVariantPrice() != null)) {
+                    throw new RuntimeException("⚠️ Product is in FAST_SALE. Adding variants with price modification is not allowed.");
+                }
+            }
+
+            // 🔒 MEGA_SALE: Chỉ cho phép tăng giá (product & variant), không giảm
+            if (inMegaSale) {
+                // Sản phẩm không có biến thể -> kiểm tra trực tiếp price
+                if (req.getPrice() != null && p.getPrice() != null && req.getPrice().compareTo(p.getPrice()) < 0) {
+                    throw new RuntimeException("⚠️ Product is in an ACTIVE MEGA_SALE campaign. Price decrease is not allowed.");
+                }
+                // Kiểm tra biến thể cập nhật
+                if (req.getVariantsToUpdate() != null) {
+                    for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
+                        if (v.getVariantPrice() != null) {
+                            ProductVariantEntity existingVariant = productVariantRepository
+                                    .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
+                                    .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
+                            if (v.getVariantPrice().compareTo(existingVariant.getVariantPrice()) < 0) {
+                                throw new RuntimeException("⚠️ Variant price decrease is not allowed during MEGA_SALE (variantId=" + v.getVariantId() + ")");
+                            }
                         }
                     }
                 }
+                // Biến thể thêm mới: cho phép, vì không phải giảm giá
             }
-            // Biến thể thêm mới: cho phép, vì không phải giảm giá
-        }
-        // =====================================================
-        // (Tiếp tục logic update hiện có)
-        // =====================================================
-        // =======================
-        // 1️⃣ UPDATE BASIC FIELDS
-        // =======================
+            // =====================================================
+            // (Tiếp tục logic update hiện có)
+            // =====================================================
+            // =======================
+            // 1️⃣ UPDATE BASIC FIELDS
+            // =======================
 
-        if (req.getCategoryName() != null && !req.getCategoryName().isBlank()) {
-            Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
-                    .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
-            p.setCategory(category);
-        }
-
-        if (req.getName() != null && !req.getName().isBlank()) {
-            p.setName(req.getName());
-            p.setSlug(generateUniqueSlug(req.getName()));
-        }
-
-        // Check SKU trùng trong store
-        if (req.getSku() != null && !req.getSku().equalsIgnoreCase(p.getSku())) {
-            if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku())) {
-                throw new RuntimeException("❌ Product SKU already exists: " + req.getSku());
+            if (req.getCategoryName() != null && !req.getCategoryName().isBlank()) {
+                Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
+                        .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
+                p.setCategory(category);
             }
-            p.setSku(req.getSku());
-        }
 
-        // Update timestamps
-        LocalDateTime nowUpdate = LocalDateTime.now();
-        long intervalDays = p.getLastUpdatedAt() != null
-                ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), nowUpdate)
-                : 0L;
-
-        p.setLastUpdateIntervalDays(intervalDays);
-        p.setLastUpdatedAt(nowUpdate);
-        p.setUpdatedAt(nowUpdate);
-        p.setUpdatedBy(store.getAccount().getId());
-
-        // Map toàn bộ detail fields
-        mapUpdateRequestToProduct(p, req);
-
-
-        // ========================================================
-        // 1.5️⃣ LOGIC GIÁ — UPDATE THEO SHOPEE
-        // ========================================================
-        boolean hasVariants =
-                (req.getVariantsToAdd() != null && !req.getVariantsToAdd().isEmpty())
-                        || (req.getVariantsToUpdate() != null && !req.getVariantsToUpdate().isEmpty())
-                        || productVariantRepository.countByProduct_ProductId(p.getProductId()) > 0;
-
-        // CASE 1 — có biến thể → price của product phải = null
-        if (hasVariants) {
-            p.setPrice(null);
-            p.setFinalPrice(null);
-            p.setDiscountPrice(null);
-            p.setPromotionPercent(null);
-        }
-        // CASE 2 — không có biến thể → FE được phép gửi price
-        else {
-            if (req.getPrice() != null) {
-                p.setPrice(req.getPrice());
-                p.setFinalPrice(req.getPrice());
+            if (req.getName() != null && !req.getName().isBlank()) {
+                p.setName(req.getName());
+                p.setSlug(generateUniqueSlug(req.getName()));
             }
-        }
 
-
-        // =======================
-        // 2️⃣ LOAD VARIANTS
-        // =======================
-        List<ProductVariantEntity> existing =
-                productVariantRepository.findAllByProduct_ProductId(p.getProductId());
-
-        // =======================
-        // 3️⃣ DELETE VARIANTS
-        // =======================
-        if (req.getVariantsToDelete() != null) {
-            for (UUID vid : req.getVariantsToDelete()) {
-
-                if (!productVariantRepository.existsByIdAndProduct_ProductId(vid, p.getProductId())) {
-                    throw new RuntimeException("❌ Variant ID not belongs to this product: " + vid);
+            // Check SKU trùng trong store
+            if (req.getSku() != null && !req.getSku().equalsIgnoreCase(p.getSku())) {
+                if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku())) {
+                    throw new RuntimeException("❌ Product SKU already exists: " + req.getSku());
                 }
-
-                productVariantRepository.deleteById(vid);
+                p.setSku(req.getSku());
             }
-        }
 
-        // =======================
-        // 4️⃣ UPDATE VARIANTS
-        // =======================
-        if (req.getVariantsToUpdate() != null) {
+            // Update timestamps
+            LocalDateTime nowUpdate = LocalDateTime.now();
+            long intervalDays = p.getLastUpdatedAt() != null
+                    ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), nowUpdate)
+                    : 0L;
 
-            for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
+            p.setLastUpdateIntervalDays(intervalDays);
+            p.setLastUpdatedAt(nowUpdate);
+            p.setUpdatedAt(nowUpdate);
+            p.setUpdatedBy(store.getAccount().getId());
 
-                ProductVariantEntity variant = productVariantRepository
-                        .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
-                        .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
+            // Map toàn bộ detail fields
+            mapUpdateRequestToProduct(p, req);
 
-                // Check trùng SKU ngoại trừ chính nó
-                if (v.getVariantSku() != null) {
 
-                    boolean exists = productVariantRepository
-                            .existsByProduct_ProductIdAndVariantSkuAndIdNot(
-                                    p.getProductId(),
-                                    v.getVariantSku(),
-                                    variant.getId()
-                            );
+            // ========================================================
+            // 1.5️⃣ LOGIC GIÁ — UPDATE THEO SHOPEE
+            // ========================================================
+            boolean hasVariants =
+                    (req.getVariantsToAdd() != null && !req.getVariantsToAdd().isEmpty())
+                            || (req.getVariantsToUpdate() != null && !req.getVariantsToUpdate().isEmpty())
+                            || productVariantRepository.countByProduct_ProductId(p.getProductId()) > 0;
 
-                    if (exists) {
-                        throw new RuntimeException("❌ Variant SKU already exists: " + v.getVariantSku());
+            // CASE 1 — có biến thể → price của product phải = null
+            if (hasVariants) {
+                p.setPrice(null);
+                p.setFinalPrice(null);
+                p.setDiscountPrice(null);
+                p.setPromotionPercent(null);
+            }
+            // CASE 2 — không có biến thể → FE được phép gửi price
+            else {
+                if (req.getPrice() != null) {
+                    p.setPrice(req.getPrice());
+                    p.setFinalPrice(req.getPrice());
+                }
+            }
+
+
+            // =======================
+            // 2️⃣ LOAD VARIANTS
+            // =======================
+            List<ProductVariantEntity> existing =
+                    productVariantRepository.findAllByProduct_ProductId(p.getProductId());
+
+            // =======================
+            // 3️⃣ DELETE VARIANTS
+            // =======================
+            if (req.getVariantsToDelete() != null) {
+                for (UUID vid : req.getVariantsToDelete()) {
+
+                    if (!productVariantRepository.existsByIdAndProduct_ProductId(vid, p.getProductId())) {
+                        throw new RuntimeException("❌ Variant ID not belongs to this product: " + vid);
                     }
 
-                    variant.setVariantSku(v.getVariantSku());
+                    productVariantRepository.deleteById(vid);
                 }
-
-                if (v.getOptionName() != null) variant.setOptionName(v.getOptionName());
-                if (v.getOptionValue() != null) variant.setOptionValue(v.getOptionValue());
-                if (v.getVariantPrice() != null) variant.setVariantPrice(v.getVariantPrice());
-                if (v.getVariantStock() != null) variant.setVariantStock(v.getVariantStock());
-                if (v.getVariantUrl() != null) variant.setVariantUrl(v.getVariantUrl());
-
-                productVariantRepository.save(variant);
             }
-        }
 
-        // =======================
-        // 5️⃣ ADD VARIANTS
-        // =======================
-        if (req.getVariantsToAdd() != null) {
+            // =======================
+            // 4️⃣ UPDATE VARIANTS
+            // =======================
+            if (req.getVariantsToUpdate() != null) {
 
-            for (UpdateProductRequest.VariantToAdd v : req.getVariantsToAdd()) {
+                for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
 
-                // Check SKU trùng
-                if (v.getVariantSku() != null &&
-                        productVariantRepository.existsByProduct_ProductIdAndVariantSku(
-                                p.getProductId(), v.getVariantSku())) {
+                    ProductVariantEntity variant = productVariantRepository
+                            .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
+                            .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
 
-                    throw new RuntimeException("❌ Variant SKU duplicated: " + v.getVariantSku());
+                    // Check trùng SKU ngoại trừ chính nó
+                    if (v.getVariantSku() != null) {
+
+                        boolean exists = productVariantRepository
+                                .existsByProduct_ProductIdAndVariantSkuAndIdNot(
+                                        p.getProductId(),
+                                        v.getVariantSku(),
+                                        variant.getId()
+                                );
+
+                        if (exists) {
+                            throw new RuntimeException("❌ Variant SKU already exists: " + v.getVariantSku());
+                        }
+
+                        variant.setVariantSku(v.getVariantSku());
+                    }
+
+                    if (v.getOptionName() != null) variant.setOptionName(v.getOptionName());
+                    if (v.getOptionValue() != null) variant.setOptionValue(v.getOptionValue());
+                    if (v.getVariantPrice() != null) variant.setVariantPrice(v.getVariantPrice());
+                    if (v.getVariantStock() != null) variant.setVariantStock(v.getVariantStock());
+                    if (v.getVariantUrl() != null) variant.setVariantUrl(v.getVariantUrl());
+
+                    productVariantRepository.save(variant);
                 }
-
-                ProductVariantEntity newV = new ProductVariantEntity();
-                newV.setProduct(p);
-                newV.setOptionName(v.getOptionName());
-                newV.setOptionValue(v.getOptionValue());
-                newV.setVariantPrice(v.getVariantPrice());
-                newV.setVariantStock(v.getVariantStock());
-                newV.setVariantUrl(v.getVariantUrl());
-                newV.setVariantSku(v.getVariantSku());
-
-                productVariantRepository.save(newV);
             }
-        }
 
-        // =======================
-        // 6️⃣ SYNC STOCK (THEO SHOPEE)
-        // =======================
-        List<ProductVariantEntity> finalVariants =
-                productVariantRepository.findAllByProduct_ProductId(p.getProductId());
+            // =======================
+            // 5️⃣ ADD VARIANTS
+            // =======================
+            if (req.getVariantsToAdd() != null) {
 
-        if (!finalVariants.isEmpty()) {
-            int totalStock = finalVariants.stream()
-                    .mapToInt(ProductVariantEntity::getVariantStock)
-                    .sum();
-            p.setStockQuantity(totalStock);
-        } else {
-            if (req.getStockQuantity() != null) {
-                p.setStockQuantity(req.getStockQuantity());
+                for (UpdateProductRequest.VariantToAdd v : req.getVariantsToAdd()) {
+
+                    // Check SKU trùng
+                    if (v.getVariantSku() != null &&
+                            productVariantRepository.existsByProduct_ProductIdAndVariantSku(
+                                    p.getProductId(), v.getVariantSku())) {
+
+                        throw new RuntimeException("❌ Variant SKU duplicated: " + v.getVariantSku());
+                    }
+
+                    ProductVariantEntity newV = new ProductVariantEntity();
+                    newV.setProduct(p);
+                    newV.setOptionName(v.getOptionName());
+                    newV.setOptionValue(v.getOptionValue());
+                    newV.setVariantPrice(v.getVariantPrice());
+                    newV.setVariantStock(v.getVariantStock());
+                    newV.setVariantUrl(v.getVariantUrl());
+                    newV.setVariantSku(v.getVariantSku());
+
+                    productVariantRepository.save(newV);
+                }
             }
+
+            // =======================
+            // 6️⃣ SYNC STOCK (THEO SHOPEE)
+            // =======================
+            List<ProductVariantEntity> finalVariants =
+                    productVariantRepository.findAllByProduct_ProductId(p.getProductId());
+
+            if (!finalVariants.isEmpty()) {
+                int totalStock = finalVariants.stream()
+                        .mapToInt(ProductVariantEntity::getVariantStock)
+                        .sum();
+                p.setStockQuantity(totalStock);
+            } else {
+                if (req.getStockQuantity() != null) {
+                    p.setStockQuantity(req.getStockQuantity());
+                }
+            }
+
+            // SAVE PRODUCT
+            productRepository.save(p);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "✏️ Product updated successfully (Shopee Logic)", toResponse(p))
+            );
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(
+                    BaseResponse.error("❌ Update product failed: " + e.getMessage())
+            );
         }
-
-        // SAVE PRODUCT
-        productRepository.save(p);
-
-        return ResponseEntity.ok(
-                new BaseResponse<>(200, "✏️ Product updated successfully (Shopee Logic)", toResponse(p))
-        );
-
-    } catch (Exception e) {
-        e.printStackTrace();
-        return ResponseEntity.internalServerError().body(
-                BaseResponse.error("❌ Update product failed: " + e.getMessage())
-        );
     }
-}
 
 
     // ============================================================
@@ -624,7 +641,7 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         // =========================================================
         // 💰 GIÁ & KHO (Lưu ý: stock có thể bị override bởi variants)
         // =========================================================
-       // if (r.getPrice() != null) p.setPrice(r.getPrice());                 // 🔥 FIX LỖI QUAN TRỌNG
+        // if (r.getPrice() != null) p.setPrice(r.getPrice());                 // 🔥 FIX LỖI QUAN TRỌNG
         if (r.getCurrency() != null) p.setCurrency(r.getCurrency());
 
         if (r.getWarehouseLocation() != null) p.setWarehouseLocation(r.getWarehouseLocation());
@@ -634,7 +651,7 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         if (r.getDistrictCode() != null) p.setDistrictCode(r.getDistrictCode());
         if (r.getWardCode() != null) p.setWardCode(r.getWardCode());
 
-      //  if (r.getStockQuantity() != null) p.setStockQuantity(r.getStockQuantity());
+        //  if (r.getStockQuantity() != null) p.setStockQuantity(r.getStockQuantity());
         if (r.getShippingFee() != null) p.setShippingFee(r.getShippingFee());
 
         if (r.getSupportedShippingMethodIds() != null)
@@ -760,8 +777,8 @@ public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest 
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("❌ Product not found"));
         if (product.getStatus() == ProductStatus.INACTIVE) {
-           product.setStatus(ProductStatus.ACTIVE);
-        }else {
+            product.setStatus(ProductStatus.ACTIVE);
+        } else {
             product.setStatus(ProductStatus.INACTIVE);
         }
 
