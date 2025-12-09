@@ -157,21 +157,26 @@ public interface PlatformCampaignProductRepository extends JpaRepository<Platfor
     List<PlatformCampaignProduct> findAllActiveOnlyStatus(@Param("productId") UUID productId);
 
     @Query("""
-    select cpp
-    from PlatformCampaignProduct cpp
-    join cpp.campaign c
-    where cpp.product.productId = :productId
-      and cpp.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
-      and cpp.approved = true
-      and cpp.startTime <= :now
-      and cpp.endTime >= :now
-      and c.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
-      and c.startTime <= :now
-      and c.endTime >= :now
-""")
+                select cpp
+                from PlatformCampaignProduct cpp
+                join cpp.campaign c
+                where cpp.product.productId = :productId
+                  and cpp.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
+                  and cpp.approved = true
+                  and cpp.startTime <= :now
+                  and cpp.endTime >= :now
+                  and c.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
+                  and c.startTime <= :now
+                  and c.endTime >= :now
+                  and (
+                        cpp.flashSlot is null
+                        or (:now between cpp.flashSlot.openTime and cpp.flashSlot.closeTime)
+                      )
+            """)
     List<PlatformCampaignProduct> findAllActiveByProductLegacy(
             @Param("productId") UUID productId,
             @Param("now") LocalDateTime now
     );
+
 
 }
