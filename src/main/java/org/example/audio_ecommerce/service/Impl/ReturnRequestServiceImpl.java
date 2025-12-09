@@ -553,6 +553,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // 4️⃣ Cập nhật ReturnRequest
         r.setGhnOrderCode(orderCode);
         r.setStatus(ReturnStatus.SHIPPING);
+        r.setTrackingStatus("CREATED_WAITING_SYNC");
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
 
