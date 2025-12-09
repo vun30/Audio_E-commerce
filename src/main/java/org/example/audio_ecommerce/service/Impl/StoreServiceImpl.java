@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.service.Impl;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.UpdateStoreRequest;
 import org.example.audio_ecommerce.dto.request.UpdateStoreRequest.StoreAddressRequest;
@@ -368,14 +369,101 @@ public class StoreServiceImpl implements StoreService {
     }
 
     @Override
+    @Transactional
     public ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus status) {
+
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new RuntimeException("Store not found"));
 
         store.setStatus(status);
         storeRepository.save(store);
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "Store status updated to " + status, store));
+        Map<String, Object> result = new HashMap<>();
+        result.put("storeId", storeId);
+        result.put("newStatus", status);
+
+        int affected = 0;
+
+        // ⭐ 1. Admin SUSPEND store → toàn bộ product SUSPENDED
+        if (status == StoreStatus.SUSPENDED) {
+            affected = productRepository.suspendAllProductsByStore(storeId);
+            result.put("productsSuspended", affected);
+        }
+
+        // ⭐ 2. Admin PAUSED store → toàn bộ product UNLISTED
+        else if (status == StoreStatus.PAUSED) {
+            affected = productRepository.unlistAllProductsByStore(storeId);
+            result.put("productsUnlisted", affected);
+        }
+
+        // ⭐ 3. Admin ACTIVE store → toàn bộ product ACTIVE
+        else if (status == StoreStatus.ACTIVE) {
+            affected = productRepository.activateAllProductsByStore(storeId);
+            result.put("productsActivated", affected);
+        }
+
+        return ResponseEntity.ok(
+                BaseResponse.success("Cập nhật trạng thái thành công", result)
+        );
+    }
+
+
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> shopToggleStoreStatus(UUID storeId, StoreStatus newStatus) {
+
+        // 1. Lấy store theo storeId truyền vào
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new RuntimeException("Store not found"));
+
+        StoreStatus current = store.getStatus();
+
+        // 2. Chỉ cho phép ACTIVE ↔ PAUSED
+        if (!(current == StoreStatus.ACTIVE || current == StoreStatus.PAUSED)) {
+            return ResponseEntity.badRequest().body(
+                    BaseResponse.error("Shop chỉ có thể đổi giữa ACTIVE và PAUSED")
+            );
+        }
+
+        // 3. Không cho phép đổi sang trạng thái khác
+        if (!(newStatus == StoreStatus.ACTIVE || newStatus == StoreStatus.PAUSED)) {
+            return ResponseEntity.badRequest().body(
+                    BaseResponse.error("Shop không được phép đổi sang trạng thái này")
+            );
+        }
+
+        // 4. Không cho đổi trùng trạng thái
+        if (current == newStatus) {
+            return ResponseEntity.badRequest().body(
+                    BaseResponse.error("Cửa hàng đã đang ở trạng thái " + newStatus)
+            );
+        }
+
+        // 5. Update trạng thái store
+        store.setStatus(newStatus);
+        storeRepository.save(store);
+
+        int affected = 0;
+
+        // ⭐ ACTIVE → ACTIVE sản phẩm
+        if (newStatus == StoreStatus.ACTIVE) {
+            affected = productRepository.activateAllProductsByStore(storeId);
+        }
+
+        // ⭐ PAUSED → UNLISTED sản phẩm
+        else if (newStatus == StoreStatus.PAUSED) {
+            affected = productRepository.unlistAllProductsByStore(storeId);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("storeId", storeId);
+        result.put("oldStatus", current);
+        result.put("newStatus", newStatus);
+        result.put("productsUpdated", affected);
+
+        return ResponseEntity.ok(
+                BaseResponse.success("Thay đổi trạng thái cửa hàng thành công", result)
+        );
     }
 
     @Override

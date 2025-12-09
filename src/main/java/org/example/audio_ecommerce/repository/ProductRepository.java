@@ -6,6 +6,7 @@ import org.example.audio_ecommerce.entity.Store;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -99,5 +100,23 @@ Page<Product> findAllWithAdvancedFilters(
 );
      @Query("SELECT p.store FROM Product p WHERE p.productId = :productId")
 Optional<Store> findStoreByProductId(UUID productId);
+
+     @Modifying
+@Query("UPDATE Product p SET p.status = 'SUSPENDED' WHERE p.store.storeId = :storeId")
+int suspendAllProductsByStore(UUID storeId);
+
+@Modifying
+@Query("UPDATE Product p SET p.status = 'UNLISTED' WHERE p.store.storeId = :storeId")
+int unlistAllProductsByStore(UUID storeId);
+
+@Modifying
+@Query("""
+    UPDATE Product p 
+    SET p.status = 'ACTIVE' 
+    WHERE p.store.storeId = :storeId
+""")
+int activateAllProductsByStore(UUID storeId);
+
+
 
 }

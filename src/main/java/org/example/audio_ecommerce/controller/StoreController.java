@@ -55,13 +55,67 @@ public class StoreController {
         return storeService.updateStore(storeId, request);
     }
 
-    @Operation(summary = "Cập nhật trạng thái cửa hàng")
+    @Operation(
+            summary = "Admin cập nhật trạng thái cửa hàng",
+            description = """
+                    API cho phép Admin thay đổi trạng thái hoạt động của cửa hàng.
+                    
+                    • Các trạng thái hợp lệ:
+                        - INACTIVE: Cửa hàng ngừng hoạt động.
+                        - PENDING: Đang chờ duyệt KYC.
+                        - ACTIVE: Cửa hàng hoạt động bình thường.
+                        - REJECTED: KYC bị từ chối.
+                        - SUSPENDED: Cửa hàng bị khóa do vi phạm.
+                        - PAUSED: Cửa hàng tạm dừng hoạt động.
+                    
+                    🔥 Hành vi liên quan đến sản phẩm:
+                        • Khi chuyển sang SUSPENDED:
+                            → Tất cả sản phẩm của cửa hàng sẽ chuyển sang trạng thái SUSPENDED.
+                    
+                        • Khi chuyển sang PAUSED:
+                            → Tất cả sản phẩm của cửa hàng sẽ chuyển sang UNLISTED.
+                    
+                        • Khi chuyển sang ACTIVE:
+                            → Tất cả sản phẩm của cửa hàng sẽ chuyển về ACTIVE.
+                    
+                    📌 Lưu ý:
+                        • FE gửi body JSON chứa trường "status".
+                        • API trả về trạng thái mới của cửa hàng và số lượng sản phẩm đã được cập nhật.
+                        • Chỉ Admin mới được gọi API này.
+                    """
+    )
     @PatchMapping("/{storeId}/status")
     public ResponseEntity<BaseResponse> updateStoreStatus(
             @PathVariable UUID storeId,
             @Valid @RequestBody UpdateStoreStatusRequest request) {
         return storeService.updateStoreStatus(storeId, request.getStatus());
     }
+
+    @Operation(
+        summary = "Shop tự đổi trạng thái cửa hàng (ACTIVE <-> PAUSED)",
+        description = """
+                API dành cho Chủ Shop tự thay đổi trạng thái cửa hàng.
+                
+                ✔ Cho phép:
+                  • ACTIVE  → PAUSED
+                  • PAUSED  → ACTIVE
+                
+                ❌ Không cho phép đổi sang các trạng thái khác:
+                  • INACTIVE, PENDING, REJECTED, SUSPENDED
+                
+                Hành vi sản phẩm:
+                  • Khi PAUSED → toàn bộ sản phẩm UNLISTED
+                  • Khi ACTIVE → toàn bộ sản phẩm ACTIVE
+                """
+)
+@PatchMapping("/{storeId}/toggle-status")
+public ResponseEntity<BaseResponse> shopToggleStatus(
+        @PathVariable UUID storeId,
+        @RequestBody UpdateStoreStatusRequest request) {
+    return storeService.shopToggleStoreStatus(storeId, request.getStatus());
+}
+
+
 
     @Operation(summary = "Danh sách cửa hàng (phân trang + tìm kiếm)")
     @GetMapping

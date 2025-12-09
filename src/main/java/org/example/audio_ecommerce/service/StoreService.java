@@ -64,4 +64,11 @@ public interface StoreService {
 
     ResponseEntity<BaseResponse> getDefaultAddressByProductId(UUID productId);
 
+    ResponseEntity<BaseResponse> shopToggleStoreStatus(UUID storeId, StoreStatus newStatus);
+
+
+
+
+
+
 }

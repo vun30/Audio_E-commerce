@@ -48,6 +48,7 @@ public class SecurityConfig {
                             "http://localhost:3000",
                             "http://localhost:5173",
                             "https://humorous-appreciation-production-8b47.up.railway.app",
+                            "https://sep-490-audio-wep-app.vercel.app",
                             "https://conicboulevard.pro.vn",
                             "https://www.conicboulevard.pro.vn",
                             "https://conicboulevard.vercel.app",
