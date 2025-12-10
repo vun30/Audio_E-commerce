@@ -162,7 +162,7 @@ public class StoreOrder {
     private BigDecimal netPayoutToStore = BigDecimal.ZERO;    // tiền cuối cùng chuyển vào ví shop
 
     @Lob
-    @Column(name = "settlement_detail_json")
+    @Column(name = "settlement_detail_json",columnDefinition = "TEXT")
     private String settlementDetailJson; // JSON chi tiết breakdown
 
 

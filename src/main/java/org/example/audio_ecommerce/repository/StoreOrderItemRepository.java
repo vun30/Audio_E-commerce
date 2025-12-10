@@ -162,4 +162,17 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
             Pageable pageable
     );
 
+    @Query("""
+        select distinct so.customerOrder.id
+        from StoreOrderItem i
+        join i.storeOrder so
+        join so.customerOrder co
+        where i.eligibleForPayout = true
+          and (i.isPayout is null or i.isPayout = false)
+          and (
+                (co.deliveredAt is not null and co.deliveredAt <= :cutoffTime)
+             or (co.deliveredAt is null and co.createdAt <= :cutoffTime)
+          )
+    """)
+    List<UUID> findEligibleCustomerOrderIdsForPayout(@Param("cutoffTime") LocalDateTime cutoffTime);
 }

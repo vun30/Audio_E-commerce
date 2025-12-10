@@ -34,6 +34,7 @@ public class SettlementService {
     private final PlatformFeeRepository platformFeeRepo;
     private final RevenueService revenueService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final StoreOrderItemRepository storeOrderItemRepo;
 
     @Transactional
     public void recordCustomerQrPayment(UUID customerId, UUID orderId, BigDecimal amount) {
@@ -141,7 +142,7 @@ public class SettlementService {
         //  - isPayout = false      (chưa chuyển tiền lần nào)
         List<StoreOrderItem> itemsToPayout = allItems.stream()
                 .filter(it -> Boolean.TRUE.equals(it.getEligibleForPayout()))
-                .filter(it -> !Boolean.TRUE.equals(it.getIsPayout()))
+                .filter(it -> !Boolean.TRUE.equals(it.getPayoutProcessed()))
                 .toList();
 
         if (itemsToPayout.isEmpty()) {
@@ -352,11 +353,11 @@ public class SettlementService {
                         now.toLocalDate()
                 );
             }
-
-            // ===== 3.10 Đánh dấu các item này đã payout (để lần sau không payout lại) =====
+            // ===== 3.10 Đánh dấu các item trong batch đã được xử lý payout =====
             for (StoreOrderItem it : batchItems) {
-                it.setIsPayout(true);  // ✅ giờ is_payout = true nghĩa là ĐÃ chuyển tiền
+                it.setPayoutProcessed(true);   // ✅ chỉ dùng flag này, KHÔNG đụng isPayout
             }
+            storeOrderItemRepo.saveAll(batchItems);
         }
 
         // ===== 4) Cập nhật PlatformWallet cho phần đã payout trong lần này =====
