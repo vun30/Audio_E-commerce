@@ -1,10 +1,8 @@
 package org.example.audio_ecommerce.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.persistence.Column;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
-import org.example.audio_ecommerce.entity.Product;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -21,27 +19,28 @@ public class ProductResponse {
     // =========================================================
     // 🔑 THÔNG TIN ĐỊNH DANH
     // =========================================================
-    @Schema(description = "ID sản phẩm", example = "550e8400-e29b-41d4-a716-446655440000")
     private UUID productId;
-
-    @Schema(description = "ID cửa hàng sở hữu sản phẩm")
     private UUID storeId;
-
-    @Schema(description = "Tên cửa hàng sở hữu sản phẩm")
     private String storeName;
 
-    @Schema(description = "ID danh mục sản phẩm")
-    private UUID categoryId;
+    // =========================================================
+    // 🔗 CATEGORY (MULTI CATEGORY)
+    // =========================================================
+    @Schema(description = "Danh sách category của sản phẩm")
+    private List<CategoryResponse> categories;
 
-    @Schema(description = "Tên danh mục sản phẩm")
-    private String categoryName;
-
-    @Schema(description = "Thương hiệu sản phẩm", example = "Sony")
-    private String brandName;
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CategoryResponse {
+        private UUID categoryId;
+        private String categoryName;
+    }
 
     // =========================================================
     // 🏷️ THÔNG TIN CƠ BẢN
     // =========================================================
+    private String brandName;
     private String name;
     private String slug;
     private String shortDescription;
@@ -53,46 +52,31 @@ public class ProductResponse {
     private BigDecimal weight;
 
     // =========================================================
-    // 🧩 BIẾN THỂ
+    // 🔗 BIẾN THỂ
     // =========================================================
-    @Schema(description = "Danh sách biến thể sản phẩm (VD: Màu sắc, Size, Dung lượng...)")
     private List<VariantResponse> variants;
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class VariantResponse {
-
-        @Schema(description = "ID biến thể", example = "b8d3c8e5-6e11-4a96-b52f-1d84a0f3b2cd")
         private UUID variantId;
-
-        @Schema(description = "Tên thuộc tính biến thể", example = "Color")
         private String optionName;
-
-        @Schema(description = "Giá trị biến thể", example = "Black")
         private String optionValue;
-
-        @Schema(description = "Giá riêng của biến thể", example = "1200000")
         private BigDecimal variantPrice;
-
-        @Schema(description = "Tồn kho của biến thể", example = "30")
         private Integer variantStock;
-
-        @Schema(description = "URL hình ảnh của biến thể", example = "https://example.com/images/variant-black.jpg")
         private String variantUrl;
-
-        @Schema(description = "SKU riêng của biến thể (nếu có)", example = "SONY-SPK-001-BLACK")
         private String variantSku;
     }
 
     // =========================================================
-    // 📸 HÌNH ẢNH & VIDEO
+    // 📸 MEDIA
     // =========================================================
     private List<String> images;
     private String videoUrl;
 
     // =========================================================
-    // 💰 GIÁ CƠ BẢN & KHUYẾN MÃI
+    // 💰 GIÁ
     // =========================================================
     private String sku;
     private BigDecimal price;
@@ -106,48 +90,35 @@ public class ProductResponse {
     private String currency;
     private Integer stockQuantity;
     private String warehouseLocation;
+    private String approvalReason;
+    // 📝 NOTE: Lý do admin chỉnh sửa | Ví dụ: `Cập nhật giá theo thị trường`
+
+
     // =========================================================
-    // 🌍 ĐỊA CHỈ HÀNH CHÍNH (CODE TỈNH, QUẬN, XÃ)
+    // 🌍 ĐỊA CHỈ ADMIN
     // =========================================================
-    @Schema(description = "Mã tỉnh/thành phố", example = "01 Hà Nội")
     private String provinceCode;
-    // 📝 NOTE: Mã tỉnh/thành phố | Ví dụ: "01" (Hà Nội), "79" (TP.HCM)
-
-    @Schema(description = "Mã quận/huyện", example = "760")
     private String districtCode;
-    // 📝 NOTE: Mã quận/huyện | Ví dụ: "760" (Quận 1)
-
-    @Schema(description = "Mã phường/xã", example = "26734")
     private String wardCode;
-    // 📝 NOTE: Mã phường/xã | Ví dụ: "26734" (Phường Bến Nghé)
     private String shippingAddress;
 
     // =========================================================
     // 🚚 VẬN CHUYỂN
     // =========================================================
-    @Schema(description = "Phí vận chuyển mặc định", example = "30000")
     private BigDecimal shippingFee;
-
-    @Schema(description = "Danh sách ID phương thức vận chuyển hỗ trợ")
     private List<UUID> supportedShippingMethodIds;
 
     // =========================================================
-    // 🧮 MUA NHIỀU GIẢM GIÁ
+    // 🧮 GIẢM GIÁ SỐ LƯỢNG
     // =========================================================
-    @Schema(description = "Danh sách các mức giá giảm khi mua số lượng lớn")
     private List<BulkDiscountResponse> bulkDiscounts;
 
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class BulkDiscountResponse {
-        @Schema(description = "Số lượng tối thiểu để áp dụng", example = "5")
         private Integer fromQuantity;
-
-        @Schema(description = "Số lượng tối đa cho mức giá này", example = "10")
         private Integer toQuantity;
-
-        @Schema(description = "Giá áp dụng trong khoảng này", example = "950000")
         private BigDecimal unitPrice;
     }
 
@@ -167,92 +138,19 @@ public class ProductResponse {
     private UUID updatedBy;
 
     // =========================================================
-    // 🔊 THUỘC TÍNH CHUNG
+    // 🏷️ ATTRIBUTE VALUES (KỸ THUẬT)
     // =========================================================
-    private String frequencyResponse;
-    private String sensitivity;
-    private String impedance;
-    private String powerHandling;
-    private String connectionType;
-    private String voltageInput;
-    private String warrantyPeriod;
-    private String warrantyType;
-    private String manufacturerName;
-    private String manufacturerAddress;
-    private String productCondition;
-    private Boolean isCustomMade;
+    @Schema(description = "Danh sách thuộc tính kỹ thuật của sản phẩm")
+    private List<ProductAttributeValueResponse> attributeValues;
 
-    // =========================================================
-    // 🔊 LOA
-    // =========================================================
-    private String driverConfiguration;
-    private String driverSize;
-    private String enclosureType;
-    private String coveragePattern;
-    private String crossoverFrequency;
-    private String placementType;
-
-    // =========================================================
-    // 🎧 TAI NGHE
-    // =========================================================
-    private String headphoneType;
-    private String compatibleDevices;
-    private Boolean isSportsModel;
-    private String headphoneFeatures;
-    private String batteryCapacity;
-    private Boolean hasBuiltInBattery;
-    private Boolean isGamingHeadset;
-    private String headphoneAccessoryType;
-    private String headphoneConnectionType;
-    private String plugType;
-    private Boolean sirimApproved;
-    private Boolean sirimCertified;
-    private Boolean mcmcApproved;
-
-    // =========================================================
-    // 🎤 MICRO
-    // =========================================================
-    private String micType;
-    private String polarPattern;
-    private String maxSPL;
-    private String micOutputImpedance;
-    private String micSensitivity;
-
-    // =========================================================
-    // 📻 AMPLI / RECEIVER
-    // =========================================================
-    private String amplifierType;
-    private String totalPowerOutput;
-    private String thd;
-    private String snr;
-    private Integer inputChannels;
-    private Integer outputChannels;
-    private Boolean supportBluetooth;
-    private Boolean supportWifi;
-    private Boolean supportAirplay;
-
-    // =========================================================
-    // 📀 TURNTABLE
-    // =========================================================
-    private String platterMaterial;
-    private String motorType;
-    private String tonearmType;
-    private Boolean autoReturn;
-
-    // =========================================================
-    // 🎛️ DAC / MIXER / SOUND CARD
-    // =========================================================
-    private String dacChipset;
-    private String sampleRate;
-    private String bitDepth;
-    private Boolean balancedOutput;
-    private String inputInterface;
-    private String outputInterface;
-    private Integer channelCount;
-    private Boolean hasPhantomPower;
-    private String eqBands;
-    private String faderType;
-    private Boolean builtInEffects;
-    private Boolean usbAudioInterface;
-    private Boolean midiSupport;
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ProductAttributeValueResponse {
+        private UUID attributeId;
+        private String attributeName;
+        private String attributeLabel;
+        private String dataType;   // STRING / NUMBER / BOOLEAN / ENUM / JSON
+        private String value;      // Giá trị nhập
+    }
 }

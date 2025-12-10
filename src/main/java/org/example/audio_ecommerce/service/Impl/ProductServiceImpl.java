@@ -1,14 +1,14 @@
+// ==========================
+// PRODUCT SERVICE IMPLEMENT
+// ==========================
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.request.ProductRequest;
-import org.example.audio_ecommerce.dto.request.UpdateProductRequest;
-import org.example.audio_ecommerce.dto.request.VariantRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.ProductResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
-import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ProductService;
 import org.springframework.data.domain.*;
@@ -29,13 +29,13 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final StoreRepository storeRepository;
     private final CategoryRepository categoryRepository;
-    private final PlatformFeeRepository platformFeeRepository;
+    private final CategoryAttributeRepository categoryAttributeRepository;
+    private final ProductAttributeValueRepository productAttributeValueRepository;
     private final ProductVariantRepository productVariantRepository;
-    private final PlatformCampaignProductRepository platformCampaignProductRepository;
 
-    // ============================================================
-    // 🔧 Helper: Sinh slug duy nhất
-    // ============================================================
+    // ================================================
+    // SLUG HELPER
+    // ================================================
     private String generateUniqueSlug(String productName) {
         if (productName == null || productName.isBlank())
             return UUID.randomUUID().toString().substring(0, 8);
@@ -53,9 +53,9 @@ public class ProductServiceImpl implements ProductService {
         return slug;
     }
 
-    // ============================================================
-    // 🧮 Helper tính tổng stock biến thể
-    // ============================================================
+    // ================================================
+    // TOTAL STOCK FROM VARIANTS
+    // ================================================
     private int calculateVariantStockTotal(UUID productId) {
         return productVariantRepository.findAllByProduct_ProductId(productId)
                 .stream()
@@ -63,71 +63,11 @@ public class ProductServiceImpl implements ProductService {
                 .sum();
     }
 
-
-    // 🔐 Helper: kiểm tra store đang đăng nhập có địa chỉ default hay chưa
-// ============================================================
-    private void ensureStoreHasDefaultAddress() {
-
-        // 1️⃣ Lấy principal từ token
-        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-        UUID accountId = null;
-
-        try {
-            // Token dạng "email:ROLE:UUID"
-            if (principal.contains(":")) {
-                String[] parts = principal.split(":");
-                for (String p : parts) {
-                    try {
-                        accountId = UUID.fromString(p);
-                        break;
-                    } catch (IllegalArgumentException ignored) {
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-
-        // Nếu không parse được thì fallback lấy email
-        Store store;
-        if (accountId == null) {
-            String email = principal.contains(":") ? principal.split(":")[0] : principal;
-
-            store = storeRepository.findByAccount_Email(email)
-                    .orElseThrow(() -> new RuntimeException(
-                            "❌ Store not found for current login (email=" + email + ")"
-                    ));
-
-        } else {
-            UUID finalAccountId = accountId;
-
-            store = storeRepository.findByAccount_Id(finalAccountId)
-                    .orElseThrow(() -> new RuntimeException(
-                            "❌ Store not found for current login (accountId=" + finalAccountId + ")"
-                    ));
-        }
-
-        // 2️⃣ Kiểm tra có địa chỉ hay chưa
-        if (store.getStoreAddresses() == null || store.getStoreAddresses().isEmpty()) {
-            throw new RuntimeException("❌ Store has no addresses. Please add an address first.");
-        }
-
-        // 3️⃣ Kiểm tra có default hay chưa
-        boolean hasDefault = store.getStoreAddresses().stream()
-                .anyMatch(a -> Boolean.TRUE.equals(a.getDefaultAddress()));
-
-        if (!hasDefault) {
-            throw new RuntimeException("❌ Store has NO default address. Please set one default address before performing this action.");
-        }
-    }
-
-
-    // ============================================================
-    // ➕ CREATE PRODUCT
-    // ============================================================
+    // ================================================
+    // CREATE PRODUCT
+    // ================================================
     @Override
     public ResponseEntity<BaseResponse> createProduct(ProductRequest req) {
-
-        ensureStoreHasDefaultAddress();
         try {
             String principal = SecurityContextHolder.getContext().getAuthentication().getName();
             String email = principal.contains(":") ? principal.split(":")[0] : principal;
@@ -135,85 +75,89 @@ public class ProductServiceImpl implements ProductService {
             Store store = storeRepository.findByAccount_Email(email)
                     .orElseThrow(() -> new RuntimeException("❌ Store not found for logged-in account"));
 
-            // ❌ Không cho tạo sản phẩm khi store bị Admin khóa
-            if (store.getStatus() == StoreStatus.SUSPENDED) {
-                throw new RuntimeException("❌ Store is suspended by the admin. You cannot create new products.");
+            if (req.getCategoryIds() == null || req.getCategoryIds().isEmpty()) {
+                throw new RuntimeException("❌ categoryIds cannot be empty");
             }
 
-
-            if (req.getCategoryName() == null || req.getCategoryName().isBlank())
-                throw new RuntimeException("❌ Category Name must not be null");
-
-            Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
-                    .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
+            List<Category> categories = categoryRepository.findAllById(req.getCategoryIds());
+            if (categories.size() != req.getCategoryIds().size()) {
+                throw new RuntimeException("❌ Some categoryIds are invalid");
+            }
 
             if (req.getSku() == null || req.getSku().isBlank())
                 throw new RuntimeException("❌ SKU must not be empty");
 
-            if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku()))
+            if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku())) {
                 throw new RuntimeException("❌ SKU already exists in this store");
+            }
 
             LocalDateTime now = LocalDateTime.now();
 
             Product p = new Product();
             p.setStore(store);
-            p.setCategory(category);
+            p.setCategories(categories);
             p.setBrandName(req.getBrandName());
             p.setName(req.getName());
             p.setSlug(generateUniqueSlug(req.getName()));
             p.setSku(req.getSku());
-            p.setStatus(ProductStatus.ACTIVE);
-            p.setIsFeatured(false);
+            p.setStatus(ProductStatus.DRAFT);
             p.setCreatedAt(now);
             p.setUpdatedAt(now);
             p.setLastUpdatedAt(now);
             p.setLastUpdateIntervalDays(0L);
             p.setCreatedBy(store.getAccount().getId());
             p.setUpdatedBy(store.getAccount().getId());
+            // FORCE PRODUCT TO BACK TO DRAFT WHEN UPDATE
 
-            // Ánh xạ dữ liệu kỹ thuật & chi tiết
-            applyRequestToProduct(p, req);
 
-            // Giá
-            p.setPrice(req.getPrice());
-            p.setCurrency(req.getCurrency());
-            p.setDiscountPrice(null);
-            p.setPromotionPercent(null);
-            p.setPriceAfterPromotion(req.getPrice());
-            p.setPriceBeforeVoucher(req.getPrice());
-            p.setVoucherAmount(null);
-            p.setFinalPrice(req.getPrice());
-            p.setPlatformFeePercent(null);
+            // BASIC FIELDS
+            p.setShortDescription(req.getShortDescription());
+            p.setDescription(req.getDescription());
+            p.setModel(req.getModel());
+            p.setColor(req.getColor());
+            p.setMaterial(req.getMaterial());
+            p.setDimensions(req.getDimensions());
+            p.setWeight(req.getWeight());
+            p.setImages(req.getImages());
+            p.setVideoUrl(req.getVideoUrl());
+            p.setWarehouseLocation(req.getWarehouseLocation());
+            p.setShippingAddress(req.getShippingAddress());
+            p.setProvinceCode(req.getProvinceCode());
+            p.setDistrictCode(req.getDistrictCode());
+            p.setWardCode(req.getWardCode());
+            p.setShippingFee(req.getShippingFee());
+            p.setSupportedShippingMethodIds(req.getSupportedShippingMethodIds());
 
-            // 🎯 LOGIC GIÁ — TẠO SẢN PHẨM THEO SHOPEE
-            if (req.getVariants() == null || req.getVariants().isEmpty()) {
+            boolean hasVariants = req.getVariants() != null && !req.getVariants().isEmpty();
 
-                // ❌ Không có biến thể → FE MUST gửi product price
+            if (!hasVariants) {
                 if (req.getPrice() == null)
-                    throw new RuntimeException("❌ Price must not be null when product has no variants");
-
+                    throw new RuntimeException("❌ price must not be null when product has NO variants");
                 p.setPrice(req.getPrice());
-                p.setCurrency(req.getCurrency());
                 p.setFinalPrice(req.getPrice());
-                p.setDiscountPrice(null);
-                p.setPromotionPercent(null);
-
             } else {
-
-                // ❌ Có biến thể → Price của sản phẩm = null
                 p.setPrice(null);
-                p.setCurrency(req.getCurrency());
-
                 p.setFinalPrice(null);
-                p.setDiscountPrice(null);
-                p.setPromotionPercent(null);
             }
 
+            productRepository.save(p);
 
-            productRepository.save(p);   // save lần 1 để có productId
+            // ATTRIBUTE VALUES
+            if (req.getAttributeValues() != null) {
+                for (ProductAttributeValueRequest a : req.getAttributeValues()) {
+                    CategoryAttribute attr = categoryAttributeRepository.findById(a.getAttributeId())
+                            .orElseThrow(() -> new RuntimeException("❌ Attribute not found"));
 
-            // 🔄 Lưu biến thể
-            if (req.getVariants() != null && !req.getVariants().isEmpty()) {
+                    ProductAttributeValue pav = new ProductAttributeValue();
+                    pav.setProduct(p);
+                    pav.setAttribute(attr);
+                    pav.setValue(a.getValue());
+                    productAttributeValueRepository.save(pav);
+                }
+            }
+
+            // VARIANTS
+            if (hasVariants) {
                 for (VariantRequest v : req.getVariants()) {
                     ProductVariantEntity variant = new ProductVariantEntity();
                     variant.setProduct(p);
@@ -226,243 +170,154 @@ public class ProductServiceImpl implements ProductService {
                     productVariantRepository.save(variant);
                 }
 
-                // Sau khi có biến thể → tính lại tổng stock
-                int totalStock = calculateVariantStockTotal(p.getProductId());
-                p.setStockQuantity(totalStock);
+                p.setStockQuantity(calculateVariantStockTotal(p.getProductId()));
                 productRepository.save(p);
             }
 
             return ResponseEntity.ok(
-                    new BaseResponse<>(201, "✅ Product created successfully", toResponse(p))
+                    new BaseResponse<>(201, "✅ Product created successfully", p.getProductId())
             );
 
         } catch (Exception e) {
-            System.err.println("\n===== CREATE PRODUCT ERROR =====");
-            System.err.println("ERROR TYPE: " + e.getClass().getName());
-            System.err.println("ERROR MESSAGE: " + e.getMessage());
-            e.printStackTrace();
-
-            return ResponseEntity.internalServerError().body(
-                    BaseResponse.error("❌ Create product failed: " + e.getMessage())
-            );
+            return ResponseEntity.internalServerError()
+                    .body(BaseResponse.error("❌ Create product failed: " + e.getMessage()));
         }
     }
 
-    // ============================================================
-// ✏️ UPDATE PRODUCT — SHOPEE VERSION
-// ============================================================
+    // ================================================
+    // UPDATE PRODUCT
+    // ================================================
     @Override
     public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest req) {
         try {
-
-            // =======================
-            // 0️⃣ CHECK LOGIN STORE
-            // =======================
             String principal = SecurityContextHolder.getContext().getAuthentication().getName();
             String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
             Store store = storeRepository.findByAccount_Email(email)
-                    .orElseThrow(() -> new RuntimeException("❌ Store not found for current account"));
+                    .orElseThrow(() -> new RuntimeException("❌ Store not found"));
 
             Product p = productRepository.findById(id)
                     .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
-            // ==========================
-// 0.5️⃣ VALIDATE PRODUCT STATUS
-// ==========================
-            if (!(p.getStatus() == ProductStatus.ACTIVE || p.getStatus() == ProductStatus.UNLISTED)) {
-                throw new RuntimeException(
-                        "❌ Product is currently in status: " + p.getStatus() +
-                                ". Only ACTIVE or PAUSED products can be updated."
-                );
-            }
-
             if (!p.getStore().getStoreId().equals(store.getStoreId())) {
-                throw new RuntimeException("❌ You are not allowed to update another store's product");
+                throw new RuntimeException("❌ You cannot update product from another store");
             }
 
-            // =====================================================
-            // 🛡️ CAMPAIGN PRICE PROTECTION RULES
-            // =====================================================
-            LocalDateTime now = LocalDateTime.now();
-            List<PlatformCampaignProduct> activeCampaignEntries = platformCampaignProductRepository.findAllActiveByProduct(p.getProductId(), now);
-            boolean inFlashSale = activeCampaignEntries.stream()
-                    .anyMatch(e -> e.getCampaign() != null && "FAST_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
-            boolean inMegaSale = activeCampaignEntries.stream()
-                    .anyMatch(e -> e.getCampaign() != null && "MEGA_SALE".equalsIgnoreCase(e.getCampaign().getCode()));
-
-            // 🔒 FAST_SALE: Không được phép sửa giá sản phẩm hoặc giá biến thể
-            if (inFlashSale) {
-                if (req.getPrice() != null) {
-                    throw new RuntimeException("⚠️ Product is in an ACTIVE FAST_SALE campaign. Price update is not allowed.");
+            // UPDATE CATEGORY
+            if (req.getCategoryIds() != null && !req.getCategoryIds().isEmpty()) {
+                List<Category> categories = categoryRepository.findAllById(req.getCategoryIds());
+                if (categories.size() != req.getCategoryIds().size()) {
+                    throw new RuntimeException("❌ Some categoryIds are invalid");
                 }
-                if (req.getVariantsToUpdate() != null && req.getVariantsToUpdate().stream().anyMatch(v -> v.getVariantPrice() != null)) {
-                    throw new RuntimeException("⚠️ Product is in FAST_SALE. Variant price update is not allowed.");
-                }
-                if (req.getVariantsToAdd() != null && req.getVariantsToAdd().stream().anyMatch(v -> v.getVariantPrice() != null)) {
-                    throw new RuntimeException("⚠️ Product is in FAST_SALE. Adding variants with price modification is not allowed.");
-                }
+                p.setCategories(categories);
             }
 
-            // 🔒 MEGA_SALE: Chỉ cho phép tăng giá (product & variant), không giảm
-            if (inMegaSale) {
-                // Sản phẩm không có biến thể -> kiểm tra trực tiếp price
-                if (req.getPrice() != null && p.getPrice() != null && req.getPrice().compareTo(p.getPrice()) < 0) {
-                    throw new RuntimeException("⚠️ Product is in an ACTIVE MEGA_SALE campaign. Price decrease is not allowed.");
-                }
-                // Kiểm tra biến thể cập nhật
-                if (req.getVariantsToUpdate() != null) {
-                    for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
-                        if (v.getVariantPrice() != null) {
-                            ProductVariantEntity existingVariant = productVariantRepository
-                                    .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
-                                    .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
-                            if (v.getVariantPrice().compareTo(existingVariant.getVariantPrice()) < 0) {
-                                throw new RuntimeException("⚠️ Variant price decrease is not allowed during MEGA_SALE (variantId=" + v.getVariantId() + ")");
-                            }
-                        }
-                    }
-                }
-                // Biến thể thêm mới: cho phép, vì không phải giảm giá
-            }
-            // =====================================================
-            // (Tiếp tục logic update hiện có)
-            // =====================================================
-            // =======================
-            // 1️⃣ UPDATE BASIC FIELDS
-            // =======================
+            // BASIC UPDATE
+            if (req.getName() != null) p.setName(req.getName());
+            if (req.getSlug() != null) p.setSlug(req.getSlug());
+            if (req.getBrandName() != null) p.setBrandName(req.getBrandName());
+            if (req.getShortDescription() != null) p.setShortDescription(req.getShortDescription());
+            if (req.getDescription() != null) p.setDescription(req.getDescription());
+            if (req.getModel() != null) p.setModel(req.getModel());
+            if (req.getColor() != null) p.setColor(req.getColor());
+            if (req.getMaterial() != null) p.setMaterial(req.getMaterial());
+            if (req.getDimensions() != null) p.setDimensions(req.getDimensions());
+            if (req.getWeight() != null) p.setWeight(req.getWeight());
+            if (req.getImages() != null) p.setImages(req.getImages());
+            if (req.getVideoUrl() != null) p.setVideoUrl(req.getVideoUrl());
+            if (req.getWarehouseLocation() != null) p.setWarehouseLocation(req.getWarehouseLocation());
+            if (req.getShippingAddress() != null) p.setShippingAddress(req.getShippingAddress());
+            if (req.getProvinceCode() != null) p.setProvinceCode(req.getProvinceCode());
+            if (req.getDistrictCode() != null) p.setDistrictCode(req.getDistrictCode());
+            if (req.getWardCode() != null) p.setWardCode(req.getWardCode());
+            if (req.getShippingFee() != null) p.setShippingFee(req.getShippingFee());
+            if (req.getSupportedShippingMethodIds() != null)
+                p.setSupportedShippingMethodIds(req.getSupportedShippingMethodIds());
 
-            if (req.getCategoryName() != null && !req.getCategoryName().isBlank()) {
-                Category category = categoryRepository.findByNameIgnoreCase(req.getCategoryName())
-                        .orElseThrow(() -> new RuntimeException("❌ Category not found: " + req.getCategoryName()));
-                p.setCategory(category);
-            }
-
-            if (req.getName() != null && !req.getName().isBlank()) {
-                p.setName(req.getName());
-                p.setSlug(generateUniqueSlug(req.getName()));
-            }
-
-            // Check SKU trùng trong store
-            if (req.getSku() != null && !req.getSku().equalsIgnoreCase(p.getSku())) {
+            // SKU CHECK
+            if (req.getSku() != null && !req.getSku().equals(p.getSku())) {
                 if (productRepository.existsByStore_StoreIdAndSku(store.getStoreId(), req.getSku())) {
-                    throw new RuntimeException("❌ Product SKU already exists: " + req.getSku());
+                    throw new RuntimeException("❌ SKU already exists in this store");
                 }
                 p.setSku(req.getSku());
             }
 
-            // Update timestamps
-            LocalDateTime nowUpdate = LocalDateTime.now();
-            long intervalDays = p.getLastUpdatedAt() != null
-                    ? ChronoUnit.DAYS.between(p.getLastUpdatedAt(), nowUpdate)
-                    : 0L;
-
-            p.setLastUpdateIntervalDays(intervalDays);
-            p.setLastUpdatedAt(nowUpdate);
-            p.setUpdatedAt(nowUpdate);
+            // UPDATE TIMESTAMP
+            LocalDateTime now = LocalDateTime.now();
+            long interval = ChronoUnit.DAYS.between(p.getLastUpdatedAt(), now);
+            p.setLastUpdateIntervalDays(interval);
+            p.setLastUpdatedAt(now);
+            p.setUpdatedAt(now);
             p.setUpdatedBy(store.getAccount().getId());
+            p.setStatus(ProductStatus.DRAFT);
 
-            // Map toàn bộ detail fields
-            mapUpdateRequestToProduct(p, req);
+            // UPDATE ATTRIBUTE VALUES
+            if (req.getAttributeValues() != null) {
+                productAttributeValueRepository.deleteAll(
+                        productAttributeValueRepository.findAllByProduct_ProductId(id)
+                );
 
+                for (ProductAttributeValueRequest a : req.getAttributeValues()) {
+                    CategoryAttribute attr = categoryAttributeRepository.findById(a.getAttributeId())
+                            .orElseThrow(() -> new RuntimeException("❌ Attribute not found"));
 
-            // ========================================================
-            // 1.5️⃣ LOGIC GIÁ — UPDATE THEO SHOPEE
-            // ========================================================
-            boolean hasVariants =
-                    (req.getVariantsToAdd() != null && !req.getVariantsToAdd().isEmpty())
-                            || (req.getVariantsToUpdate() != null && !req.getVariantsToUpdate().isEmpty())
-                            || productVariantRepository.countByProduct_ProductId(p.getProductId()) > 0;
-
-            // CASE 1 — có biến thể → price của product phải = null
-            if (hasVariants) {
-                p.setPrice(null);
-                p.setFinalPrice(null);
-                p.setDiscountPrice(null);
-                p.setPromotionPercent(null);
-            }
-            // CASE 2 — không có biến thể → FE được phép gửi price
-            else {
-                if (req.getPrice() != null) {
-                    p.setPrice(req.getPrice());
-                    p.setFinalPrice(req.getPrice());
+                    ProductAttributeValue pav = new ProductAttributeValue();
+                    pav.setProduct(p);
+                    pav.setAttribute(attr);
+                    pav.setValue(a.getValue());
+                    productAttributeValueRepository.save(pav);
                 }
             }
 
+            // VARIANT LOGIC
+            boolean hasExistingVariants =
+                    productVariantRepository.countByProduct_ProductId(id) > 0;
 
-            // =======================
-            // 2️⃣ LOAD VARIANTS
-            // =======================
-            List<ProductVariantEntity> existing =
-                    productVariantRepository.findAllByProduct_ProductId(p.getProductId());
+            boolean hasIncomingVariants =
+                    (req.getVariantsToAdd() != null && !req.getVariantsToAdd().isEmpty())
+                            || (req.getVariantsToUpdate() != null && !req.getVariantsToUpdate().isEmpty());
 
-            // =======================
-            // 3️⃣ DELETE VARIANTS
-            // =======================
+            boolean finalHasVariants = hasExistingVariants || hasIncomingVariants;
+
+            if (finalHasVariants) {
+                p.setPrice(null);
+                p.setFinalPrice(null);
+            } else if (req.getPrice() != null) {
+                p.setPrice(req.getPrice());
+                p.setFinalPrice(req.getPrice());
+            }
+
+            // DELETE VARIANTS
             if (req.getVariantsToDelete() != null) {
                 for (UUID vid : req.getVariantsToDelete()) {
-
-                    if (!productVariantRepository.existsByIdAndProduct_ProductId(vid, p.getProductId())) {
-                        throw new RuntimeException("❌ Variant ID not belongs to this product: " + vid);
+                    if (!productVariantRepository.existsByIdAndProduct_ProductId(vid, id)) {
+                        throw new RuntimeException("❌ Variant ID not belongs to product");
                     }
-
                     productVariantRepository.deleteById(vid);
                 }
             }
 
-            // =======================
-            // 4️⃣ UPDATE VARIANTS
-            // =======================
+            // UPDATE VARIANTS
             if (req.getVariantsToUpdate() != null) {
-
                 for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
-
                     ProductVariantEntity variant = productVariantRepository
-                            .findByIdAndProduct_ProductId(v.getVariantId(), p.getProductId())
-                            .orElseThrow(() -> new RuntimeException("❌ Variant not found: " + v.getVariantId()));
-
-                    // Check trùng SKU ngoại trừ chính nó
-                    if (v.getVariantSku() != null) {
-
-                        boolean exists = productVariantRepository
-                                .existsByProduct_ProductIdAndVariantSkuAndIdNot(
-                                        p.getProductId(),
-                                        v.getVariantSku(),
-                                        variant.getId()
-                                );
-
-                        if (exists) {
-                            throw new RuntimeException("❌ Variant SKU already exists: " + v.getVariantSku());
-                        }
-
-                        variant.setVariantSku(v.getVariantSku());
-                    }
+                            .findByIdAndProduct_ProductId(v.getVariantId(), id)
+                            .orElseThrow(() -> new RuntimeException("❌ Variant not found"));
 
                     if (v.getOptionName() != null) variant.setOptionName(v.getOptionName());
                     if (v.getOptionValue() != null) variant.setOptionValue(v.getOptionValue());
                     if (v.getVariantPrice() != null) variant.setVariantPrice(v.getVariantPrice());
                     if (v.getVariantStock() != null) variant.setVariantStock(v.getVariantStock());
                     if (v.getVariantUrl() != null) variant.setVariantUrl(v.getVariantUrl());
+                    if (v.getVariantSku() != null) variant.setVariantSku(v.getVariantSku());
 
                     productVariantRepository.save(variant);
                 }
             }
 
-            // =======================
-            // 5️⃣ ADD VARIANTS
-            // =======================
+            // ADD VARIANTS
             if (req.getVariantsToAdd() != null) {
-
                 for (UpdateProductRequest.VariantToAdd v : req.getVariantsToAdd()) {
-
-                    // Check SKU trùng
-                    if (v.getVariantSku() != null &&
-                            productVariantRepository.existsByProduct_ProductIdAndVariantSku(
-                                    p.getProductId(), v.getVariantSku())) {
-
-                        throw new RuntimeException("❌ Variant SKU duplicated: " + v.getVariantSku());
-                    }
-
                     ProductVariantEntity newV = new ProductVariantEntity();
                     newV.setProduct(p);
                     newV.setOptionName(v.getOptionName());
@@ -471,21 +326,19 @@ public class ProductServiceImpl implements ProductService {
                     newV.setVariantStock(v.getVariantStock());
                     newV.setVariantUrl(v.getVariantUrl());
                     newV.setVariantSku(v.getVariantSku());
-
                     productVariantRepository.save(newV);
                 }
             }
 
-            // =======================
-            // 6️⃣ SYNC STOCK (THEO SHOPEE)
-            // =======================
+            // SYNC STOCK
             List<ProductVariantEntity> finalVariants =
-                    productVariantRepository.findAllByProduct_ProductId(p.getProductId());
+                    productVariantRepository.findAllByProduct_ProductId(id);
 
             if (!finalVariants.isEmpty()) {
                 int totalStock = finalVariants.stream()
                         .mapToInt(ProductVariantEntity::getVariantStock)
                         .sum();
+
                 p.setStockQuantity(totalStock);
             } else {
                 if (req.getStockQuantity() != null) {
@@ -493,306 +346,116 @@ public class ProductServiceImpl implements ProductService {
                 }
             }
 
-            // SAVE PRODUCT
             productRepository.save(p);
 
             return ResponseEntity.ok(
-                    new BaseResponse<>(200, "✏️ Product updated successfully (Shopee Logic)", toResponse(p))
+                    new BaseResponse<>(200, "✏️ Product updated successfully", id)
             );
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body(
-                    BaseResponse.error("❌ Update product failed: " + e.getMessage())
-            );
+            return ResponseEntity.internalServerError()
+                    .body(BaseResponse.error("❌ Update product failed: " + e.getMessage()));
         }
     }
 
+    // ================================================
+    // CONVERT TO RESPONSE
+    // ================================================
+    private ProductResponse toResponse(Product p) {
 
-    // ============================================================
-    // 💡 Gán dữ liệu từ ProductRequest → Entity
-    //  (convert List -> ArrayList để tránh ImmutableCollections)
-    // ============================================================
-    private void applyRequestToProduct(Product p, ProductRequest r) {
-        p.setShortDescription(r.getShortDescription());
-        p.setDescription(r.getDescription());
-        p.setModel(r.getModel());
-        p.setColor(r.getColor());
-        p.setMaterial(r.getMaterial());
-        p.setDimensions(r.getDimensions());
-        p.setWeight(r.getWeight());
+        List<ProductVariantEntity> variants =
+                productVariantRepository.findAllByProduct_ProductId(p.getProductId());
 
-        if (r.getImages() != null) {
-            p.setImages(new ArrayList<>(r.getImages()));
-        }
+        List<ProductAttributeValue> attributeValues =
+                productAttributeValueRepository.findAllByProduct_ProductId(p.getProductId());
 
-        p.setVideoUrl(r.getVideoUrl());
-        p.setWarehouseLocation(r.getWarehouseLocation());
-        p.setShippingAddress(r.getShippingAddress());
-        p.setProvinceCode(r.getProvinceCode());
-        p.setDistrictCode(r.getDistrictCode());
-        p.setWardCode(r.getWardCode());
-        p.setStockQuantity(r.getStockQuantity());
-        p.setShippingFee(r.getShippingFee());
+        return ProductResponse.builder()
+                .productId(p.getProductId())
+                .storeId(p.getStore().getStoreId())
+                .storeName(p.getStore().getStoreName())
 
-        if (r.getSupportedShippingMethodIds() != null) {
-            p.setSupportedShippingMethodIds(new ArrayList<>(r.getSupportedShippingMethodIds()));
-        }
+                .categories(
+                        p.getCategories().stream()
+                                .map(c -> new ProductResponse.CategoryResponse(
+                                        c.getCategoryId(),
+                                        c.getName()
+                                ))
+                                .toList()
+                )
 
-        if (r.getBulkDiscounts() != null) {
-            p.setBulkDiscounts(
-                    r.getBulkDiscounts().stream()
-                            .map(b -> new Product.BulkDiscount(
-                                    b.getFromQuantity(),
-                                    b.getToQuantity(),
-                                    b.getUnitPrice()
-                            ))
-                            .collect(Collectors.toList())   // mutable list
-            );
-        }
+                .brandName(p.getBrandName())
+                .name(p.getName())
+                .slug(p.getSlug())
+                .shortDescription(p.getShortDescription())
+                .description(p.getDescription())
+                .model(p.getModel())
+                .color(p.getColor())
+                .material(p.getMaterial())
+                .dimensions(p.getDimensions())
+                .weight(p.getWeight())
+                .images(p.getImages())
+                .videoUrl(p.getVideoUrl())
+                .sku(p.getSku())
+                .currency(p.getCurrency())
+                .warehouseLocation(p.getWarehouseLocation())
+                .shippingAddress(p.getShippingAddress())
+                .provinceCode(p.getProvinceCode())
+                .districtCode(p.getDistrictCode())
+                .wardCode(p.getWardCode())
+                .shippingFee(p.getShippingFee())
+                .supportedShippingMethodIds(p.getSupportedShippingMethodIds())
+                .status(p.getStatus())
+                .approvalReason(p.getApprovalReason())
 
-        p.setFrequencyResponse(r.getFrequencyResponse());
-        p.setSensitivity(r.getSensitivity());
-        p.setImpedance(r.getImpedance());
-        p.setPowerHandling(r.getPowerHandling());
-        p.setConnectionType(r.getConnectionType());
-        p.setVoltageInput(r.getVoltageInput());
-        p.setWarrantyPeriod(r.getWarrantyPeriod());
-        p.setWarrantyType(r.getWarrantyType());
-        p.setManufacturerName(r.getManufacturerName());
-        p.setManufacturerAddress(r.getManufacturerAddress());
-        p.setProductCondition(r.getProductCondition());
-        p.setIsCustomMade(r.getIsCustomMade());
-        p.setDriverConfiguration(r.getDriverConfiguration());
-        p.setDriverSize(r.getDriverSize());
-        p.setEnclosureType(r.getEnclosureType());
-        p.setCoveragePattern(r.getCoveragePattern());
-        p.setCrossoverFrequency(r.getCrossoverFrequency());
-        p.setPlacementType(r.getPlacementType());
-        p.setHeadphoneType(r.getHeadphoneType());
-        p.setCompatibleDevices(r.getCompatibleDevices());
-        p.setIsSportsModel(r.getIsSportsModel());
-        p.setHeadphoneFeatures(r.getHeadphoneFeatures());
-        p.setBatteryCapacity(r.getBatteryCapacity());
-        p.setHasBuiltInBattery(r.getHasBuiltInBattery());
-        p.setIsGamingHeadset(r.getIsGamingHeadset());
-        p.setHeadphoneAccessoryType(r.getHeadphoneAccessoryType());
-        p.setHeadphoneConnectionType(r.getHeadphoneConnectionType());
-        p.setPlugType(r.getPlugType());
-        p.setSirimApproved(r.getSirimApproved());
-        p.setSirimCertified(r.getSirimCertified());
-        p.setMcmcApproved(r.getMcmcApproved());
-        p.setMicType(r.getMicType());
-        p.setPolarPattern(r.getPolarPattern());
-        p.setMaxSPL(r.getMaxSPL());
-        p.setMicOutputImpedance(r.getMicOutputImpedance());
-        p.setMicSensitivity(r.getMicSensitivity());
-        p.setAmplifierType(r.getAmplifierType());
-        p.setTotalPowerOutput(r.getTotalPowerOutput());
-        p.setThd(r.getThd());
-        p.setSnr(r.getSnr());
-        p.setInputChannels(r.getInputChannels());
-        p.setOutputChannels(r.getOutputChannels());
-        p.setSupportBluetooth(r.getSupportBluetooth());
-        p.setSupportWifi(r.getSupportWifi());
-        p.setSupportAirplay(r.getSupportAirplay());
-        p.setPlatterMaterial(r.getPlatterMaterial());
-        p.setMotorType(r.getMotorType());
-        p.setTonearmType(r.getTonearmType());
-        p.setAutoReturn(r.getAutoReturn());
-        p.setDacChipset(r.getDacChipset());
-        p.setSampleRate(r.getSampleRate());
-        p.setBitDepth(r.getBitDepth());
-        p.setBalancedOutput(r.getBalancedOutput());
-        p.setInputInterface(r.getInputInterface());
-        p.setOutputInterface(r.getOutputInterface());
-        p.setChannelCount(r.getChannelCount());
-        p.setHasPhantomPower(r.getHasPhantomPower());
-        p.setEqBands(r.getEqBands());
-        p.setFaderType(r.getFaderType());
-        p.setBuiltInEffects(r.getBuiltInEffects());
-        p.setUsbAudioInterface(r.getUsbAudioInterface());
-        p.setMidiSupport(r.getMidiSupport());
+                .price(p.getPrice())
+                .discountPrice(p.getDiscountPrice())
+                .promotionPercent(p.getPromotionPercent())
+                .priceAfterPromotion(p.getPriceAfterPromotion())
+                .priceBeforeVoucher(p.getPriceBeforeVoucher())
+                .voucherAmount(p.getVoucherAmount())
+                .finalPrice(p.getFinalPrice())
+                .platformFeePercent(p.getPlatformFeePercent())
+                .stockQuantity(p.getStockQuantity())
+
+                .variants(
+                        variants.stream()
+                                .map(v -> new ProductResponse.VariantResponse(
+                                        v.getId(),
+                                        v.getOptionName(),
+                                        v.getOptionValue(),
+                                        v.getVariantPrice(),
+                                        v.getVariantStock(),
+                                        v.getVariantUrl(),
+                                        v.getVariantSku()
+                                ))
+                                .toList()
+                )
+
+                .attributeValues(
+                        attributeValues.stream()
+                                .map(a -> new ProductResponse.ProductAttributeValueResponse(
+                                        a.getAttribute().getAttributeId(),
+                                        a.getAttribute().getAttributeName(),
+                                        a.getAttribute().getAttributeLabel(),
+                                        a.getAttribute().getDataType(),
+                                        a.getValue()
+                                ))
+                                .toList()
+                )
+
+
+                .createdAt(p.getCreatedAt())
+                .updatedAt(p.getUpdatedAt())
+                .lastUpdatedAt(p.getLastUpdatedAt())
+                .lastUpdateIntervalDays(p.getLastUpdateIntervalDays())
+                .createdBy(p.getCreatedBy())
+                .updatedBy(p.getUpdatedBy())
+                .build();
     }
 
-    // ============================================================
-    // 💡 Map từ UpdateProductRequest → Entity (convert list an toàn)
-    // ============================================================
-    private void mapUpdateRequestToProduct(Product p, UpdateProductRequest r) {
-
-        // =========================================================
-        // 🏷️ THÔNG TIN CƠ BẢN
-        // =========================================================
-        if (r.getBrandName() != null) p.setBrandName(r.getBrandName());
-        if (r.getShortDescription() != null) p.setShortDescription(r.getShortDescription());
-        if (r.getDescription() != null) p.setDescription(r.getDescription());
-        if (r.getModel() != null) p.setModel(r.getModel());
-        if (r.getColor() != null) p.setColor(r.getColor());
-        if (r.getMaterial() != null) p.setMaterial(r.getMaterial());
-        if (r.getDimensions() != null) p.setDimensions(r.getDimensions());
-        if (r.getWeight() != null) p.setWeight(r.getWeight());
-
-        if (r.getImages() != null)
-            p.setImages(new ArrayList<>(r.getImages()));
-
-        if (r.getVideoUrl() != null)
-            p.setVideoUrl(r.getVideoUrl());
-
-        // =========================================================
-        // 💰 GIÁ & KHO (Lưu ý: stock có thể bị override bởi variants)
-        // =========================================================
-        // if (r.getPrice() != null) p.setPrice(r.getPrice());                 // 🔥 FIX LỖI QUAN TRỌNG
-        if (r.getCurrency() != null) p.setCurrency(r.getCurrency());
-
-        if (r.getWarehouseLocation() != null) p.setWarehouseLocation(r.getWarehouseLocation());
-        if (r.getShippingAddress() != null) p.setShippingAddress(r.getShippingAddress());
-
-        if (r.getProvinceCode() != null) p.setProvinceCode(r.getProvinceCode());
-        if (r.getDistrictCode() != null) p.setDistrictCode(r.getDistrictCode());
-        if (r.getWardCode() != null) p.setWardCode(r.getWardCode());
-
-        //  if (r.getStockQuantity() != null) p.setStockQuantity(r.getStockQuantity());
-        if (r.getShippingFee() != null) p.setShippingFee(r.getShippingFee());
-
-        if (r.getSupportedShippingMethodIds() != null)
-            p.setSupportedShippingMethodIds(new ArrayList<>(r.getSupportedShippingMethodIds()));
-
-        // =========================================================
-        // 🧮 MUA NHIỀU GIẢM GIÁ
-        // =========================================================
-        if (r.getBulkDiscounts() != null)
-            p.setBulkDiscounts(
-                    r.getBulkDiscounts().stream()
-                            .map(b -> new Product.BulkDiscount(
-                                    b.getFromQuantity(),
-                                    b.getToQuantity(),
-                                    b.getUnitPrice()
-                            ))
-                            .collect(Collectors.toList())
-            );
-
-        // =========================================================
-        // 📊 TRẠNG THÁI
-        // =========================================================
-        if (r.getStatus() != null) p.setStatus(r.getStatus());
-        if (r.getIsFeatured() != null) p.setIsFeatured(r.getIsFeatured());
-
-        // =========================================================
-        // ⚙️ KỸ THUẬT & THÔNG SỐ CHUNG
-        // =========================================================
-        if (r.getVoltageInput() != null) p.setVoltageInput(r.getVoltageInput());
-        if (r.getWarrantyPeriod() != null) p.setWarrantyPeriod(r.getWarrantyPeriod());
-        if (r.getWarrantyType() != null) p.setWarrantyType(r.getWarrantyType());
-        if (r.getManufacturerName() != null) p.setManufacturerName(r.getManufacturerName());
-        if (r.getManufacturerAddress() != null) p.setManufacturerAddress(r.getManufacturerAddress());
-        if (r.getProductCondition() != null) p.setProductCondition(r.getProductCondition());
-        if (r.getIsCustomMade() != null) p.setIsCustomMade(r.getIsCustomMade());
-
-        // =========================================================
-        // 🎧 TAI NGHE
-        // =========================================================
-        if (r.getHeadphoneType() != null) p.setHeadphoneType(r.getHeadphoneType());
-        if (r.getCompatibleDevices() != null) p.setCompatibleDevices(r.getCompatibleDevices());
-        if (r.getIsSportsModel() != null) p.setIsSportsModel(r.getIsSportsModel());
-        if (r.getHeadphoneFeatures() != null) p.setHeadphoneFeatures(r.getHeadphoneFeatures());
-        if (r.getBatteryCapacity() != null) p.setBatteryCapacity(r.getBatteryCapacity());
-        if (r.getHasBuiltInBattery() != null) p.setHasBuiltInBattery(r.getHasBuiltInBattery());
-        if (r.getIsGamingHeadset() != null) p.setIsGamingHeadset(r.getIsGamingHeadset());
-        if (r.getHeadphoneAccessoryType() != null) p.setHeadphoneAccessoryType(r.getHeadphoneAccessoryType());
-        if (r.getHeadphoneConnectionType() != null) p.setHeadphoneConnectionType(r.getHeadphoneConnectionType());
-        if (r.getPlugType() != null) p.setPlugType(r.getPlugType());
-        if (r.getSirimApproved() != null) p.setSirimApproved(r.getSirimApproved());
-        if (r.getSirimCertified() != null) p.setSirimCertified(r.getSirimCertified());
-        if (r.getMcmcApproved() != null) p.setMcmcApproved(r.getMcmcApproved());
-
-        // =========================================================
-        // 🔊 LOA
-        // =========================================================
-        if (r.getDriverConfiguration() != null) p.setDriverConfiguration(r.getDriverConfiguration());
-        if (r.getDriverSize() != null) p.setDriverSize(r.getDriverSize());
-        if (r.getFrequencyResponse() != null) p.setFrequencyResponse(r.getFrequencyResponse());
-        if (r.getSensitivity() != null) p.setSensitivity(r.getSensitivity());
-        if (r.getImpedance() != null) p.setImpedance(r.getImpedance());
-        if (r.getPowerHandling() != null) p.setPowerHandling(r.getPowerHandling());
-        if (r.getEnclosureType() != null) p.setEnclosureType(r.getEnclosureType());
-        if (r.getCoveragePattern() != null) p.setCoveragePattern(r.getCoveragePattern());
-        if (r.getCrossoverFrequency() != null) p.setCrossoverFrequency(r.getCrossoverFrequency());
-        if (r.getPlacementType() != null) p.setPlacementType(r.getPlacementType());
-        if (r.getConnectionType() != null) p.setConnectionType(r.getConnectionType());
-
-        // =========================================================
-        // 🎤 MICRO
-        // =========================================================
-        if (r.getMicType() != null) p.setMicType(r.getMicType());
-        if (r.getPolarPattern() != null) p.setPolarPattern(r.getPolarPattern());
-        if (r.getMaxSPL() != null) p.setMaxSPL(r.getMaxSPL());
-        if (r.getMicOutputImpedance() != null) p.setMicOutputImpedance(r.getMicOutputImpedance());
-        if (r.getMicSensitivity() != null) p.setMicSensitivity(r.getMicSensitivity());
-
-        // =========================================================
-        // 📻 AMPLI / RECEIVER
-        // =========================================================
-        if (r.getAmplifierType() != null) p.setAmplifierType(r.getAmplifierType());
-        if (r.getTotalPowerOutput() != null) p.setTotalPowerOutput(r.getTotalPowerOutput());
-        if (r.getThd() != null) p.setThd(r.getThd());
-        if (r.getSnr() != null) p.setSnr(r.getSnr());
-        if (r.getInputChannels() != null) p.setInputChannels(r.getInputChannels());
-        if (r.getOutputChannels() != null) p.setOutputChannels(r.getOutputChannels());
-        if (r.getSupportBluetooth() != null) p.setSupportBluetooth(r.getSupportBluetooth());
-        if (r.getSupportWifi() != null) p.setSupportWifi(r.getSupportWifi());
-        if (r.getSupportAirplay() != null) p.setSupportAirplay(r.getSupportAirplay());
-
-        // =========================================================
-        // 📀 TURNTABLE
-        // =========================================================
-        if (r.getPlatterMaterial() != null) p.setPlatterMaterial(r.getPlatterMaterial());
-        if (r.getMotorType() != null) p.setMotorType(r.getMotorType());
-        if (r.getTonearmType() != null) p.setTonearmType(r.getTonearmType());
-        if (r.getAutoReturn() != null) p.setAutoReturn(r.getAutoReturn());
-
-        // =========================================================
-        // 🎛️ DAC / MIXER / SOUND CARD
-        // =========================================================
-        if (r.getDacChipset() != null) p.setDacChipset(r.getDacChipset());
-        if (r.getSampleRate() != null) p.setSampleRate(r.getSampleRate());
-        if (r.getBitDepth() != null) p.setBitDepth(r.getBitDepth());
-        if (r.getBalancedOutput() != null) p.setBalancedOutput(r.getBalancedOutput());
-        if (r.getInputInterface() != null) p.setInputInterface(r.getInputInterface());
-        if (r.getOutputInterface() != null) p.setOutputInterface(r.getOutputInterface());
-        if (r.getChannelCount() != null) p.setChannelCount(r.getChannelCount());
-        if (r.getHasPhantomPower() != null) p.setHasPhantomPower(r.getHasPhantomPower());
-        if (r.getEqBands() != null) p.setEqBands(r.getEqBands());
-        if (r.getFaderType() != null) p.setFaderType(r.getFaderType());
-        if (r.getBuiltInEffects() != null) p.setBuiltInEffects(r.getBuiltInEffects());
-        if (r.getUsbAudioInterface() != null) p.setUsbAudioInterface(r.getUsbAudioInterface());
-        if (r.getMidiSupport() != null) p.setMidiSupport(r.getMidiSupport());
-    }
-
-
-    // ============================================================
-    // 🔻 DISABLE PRODUCT
-    // ============================================================
-    @Override
-    public ResponseEntity<BaseResponse> disableProduct(UUID id) {
-        Product product = productRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
-        if (product.getStatus() == ProductStatus.INACTIVE) {
-            product.setStatus(ProductStatus.ACTIVE);
-        } else {
-            product.setStatus(ProductStatus.INACTIVE);
-        }
-
-        product.setUpdatedAt(LocalDateTime.now());
-        productRepository.save(product);
-
-        return ResponseEntity.ok(
-                new BaseResponse<>(200, "🚫 Product disabled successfully", toResponse(product))
-        );
-    }
-
-    // ============================================================
-    // 🔎 GET PRODUCT BY ID
-    // ============================================================
+    // ================================================
+    // GET PRODUCT BY ID
+    // ================================================
     @Override
     public ResponseEntity<BaseResponse> getProductById(UUID id) {
         try {
@@ -804,20 +467,14 @@ public class ProductServiceImpl implements ProductService {
             );
 
         } catch (Exception e) {
-            System.err.println("❌ [getProductById ERROR] ID = " + id);
-            System.err.println("❌ Error Type: " + e.getClass().getSimpleName());
-            System.err.println("❌ Error Message: " + e.getMessage());
-            e.printStackTrace();
-
-            return ResponseEntity.internalServerError().body(
-                    BaseResponse.error("❌ getProductById failed: " + e.getMessage())
-            );
+            return ResponseEntity.internalServerError()
+                    .body(BaseResponse.error("❌ getProductById failed: " + e.getMessage()));
         }
     }
 
-    // ============================================================
-    // 📦 GET ALL PRODUCTS (FILTER + PAGING)
-    // ============================================================
+    // ================================================
+    // 🔥🔥🔥 CLEAN VERSION — GET ALL PRODUCTS (NO DUPLICATE)
+    // ================================================
     @Override
     public ResponseEntity<BaseResponse> getAllProducts(
             String categoryName,
@@ -831,54 +488,52 @@ public class ProductServiceImpl implements ProductService {
     ) {
         try {
             Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+
             Page<Product> products = productRepository.findAll(pageable);
 
-            List<String> validCategoryNames = List.of(
-                    "Tai Nghe", "Loa", "Micro", "DAC", "Mixer", "Amp",
-                    "Turntable", "Sound Card", "DJ Controller", "Combo"
-            );
-
-            final String normalizedCategory =
-                    (categoryName != null && !categoryName.isBlank())
-                            ? validCategoryNames.stream()
-                            .filter(c -> c.equalsIgnoreCase(categoryName))
-                            .findFirst()
-                            .orElse(null)
-                            : null;
+            String normalizedCategory = (categoryName != null && !categoryName.isBlank())
+                    ? categoryName.trim().toLowerCase()
+                    : null;
 
             List<ProductResponse> filtered = products.getContent().stream()
-                    .filter(p -> normalizedCategory == null ||
-                            (p.getCategory() != null &&
-                                    p.getCategory().getName() != null &&
-                                    p.getCategory().getName().equalsIgnoreCase(normalizedCategory)))
 
+                    // CATEGORY
+                    .filter(p -> {
+                        if (normalizedCategory == null) return true;
+                        Set<String> cateNames = p.getCategories().stream()
+                                .map(c -> c.getName().toLowerCase())
+                                .collect(Collectors.toSet());
+                        return cateNames.contains(normalizedCategory);
+                    })
+
+                    // STORE
                     .filter(p -> storeId == null || p.getStore().getStoreId().equals(storeId))
 
+                    // KEYWORD
                     .filter(p -> keyword == null ||
-                            p.getName().toLowerCase().contains(keyword.toLowerCase()))
+                            (p.getName() != null &&
+                                    p.getName().toLowerCase().contains(keyword.toLowerCase())))
 
+                    // STATUS
                     .filter(p -> status == null || p.getStatus() == status)
 
-                    // 🔥 NEW: FILTER KHOẢNG GIÁ
+                    // PRICE
                     .filter(p -> {
                         BigDecimal lowestPrice = p.getPrice();
 
-                        if (p.getVariants() != null && !p.getVariants().isEmpty()) {
-                            BigDecimal minVariant =
-                                    p.getVariants().stream()
-                                            .map(ProductVariantEntity::getVariantPrice)
-                                            .filter(Objects::nonNull)
-                                            .min(BigDecimal::compareTo)
-                                            .orElse(p.getPrice());
+                        List<ProductVariantEntity> variants =
+                                productVariantRepository.findAllByProduct_ProductId(p.getProductId());
 
-                            lowestPrice = minVariant;
+                        if (!variants.isEmpty()) {
+                            lowestPrice = variants.stream()
+                                    .map(ProductVariantEntity::getVariantPrice)
+                                    .filter(Objects::nonNull)
+                                    .min(BigDecimal::compareTo)
+                                    .orElse(lowestPrice);
                         }
 
-                        if (minPrice != null && lowestPrice.compareTo(minPrice) < 0)
-                            return false;
-
-                        if (maxPrice != null && lowestPrice.compareTo(maxPrice) > 0)
-                            return false;
+                        if (minPrice != null && lowestPrice.compareTo(minPrice) < 0) return false;
+                        if (maxPrice != null && lowestPrice.compareTo(maxPrice) > 0) return false;
 
                         return true;
                     })
@@ -887,181 +542,112 @@ public class ProductServiceImpl implements ProductService {
                     .toList();
 
             return ResponseEntity.ok(
-                    new BaseResponse<>(200, "📦 Product list filtered successfully", filtered)
+                    BaseResponse.success("📦 Product list filtered successfully", filtered)
             );
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.internalServerError().body(
-                    BaseResponse.error("❌ getAllProducts failed: " + e.getMessage())
-            );
+            return ResponseEntity.internalServerError()
+                    .body(BaseResponse.error("❌ getAllProducts failed: " + e.getMessage()));
         }
     }
 
+    // ================================================
+    // DISABLE PRODUCT
+    // ================================================
+    @Override
+    public ResponseEntity<BaseResponse> disableProduct(UUID productId) {
+        try {
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
-    // ============================================================
-    // 💡 Convert Entity → ProductResponse (FULL)
-    // ============================================================
-    private ProductResponse toResponse(Product p) {
-        return ProductResponse.builder()
-                .productId(p.getProductId())
-                .storeId(p.getStore().getStoreId())
-                .storeName(p.getStore().getStoreName())
-                .categoryId(p.getCategory().getCategoryId())
-                .categoryName(p.getCategory().getName())
-                .brandName(p.getBrandName())
-                .name(p.getName())
-                .slug(p.getSlug())
-                .shortDescription(p.getShortDescription())
-                .description(p.getDescription())
-                .model(p.getModel())
-                .color(p.getColor())
-                .material(p.getMaterial())
-                .dimensions(p.getDimensions())
-                .weight(p.getWeight())
-                // Lấy danh sách biến thể
-                .variants(
-                        productVariantRepository.findAllByProduct_ProductId(p.getProductId())
-                                .stream()
-                                .map(v -> new ProductResponse.VariantResponse(
-                                        v.getId(),
-                                        v.getOptionName(),
-                                        v.getOptionValue(),
-                                        v.getVariantPrice(),
-                                        v.getVariantStock(),
-                                        v.getVariantUrl(),
-                                        v.getVariantSku()
-                                ))
-                                .toList()
-                )
-                .images(p.getImages())
-                .videoUrl(p.getVideoUrl())
-                .sku(p.getSku())
-                .price(p.getPrice())
-                .discountPrice(p.getDiscountPrice())
-                .promotionPercent(p.getPromotionPercent())
-                .priceAfterPromotion(p.getPriceAfterPromotion())
-                .priceBeforeVoucher(p.getPriceBeforeVoucher())
-                .voucherAmount(p.getVoucherAmount())
-                .finalPrice(p.getFinalPrice())
-                .platformFeePercent(p.getPlatformFeePercent())
-                .currency(p.getCurrency())
-                .stockQuantity(p.getStockQuantity())
-                .warehouseLocation(p.getWarehouseLocation())
-                .shippingAddress(p.getShippingAddress())
-                .provinceCode(p.getProvinceCode())
-                .districtCode(p.getDistrictCode())
-                .wardCode(p.getWardCode())
-                .shippingFee(p.getShippingFee())
-                .supportedShippingMethodIds(p.getSupportedShippingMethodIds())
-                .bulkDiscounts(p.getBulkDiscounts() != null
-                        ? p.getBulkDiscounts().stream()
-                        .map(b -> new ProductResponse.BulkDiscountResponse(
-                                b.getFromQuantity(),
-                                b.getToQuantity(),
-                                b.getUnitPrice()))
-                        .toList()
-                        : null)
-                .status(p.getStatus())
-                .isFeatured(p.getIsFeatured())
-                .ratingAverage(p.getRatingAverage())
-                .reviewCount(p.getReviewCount())
-                .viewCount(p.getViewCount())
-                .frequencyResponse(p.getFrequencyResponse())
-                .sensitivity(p.getSensitivity())
-                .impedance(p.getImpedance())
-                .powerHandling(p.getPowerHandling())
-                .connectionType(p.getConnectionType())
-                .voltageInput(p.getVoltageInput())
-                .warrantyPeriod(p.getWarrantyPeriod())
-                .warrantyType(p.getWarrantyType())
-                .manufacturerName(p.getManufacturerName())
-                .manufacturerAddress(p.getManufacturerAddress())
-                .productCondition(p.getProductCondition())
-                .isCustomMade(p.getIsCustomMade())
-                .driverConfiguration(p.getDriverConfiguration())
-                .driverSize(p.getDriverSize())
-                .enclosureType(p.getEnclosureType())
-                .coveragePattern(p.getCoveragePattern())
-                .crossoverFrequency(p.getCrossoverFrequency())
-                .placementType(p.getPlacementType())
-                .headphoneType(p.getHeadphoneType())
-                .compatibleDevices(p.getCompatibleDevices())
-                .isSportsModel(p.getIsSportsModel())
-                .headphoneFeatures(p.getHeadphoneFeatures())
-                .batteryCapacity(p.getBatteryCapacity())
-                .hasBuiltInBattery(p.getHasBuiltInBattery())
-                .isGamingHeadset(p.getIsGamingHeadset())
-                .headphoneAccessoryType(p.getHeadphoneAccessoryType())
-                .headphoneConnectionType(p.getHeadphoneConnectionType())
-                .plugType(p.getPlugType())
-                .sirimApproved(p.getSirimApproved())
-                .sirimCertified(p.getSirimCertified())
-                .mcmcApproved(p.getMcmcApproved())
-                .micType(p.getMicType())
-                .polarPattern(p.getPolarPattern())
-                .maxSPL(p.getMaxSPL())
-                .micOutputImpedance(p.getMicOutputImpedance())
-                .micSensitivity(p.getMicSensitivity())
-                .amplifierType(p.getAmplifierType())
-                .totalPowerOutput(p.getTotalPowerOutput())
-                .thd(p.getThd())
-                .snr(p.getSnr())
-                .inputChannels(p.getInputChannels())
-                .outputChannels(p.getOutputChannels())
-                .supportBluetooth(p.getSupportBluetooth())
-                .supportWifi(p.getSupportWifi())
-                .supportAirplay(p.getSupportAirplay())
-                .platterMaterial(p.getPlatterMaterial())
-                .motorType(p.getMotorType())
-                .tonearmType(p.getTonearmType())
-                .autoReturn(p.getAutoReturn())
-                .dacChipset(p.getDacChipset())
-                .sampleRate(p.getSampleRate())
-                .bitDepth(p.getBitDepth())
-                .balancedOutput(p.getBalancedOutput())
-                .inputInterface(p.getInputInterface())
-                .outputInterface(p.getOutputInterface())
-                .channelCount(p.getChannelCount())
-                .hasPhantomPower(p.getHasPhantomPower())
-                .eqBands(p.getEqBands())
-                .faderType(p.getFaderType())
-                .builtInEffects(p.getBuiltInEffects())
-                .usbAudioInterface(p.getUsbAudioInterface())
-                .midiSupport(p.getMidiSupport())
-                .createdAt(p.getCreatedAt())
-                .updatedAt(p.getUpdatedAt())
-                .lastUpdatedAt(p.getLastUpdatedAt())
-                .lastUpdateIntervalDays(p.getLastUpdateIntervalDays())
-                .createdBy(p.getCreatedBy())
-                .updatedBy(p.getUpdatedBy())
-                .build();
+            if (product.getStatus() == ProductStatus.INACTIVE) {
+                product.setStatus(ProductStatus.ACTIVE);
+            } else {
+                product.setStatus(ProductStatus.INACTIVE);
+            }
+
+            product.setUpdatedAt(LocalDateTime.now());
+            productRepository.save(product);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "🚫 Product status updated", toResponse(product))
+            );
+
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(BaseResponse.error("❌ disableProduct failed: " + e.getMessage()));
+        }
     }
 
-    // ============================================================
-    // 👁️ INCREMENT VIEW COUNT
-    // ============================================================
+    // ================================================
+    // INCREMENT VIEW
+    // ================================================
     @Override
     public ResponseEntity<BaseResponse> incrementViewCount(UUID productId) {
         try {
             Product product = productRepository.findById(productId)
-                    .orElseThrow(() -> new RuntimeException("❌ Product not found with id: " + productId));
+                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
-            // Tăng viewCount lên 1
-            Integer currentViews = product.getViewCount();
-            product.setViewCount(currentViews != null ? currentViews + 1 : 1);
+            int current = product.getViewCount() != null ? product.getViewCount() : 0;
+            product.setViewCount(current + 1);
 
             productRepository.save(product);
 
             return ResponseEntity.ok(
-                    new BaseResponse<>(200, "✅ View count incremented successfully",
+                    new BaseResponse<>(200, "👁️ View count incremented",
                             Map.of("productId", productId, "viewCount", product.getViewCount()))
             );
+
         } catch (Exception e) {
-            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                    .body(BaseResponse.error("❌ incrementViewCount failed: " + e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<BaseResponse> approveProduct(UUID productId, ApproveProductRequest req) {
+        try {
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+
+            // Chỉ duyệt được DRAFT
+            if (product.getStatus() != ProductStatus.DRAFT) {
+                throw new RuntimeException("❌ Only DRAFT products can be reviewed");
+            }
+
+            // TỪ CHỐI → yêu cầu nhập lý do
+            if (!req.isApproved() && (req.getReason() == null || req.getReason().trim().isEmpty())) {
+                throw new RuntimeException("❌ Reason is required when rejecting");
+            }
+
+            // APPROVE
+            if (req.isApproved()) {
+                product.setStatus(ProductStatus.ACTIVE);
+                product.setApprovalReason(req.getReason());
+            }
+            // REJECT
+            else {
+                product.setStatus(ProductStatus.DRAFT);  // giữ nguyên
+                product.setApprovalReason(req.getReason());
+            }
+
+            productRepository.save(product);
+
+            return ResponseEntity.ok(
+                    BaseResponse.success("✔ Product review updated", Map.of(
+                            "productId", productId,
+                            "approved", req.isApproved(),
+                            "status", product.getStatus(),
+                            "reason", product.getApprovalReason()
+                    ))
+            );
+
+        } catch (Exception e) {
             return ResponseEntity.internalServerError().body(
-                    BaseResponse.error("❌ Failed to increment view count: " + e.getMessage())
+                    BaseResponse.error("❌ approveProduct failed: " + e.getMessage())
             );
         }
     }
+
+
 }

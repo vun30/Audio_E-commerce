@@ -21,7 +21,8 @@ public interface StoreService {
 
     ResponseEntity<BaseResponse> updateStore(UUID storeId, UpdateStoreRequest request);
 
-    ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus status);
+    ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus status, String reason);
+
 
     ResponseEntity<BaseResponse> getAllStores(int page, int size, String keyword);
 

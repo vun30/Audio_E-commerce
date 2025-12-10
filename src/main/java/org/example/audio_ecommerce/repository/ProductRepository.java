@@ -1,5 +1,7 @@
 package org.example.audio_ecommerce.repository;
 
+import org.example.audio_ecommerce.entity.Category;
+import org.example.audio_ecommerce.entity.CategoryAttribute;
 import org.example.audio_ecommerce.entity.Product;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Store;
@@ -16,77 +18,82 @@ import java.util.UUID;
 
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
-    // ✅ Tìm sản phẩm theo SKU
+    // =============================
+    // BASIC FINDERS
+    // =============================
     Optional<Product> findBySku(String sku);
-
-    // ✅ Tìm theo slug
     Optional<Product> findBySlug(String slug);
 
-    // ✅ Lấy toàn bộ sản phẩm theo trạng thái (ACTIVE, INACTIVE, ...)
     Page<Product> findAllByStatus(ProductStatus status, Pageable pageable);
 
-    // ✅ Tìm kiếm sản phẩm gần đúng theo tên (giống Google)
     @Query("SELECT p FROM Product p WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     Page<Product> searchByName(@Param("keyword") String keyword, Pageable pageable);
 
-    // ✅ Lọc theo Category
-    @Query("SELECT p FROM Product p WHERE p.category.categoryId = :categoryId")
-    Page<Product> findAllByCategoryId(@Param("categoryId") UUID categoryId, Pageable pageable);
-
-    // ✅ Lọc theo Store
-    @Query("SELECT p FROM Product p WHERE p.store.storeId = :storeId")
-    Page<Product> findAllByStoreId(@Param("storeId") UUID storeId, Pageable pageable);
-
-    // ✅ Lọc sản phẩm nổi bật (isFeatured = true)
-    Page<Product> findAllByIsFeaturedTrue(Pageable pageable);
-
-    // ✅ Lấy sản phẩm theo nhiều ID
-    List<Product> findAllByProductIdIn(List<UUID> productIds);
-
-      /**
-     * 🔍 Kiểm tra SKU có bị trùng trong cùng một cửa hàng hay không
-     */
     boolean existsByStore_StoreIdAndSku(UUID storeId, String sku);
-
-    /**
-     * 🔍 Kiểm tra slug đã tồn tại hay chưa (đảm bảo slug duy nhất toàn hệ thống)
-     */
     boolean existsBySlug(String slug);
-
-    // ✅ Lấy sản phẩm theo khoảng giá
-    @Query("SELECT p FROM Product p WHERE p.price BETWEEN :minPrice AND :maxPrice")
-    Page<Product> findByPriceRange(@Param("minPrice") double minPrice,
-                                   @Param("maxPrice") double maxPrice,
-                                   Pageable pageable);
 
     long countByStore_StoreIdAndStatus(UUID storeId, ProductStatus status);
 
+    // =============================
+    // MANY-TO-MANY CATEGORY QUERIES
+    // =============================
 
-     @Query("""
-        SELECT p FROM Product p
+    /** Lấy product theo categoryId */
+    Page<Product> findByCategories_CategoryId(UUID categoryId, Pageable pageable);
+
+    /** Kiểm tra category có đang được sử dụng không */
+    boolean existsByCategories(Category category);
+
+    /** Kiểm tra bằng categoryId */
+    boolean existsByCategories_CategoryId(UUID categoryId);
+
+    /** Lấy tất cả theo danh sách ID */
+    List<Product> findAllByProductIdIn(List<UUID> productIds);
+
+    // =============================
+    // PRICE
+    // =============================
+    @Query("SELECT p FROM Product p WHERE p.price BETWEEN :minPrice AND :maxPrice")
+    Page<Product> findByPriceRange(
+            @Param("minPrice") double minPrice,
+            @Param("maxPrice") double maxPrice,
+            Pageable pageable
+    );
+
+    // =============================
+    // FILTER BASIC (status + store + category + keyword)
+    // =============================
+    @Query("""
+        SELECT DISTINCT p FROM Product p
+        LEFT JOIN p.categories c
         WHERE (:status IS NULL OR p.status = :status)
-          AND (:categoryId IS NULL OR p.category.categoryId = :categoryId)
+          AND (:categoryId IS NULL OR c.categoryId = :categoryId)
           AND (:storeId IS NULL OR p.store.storeId = :storeId)
           AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
     """)
     Page<Product> findAllWithFilters(
-            @Param("status") String status,
+            @Param("status") ProductStatus status,
             @Param("categoryId") UUID categoryId,
             @Param("storeId") UUID storeId,
             @Param("keyword") String keyword,
-            Pageable pageable);
+            Pageable pageable
+    );
 
+    // =============================
+    // ADVANCED FILTER (STORE ADDRESS + CATEGORY)
+    // =============================
     @Query("""
-SELECT DISTINCT p FROM Product p
-JOIN p.store s
-LEFT JOIN s.storeAddresses addr
-WHERE (:status IS NULL OR CAST(p.status AS string) = UPPER(:status))
-  AND (:categoryId IS NULL OR p.category.categoryId = :categoryId)
-  AND (:storeId IS NULL OR s.storeId = :storeId)
-  AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
-  AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
-  AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
-  AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
+    SELECT DISTINCT p FROM Product p
+    JOIN p.store s
+    LEFT JOIN s.storeAddresses addr
+    LEFT JOIN p.categories c
+    WHERE (:status IS NULL OR p.status = CAST(:status AS org.example.audio_ecommerce.entity.Enum.ProductStatus))
+      AND (:categoryId IS NULL OR c.categoryId = :categoryId)
+      AND (:storeId IS NULL OR s.storeId = :storeId)
+      AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
+      AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
+      AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
+      AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
 """)
 Page<Product> findAllWithAdvancedFilters(
         @Param("status") String status,
@@ -98,25 +105,30 @@ Page<Product> findAllWithAdvancedFilters(
         @Param("wardCode") String wardCode,
         Pageable pageable
 );
-     @Query("SELECT p.store FROM Product p WHERE p.productId = :productId")
-Optional<Store> findStoreByProductId(UUID productId);
 
-     @Modifying
-@Query("UPDATE Product p SET p.status = 'SUSPENDED' WHERE p.store.storeId = :storeId")
-int suspendAllProductsByStore(UUID storeId);
+    // =============================
+    // STORE UTIL
+    // =============================
+    @Query("SELECT p.store FROM Product p WHERE p.productId = :productId")
+    Optional<Store> findStoreByProductId(UUID productId);
 
-@Modifying
-@Query("UPDATE Product p SET p.status = 'UNLISTED' WHERE p.store.storeId = :storeId")
-int unlistAllProductsByStore(UUID storeId);
+    @Modifying
+    @Query("UPDATE Product p SET p.status = 'SUSPENDED' WHERE p.store.storeId = :storeId")
+    int suspendAllProductsByStore(UUID storeId);
 
-@Modifying
-@Query("""
-    UPDATE Product p 
-    SET p.status = 'ACTIVE' 
-    WHERE p.store.storeId = :storeId
-""")
-int activateAllProductsByStore(UUID storeId);
+    @Modifying
+    @Query("UPDATE Product p SET p.status = 'UNLISTED' WHERE p.store.storeId = :storeId")
+    int unlistAllProductsByStore(UUID storeId);
+
+    @Modifying
+    @Query("UPDATE Product p SET p.status = 'ACTIVE' WHERE p.store.storeId = :storeId")
+    int activateAllProductsByStore(UUID storeId);
+
+    boolean existsByCategoriesContaining(Category category);
 
 
-
+    // =============================
+    // CATEGORY ATTRIBUTES (không dùng nữa)
+    // =============================
+    // REMOVE: List<CategoryAttribute> findAllByCategory_CategoryId(UUID categoryId);
 }

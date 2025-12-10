@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Cập nhật trạng thái cửa hàng</title>
+</head>
+
+<body style="font-family: Arial, sans-serif; background:#f5f6fa; padding: 25px;">
+
+<div style="max-width: 600px; margin: auto; background:white; padding: 30px; border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+
+    <h2 style="color:#333; text-align:center; margin-bottom:20px;">
+        🔔 Cập nhật trạng thái cửa hàng
+    </h2>
+
+    <p>Xin chào <b th:text="${ownerName}"></b>,</p>
+
+    <p>
+        Trạng thái của cửa hàng <b th:text="${storeName}"></b> đã được Admin cập nhật.
+    </p>
+
+    <div style="border-left: 4px solid #1a73e8; padding-left: 10px; margin: 15px 0;">
+        <p style="margin:0; font-size:16px;">
+            <b>Trạng thái mới:</b>
+            <span th:text="${newStatus}" style="color:#1a73e8;"></span>
+        </p>
+    </div>
+
+    <p>
+        <b>Lý do từ hệ thống:</b>
+    </p>
+
+    <div style="background:#f0f2f5; padding:12px 15px; border-radius:6px; margin-bottom:20px;">
+        <p style="margin:0;" th:text="${reason}">Không có lý do được cung cấp.</p>
+    </div>
+
+    <p>
+        Vui lòng đăng nhập vào hệ thống để xem chi tiết thông báo và cập nhật thông tin nếu cần thiết.
+    </p>
+
+    <div style="text-align:center; margin:30px 0;">
+        <a th:href="${siteUrl}"
+           style="background:#1a73e8; color:white; padding:12px 25px;
+                  text-decoration:none; border-radius:6px; font-weight:bold;">
+            Truy cập Merchant Center
+        </a>
+    </div>
+
+    <p style="margin-top:20px;">
+        Nếu bạn có bất kỳ câu hỏi hoặc cần hỗ trợ, vui lòng phản hồi lại email này.
+    </p>
+
+    <p>Trân trọng,<br/>Đội ngũ hỗ trợ AudioShop</p>
+
+    <hr style="margin-top:30px; opacity:0.3;">
+
+    <p style="font-size:12px; color:#777; text-align:center;">
+        Đây là email tự động, vui lòng không trả lời trực tiếp.
+    </p>
+
+</div>
+
+</body>
+</html>

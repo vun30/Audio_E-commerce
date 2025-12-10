@@ -33,21 +33,20 @@ public class ProductViewServiceImpl implements ProductViewService {
     // =========================================================
     @Override
     public ResponseEntity<BaseResponse> getThumbnailView(
-        String status,
-        UUID categoryId,
-        UUID storeId,
-        String keyword,
-        String provinceCode,
-        String districtCode,
-        String wardCode,
-        BigDecimal minPrice,
-        BigDecimal maxPrice,
-        BigDecimal minRating,
-        Pageable pageable,
-        String sortBy,      // NEW
-        String sortDir      // NEW
-)
- {
+            String status,
+            UUID categoryId,
+            UUID storeId,
+            String keyword,
+            String provinceCode,
+            String districtCode,
+            String wardCode,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            BigDecimal minRating,
+            Pageable pageable,
+            String sortBy,
+            String sortDir
+    ) {
 
         Page<Product> products = productRepo.findAllWithAdvancedFilters(
                 status, categoryId, storeId, keyword,
@@ -57,41 +56,29 @@ public class ProductViewServiceImpl implements ProductViewService {
         LocalDateTime now = LocalDateTime.now();
 
         // ======================================================
-        // 1️⃣ LỌC THEO GIÁ (APPLY CHO PRODUCT + VARIANT)
+        // 🔥 FILTER PRICE (PRODUCT + VARIANT)
         // ======================================================
         List<Product> filtered = products.getContent().stream()
                 .filter(p -> {
-
-                    // --- Lấy giá thấp nhất ---
-                    BigDecimal basePrice = (p.getFinalPrice() != null)
-                            ? p.getFinalPrice()
-                            : p.getPrice();
+                    BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
 
                     BigDecimal lowestPrice = basePrice;
-
                     if (p.getVariants() != null && !p.getVariants().isEmpty()) {
-                        BigDecimal minVariant = p.getVariants().stream()
+                        lowestPrice = p.getVariants().stream()
                                 .map(ProductVariantEntity::getVariantPrice)
                                 .filter(Objects::nonNull)
                                 .min(BigDecimal::compareTo)
                                 .orElse(basePrice);
-
-                        lowestPrice = minVariant;
                     }
 
-                    // --- Lọc theo minPrice ---
-                    if (minPrice != null && lowestPrice.compareTo(minPrice) < 0)
-                        return false;
-
-                    // --- Lọc theo maxPrice ---
-                    if (maxPrice != null && lowestPrice.compareTo(maxPrice) > 0)
-                        return false;
+                    if (minPrice != null && lowestPrice.compareTo(minPrice) < 0) return false;
+                    if (maxPrice != null && lowestPrice.compareTo(maxPrice) > 0) return false;
 
                     return true;
                 })
 
                 // ======================================================
-                // 2️⃣ LỌC THEO ĐÁNH GIÁ
+                // 🔥 FILTER RATING
                 // ======================================================
                 .filter(p ->
                         minRating == null
@@ -99,32 +86,27 @@ public class ProductViewServiceImpl implements ProductViewService {
                                 && p.getRatingAverage().compareTo(minRating) >= 0)
                 )
 
-                 // ======================================================
-        // ⭐ 2️⃣.1 FUZZY SEARCH THEO KEYWORD (THÊM Ở ĐÂY)
-        // ======================================================
-        .filter(p -> {
-            if (keyword == null || keyword.isBlank()) return true;
+                // ======================================================
+                // 🔥 FUZZY SEARCH
+                // ======================================================
+                .filter(p -> {
+                    if (keyword == null || keyword.isBlank()) return true;
+                    return fuzzyMatch(p.getName(), keyword)
+                            || fuzzyMatch(p.getBrandName(), keyword)
+                            || fuzzyMatch(p.getDescription(), keyword);
+                })
 
-            return fuzzyMatch(p.getName(), keyword)
-                    || fuzzyMatch(p.getBrandName(), keyword)
-                    || fuzzyMatch(p.getDescription(), keyword);
-        })
                 .toList();
 
-
-
         // ======================================================
-// 3️⃣ SORTING — THÊM NGAY Ở ĐÂY
-// ======================================================
+        // 🔥 SORTING
+        // ======================================================
         Comparator<Product> comparator;
 
         switch (sortBy.toLowerCase()) {
             case "price" -> {
                 comparator = Comparator.comparing(p -> {
-                    BigDecimal basePrice = (p.getFinalPrice() != null)
-                            ? p.getFinalPrice()
-                            : p.getPrice();
-
+                    BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
                     if (p.getVariants() != null && !p.getVariants().isEmpty()) {
                         return p.getVariants().stream()
                                 .map(ProductVariantEntity::getVariantPrice)
@@ -135,21 +117,17 @@ public class ProductViewServiceImpl implements ProductViewService {
                     return basePrice;
                 });
             }
-            default -> { // sortBy = name
-                comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
-            }
+            default -> comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
         }
 
-        if ("desc".equalsIgnoreCase(sortDir)) {
-            comparator = comparator.reversed();
-        }
+        if ("desc".equalsIgnoreCase(sortDir)) comparator = comparator.reversed();
 
         filtered = filtered.stream()
                 .sorted(comparator)
                 .toList();
 
         // ======================================================
-        // 3️⃣ XÂY DỰNG RESPONSE
+        // 🔥 BUILD RESPONSE
         // ======================================================
         List<Map<String, Object>> data = filtered.stream().map(product -> {
 
@@ -160,21 +138,29 @@ public class ProductViewServiceImpl implements ProductViewService {
             p.put("price", product.getPrice());
             p.put("discountPrice", product.getDiscountPrice());
             p.put("finalPrice", product.getFinalPrice());
-            p.put("category", product.getCategory().getName());
             p.put("ratingAverage", product.getRatingAverage());
             p.put("reviewCount", product.getReviewCount());
 
-            // Ảnh thumbnail
+            // ⭐ FIX LỖI — MULTIPLE CATEGORY
+            p.put("categories",
+                    product.getCategories() == null ? List.of() :
+                            product.getCategories().stream()
+                                    .map(c -> Map.of(
+                                            "categoryId", c.getCategoryId(),
+                                            "categoryName", c.getName()
+                                    ))
+                                    .toList()
+            );
+
             p.put("thumbnailUrl",
-                    product.getImages() != null && !product.getImages().isEmpty()
+                    (product.getImages() != null && !product.getImages().isEmpty())
                             ? product.getImages().get(0)
                             : null
             );
 
-            // ========= VARIANTS =========
             p.put("variants", buildVariantList(product));
 
-            // ========= STORE INFO =========
+            // STORE INFO
             Map<String, Object> storeMap = new LinkedHashMap<>();
             storeMap.put("id", product.getStore().getStoreId());
             storeMap.put("name", product.getStore().getStoreName());
@@ -195,41 +181,41 @@ public class ProductViewServiceImpl implements ProductViewService {
 
             p.put("store", storeMap);
 
-            // ========= VOUCHERS =========
+            // VOUCHERS
             Map<String, Object> voucherMap = new LinkedHashMap<>();
 
-            // → SHOP VOUCHERS
             shopVoucherProductRepo.findActiveShopVoucherProduct(product.getProductId(), now)
-                    .ifPresent(svp -> {
-                        var v = svp.getVoucher();
-                        if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
-                            Map<String, Object> shopVoucher = new LinkedHashMap<>();
-                            shopVoucher.put("source", "SHOP");
-                            shopVoucher.put("shopVoucherId", v.getId());
-                            shopVoucher.put("shopVoucherProductId", svp.getId());
-                            shopVoucher.put("code", v.getCode());
-                            shopVoucher.put("title", v.getTitle());
-                            shopVoucher.put("type", v.getType() != null ? v.getType().name() : null);
-                            shopVoucher.put("discountValue", v.getDiscountValue());
-                            shopVoucher.put("discountPercent", v.getDiscountPercent());
-                            shopVoucher.put("maxDiscountValue", v.getMaxDiscountValue());
-                            shopVoucher.put("minOrderValue", v.getMinOrderValue());
-                            shopVoucher.put("startTime", v.getStartTime());
-                            shopVoucher.put("endTime", v.getEndTime());
-                            voucherMap.put("shopVoucher", shopVoucher);
-                        }
-                    });
+        .ifPresent(svp -> {
+            var v = svp.getVoucher();
+            if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
 
-            // → PLATFORM VOUCHERS
+                Map<String, Object> shopVoucher = new LinkedHashMap<>();
+                shopVoucher.put("source", "SHOP");
+                shopVoucher.put("shopVoucherId", v.getId());
+                shopVoucher.put("shopVoucherProductId", svp.getId());
+                shopVoucher.put("code", v.getCode());
+                shopVoucher.put("title", v.getTitle());
+                shopVoucher.put("type", v.getType() != null ? v.getType().name() : null);
+                shopVoucher.put("discountValue", v.getDiscountValue());
+                shopVoucher.put("discountPercent", v.getDiscountPercent());
+                shopVoucher.put("maxDiscountValue", v.getMaxDiscountValue());
+                shopVoucher.put("minOrderValue", v.getMinOrderValue());
+                shopVoucher.put("startTime", v.getStartTime());
+                shopVoucher.put("endTime", v.getEndTime());
+
+                voucherMap.put("shopVoucher", shopVoucher);
+            }
+        });
+
+
+            // PLATFORM VOUCHERS
             List<PlatformCampaignProduct> activeMappings =
                     platformCampaignProductRepo.findAllActiveOnlyStatus(product.getProductId());
 
             if (!activeMappings.isEmpty()) {
-
                 Map<UUID, List<PlatformCampaignProduct>> grouped =
-                        activeMappings.stream().collect(
-                                Collectors.groupingBy(cp -> cp.getCampaign().getId())
-                        );
+                        activeMappings.stream()
+                                .collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
 
                 List<Map<String, Object>> campaigns = new ArrayList<>();
 
@@ -243,12 +229,6 @@ public class ProductViewServiceImpl implements ProductViewService {
                     cMap.put("name", c.getName());
                     cMap.put("description", c.getDescription());
                     cMap.put("campaignType", c.getCampaignType());
-                    cMap.put("badgeLabel", c.getBadgeLabel());
-                    cMap.put("badgeColor", c.getBadgeColor());
-                    cMap.put("badgeIconUrl", c.getBadgeIconUrl());
-                    cMap.put("status", c.getStatus());
-                    cMap.put("startTime", c.getStartTime());
-                    cMap.put("endTime", c.getEndTime());
 
                     List<Map<String, Object>> voucherList = cps.stream().map(cp -> {
                         Map<String, Object> m = new LinkedHashMap<>();
@@ -259,20 +239,8 @@ public class ProductViewServiceImpl implements ProductViewService {
                         m.put("discountPercent", cp.getDiscountPercent());
                         m.put("maxDiscountValue", cp.getMaxDiscountValue());
                         m.put("minOrderValue", cp.getMinOrderValue());
-                        m.put("totalVoucherIssued", cp.getTotalVoucherIssued());
-                        m.put("totalUsageLimit", cp.getTotalUsageLimit());
                         m.put("usagePerUser", cp.getUsagePerUser());
                         m.put("status", cp.getStatus());
-                        m.put("startTime", cp.getStartTime());
-                        m.put("endTime", cp.getEndTime());
-
-                        PlatformCampaignFlashSlot slot = cp.getFlashSlot();
-                        if (c.getCampaignType() == CampaignType.FAST_SALE && slot != null) {
-                            m.put("flashSlotId", slot.getId());
-                            m.put("slotOpenTime", slot.getOpenTime());
-                            m.put("slotCloseTime", slot.getCloseTime());
-                            m.put("slotStatus", slot.getStatus());
-                        }
                         return m;
                     }).toList();
 
@@ -289,7 +257,7 @@ public class ProductViewServiceImpl implements ProductViewService {
         }).toList();
 
         // ======================================================
-        // 4️⃣ PAGINATION META
+        // PAGINATION
         // ======================================================
         int totalElements = filtered.size();
         int totalPages = (int) Math.ceil((double) totalElements / pageable.getPageSize());
@@ -303,13 +271,11 @@ public class ProductViewServiceImpl implements ProductViewService {
                 "totalElements", totalElements
         ));
 
-        return ResponseEntity.ok(
-                BaseResponse.success("✅ Lấy danh sách thumbnail thành công", result)
-        );
+        return ResponseEntity.ok(BaseResponse.success("✅ Lấy danh sách thumbnail thành công", result));
     }
 
     // =========================================================
-    // 2) PDP - GET ACTIVE VOUCHERS OF PRODUCT
+    // 2) PDP – ACTIVE VOUCHERS
     // =========================================================
     @Override
     public ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType) {
@@ -319,13 +285,10 @@ public class ProductViewServiceImpl implements ProductViewService {
         Product p = productRepo.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-        // 🔥 CHECK PRODUCT PHẢI ACTIVE — nếu không → báo lỗi luôn
         if (p.getStatus() != ProductStatus.ACTIVE) {
-            return ResponseEntity
-                    .badRequest()
+            return ResponseEntity.badRequest()
                     .body(BaseResponse.error("❌ Product is not active"));
         }
-
 
         Map<String, Object> productMap = new LinkedHashMap<>();
         productMap.put("productId", p.getProductId());
@@ -334,12 +297,24 @@ public class ProductViewServiceImpl implements ProductViewService {
         productMap.put("discountPrice", p.getDiscountPrice());
         productMap.put("finalPrice", p.getFinalPrice());
         productMap.put("brandName", p.getBrandName());
-        productMap.put("category", p.getCategory() != null ? p.getCategory().getName() : null);
-        productMap.put("thumbnailUrl", p.getImages() != null && !p.getImages().isEmpty()
-                ? p.getImages().get(0)
-                : null);
 
-        // ADD VARIANTS
+        // ⭐ FIX lại MULTI CATEGORY
+        productMap.put("categories",
+                p.getCategories() == null ? List.of() :
+                        p.getCategories().stream()
+                                .map(c -> Map.of(
+                                        "categoryId", c.getCategoryId(),
+                                        "categoryName", c.getName()
+                                ))
+                                .toList()
+        );
+
+        productMap.put("thumbnailUrl",
+                p.getImages() != null && !p.getImages().isEmpty()
+                        ? p.getImages().get(0)
+                        : null
+        );
+
         productMap.put("variants", buildVariantList(p));
 
         Map<String, Object> vouchers = new LinkedHashMap<>();
@@ -350,20 +325,15 @@ public class ProductViewServiceImpl implements ProductViewService {
                     .ifPresent(svp -> {
                         var v = svp.getVoucher();
                         if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
-                            Map<String, Object> m = new LinkedHashMap<>();
-                            m.put("source", "SHOP");
-                            m.put("shopVoucherId", v.getId());
-                            m.put("shopVoucherProductId", svp.getId());
-                            m.put("code", v.getCode());
-                            m.put("title", v.getTitle());
-                            m.put("type", v.getType() != null ? v.getType().name() : null);
-                            m.put("discountValue", v.getDiscountValue());
-                            m.put("discountPercent", v.getDiscountPercent());
-                            m.put("maxDiscountValue", v.getMaxDiscountValue());
-                            m.put("minOrderValue", v.getMinOrderValue());
-                            m.put("startTime", v.getStartTime());
-                            m.put("endTime", v.getEndTime());
-                            vouchers.put("shop", List.of(m));
+                            vouchers.put("shop", List.of(Map.of(
+                                    "source", "SHOP",
+                                    "shopVoucherId", v.getId(),
+                                    "shopVoucherProductId", svp.getId(),
+                                    "code", v.getCode(),
+                                    "title", v.getTitle(),
+                                    "discountValue", v.getDiscountValue(),
+                                    "discountPercent", v.getDiscountPercent()
+                            )));
                         }
                     });
         }
@@ -382,7 +352,8 @@ public class ProductViewServiceImpl implements ProductViewService {
             }
 
             Map<UUID, List<PlatformCampaignProduct>> grouped =
-                    mappings.stream().collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
+                    mappings.stream()
+                            .collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
 
             List<Map<String, Object>> platform = new ArrayList<>();
 
@@ -393,42 +364,16 @@ public class ProductViewServiceImpl implements ProductViewService {
                 Map<String, Object> cMap = new LinkedHashMap<>();
                 cMap.put("campaignId", c.getId());
                 cMap.put("campaignType", c.getCampaignType());
-                cMap.put("code", c.getCode());
                 cMap.put("name", c.getName());
-                cMap.put("description", c.getDescription());
-                cMap.put("badgeLabel", c.getBadgeLabel());
-                cMap.put("badgeColor", c.getBadgeColor());
-                cMap.put("badgeIconUrl", c.getBadgeIconUrl());
-                cMap.put("status", c.getStatus());
-                cMap.put("startTime", c.getStartTime());
-                cMap.put("endTime", c.getEndTime());
 
-                List<Map<String, Object>> voucherList = cps.stream().map(cp -> {
-                    Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("platformVoucherId", cp.getId());
-                    m.put("campaignId", c.getId());
-                    m.put("type", cp.getType() != null ? cp.getType().name() : null);
-                    m.put("discountValue", cp.getDiscountValue());
-                    m.put("discountPercent", cp.getDiscountPercent());
-                    m.put("maxDiscountValue", cp.getMaxDiscountValue());
-                    m.put("minOrderValue", cp.getMinOrderValue());
-                    m.put("totalVoucherIssued", cp.getTotalVoucherIssued());
-                    m.put("totalUsageLimit", cp.getTotalUsageLimit());
-                    m.put("usagePerUser", cp.getUsagePerUser());
-                    m.put("status", cp.getStatus());
-                    m.put("startTime", cp.getStartTime());
-                    m.put("endTime", cp.getEndTime());
-
-                    PlatformCampaignFlashSlot slot = cp.getFlashSlot();
-                    if (c.getCampaignType() == CampaignType.FAST_SALE && slot != null) {
-                        m.put("flashSlotId", slot.getId());
-                        m.put("slotOpenTime", slot.getOpenTime());
-                        m.put("slotCloseTime", slot.getCloseTime());
-                        m.put("slotStatus", slot.getStatus());
-                    }
-
-                    return m;
-                }).toList();
+                List<Map<String, Object>> voucherList = cps.stream()
+                        .map(cp -> Map.<String, Object>of(
+                                "platformVoucherId", cp.getId(),
+                                "discountValue", cp.getDiscountValue(),
+                                "discountPercent", cp.getDiscountPercent(),
+                                "maxDiscountValue", cp.getMaxDiscountValue()
+                        ))
+                        .toList();
 
                 cMap.put("vouchers", voucherList);
                 platform.add(cMap);
@@ -449,25 +394,22 @@ public class ProductViewServiceImpl implements ProductViewService {
     // =========================================================
     private List<Map<String, Object>> buildVariantList(Product product) {
         if (product.getVariants() == null) return List.of();
-
-        return product.getVariants().stream().map(v -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("variantId", v.getId());
-            m.put("optionName", v.getOptionName());     // Color / Size / Version
-            m.put("optionValue", v.getOptionValue());   // Black / M / 256GB
-            m.put("variantSku", v.getVariantSku());
-            m.put("price", v.getVariantPrice());
-            m.put("stock", v.getVariantStock());
-            m.put("imageUrl", v.getVariantUrl());
-            return m;
-        }).toList();
+        return product.getVariants().stream().map(v -> Map.<String, Object>of(
+                "variantId", v.getId(),
+                "optionName", v.getOptionName(),
+                "optionValue", v.getOptionValue(),
+                "variantSku", v.getVariantSku(),
+                "price", v.getVariantPrice(),
+                "stock", v.getVariantStock(),
+                "imageUrl", v.getVariantUrl()
+        )).toList();
     }
 
-    // ==========================================
-// 🔧 FUZZY SEARCH SUPPORT METHOD
-// ==========================================
-private boolean fuzzyMatch(String text, String keyword) {
-    if (text == null || keyword == null) return false;
-    return text.toLowerCase().contains(keyword.toLowerCase().trim());
-}
+    // =========================================================
+    // FUZZY SEARCH
+    // =========================================================
+    private boolean fuzzyMatch(String text, String keyword) {
+        if (text == null || keyword == null) return false;
+        return text.toLowerCase().contains(keyword.toLowerCase().trim());
+    }
 }
