@@ -19,11 +19,14 @@ public interface PlatformWalletService {
 
     // Lọc giao dịch
     List<PlatformTransactionResponse> filterTransactions(
-        UUID storeId,
-        UUID customerId,
-        TransactionStatus status,
-        TransactionType type,
-        LocalDateTime from,
-        LocalDateTime to
-);
+            UUID storeId,
+            UUID customerId,
+            TransactionStatus status,
+            TransactionType type,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    PlatformWalletResponse getPlatformWallet();
+
 }

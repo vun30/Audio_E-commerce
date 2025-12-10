@@ -148,7 +148,6 @@ public class StoreOrder {
     private BigDecimal platformFeeAmount = BigDecimal.ZERO;   // phí nền tảng (theo % product)
 
     // phí ship thực tế GHN báo về
-    // phí ship thực tế GHN báo về
     @Column(name = "platform_fee_percentage", precision = 5, scale = 2)
     private BigDecimal platformFeePercentage;   // % phí nền tảng tại thời điểm checkout (snapshot từ PlatformFee)
 
@@ -163,7 +162,7 @@ public class StoreOrder {
     private BigDecimal netPayoutToStore = BigDecimal.ZERO;    // tiền cuối cùng chuyển vào ví shop
 
     @Lob
-    @Column(name = "settlement_detail_json")
+    @Column(name = "settlement_detail_json",columnDefinition = "TEXT")
     private String settlementDetailJson; // JSON chi tiết breakdown
 
 

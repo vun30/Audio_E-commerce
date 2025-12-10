@@ -902,6 +902,83 @@ public class CartServiceImpl implements CartService {
                     }
                 }
 
+                // ============================
+                // ✅ NEW: TÍNH PHÍ NỀN TẢNG + PHÂN BỔ PHÍ SHIP CHO TỪNG ITEM
+                // ============================
+                List<StoreOrderItem> items = Optional.ofNullable(so.getItems()).orElse(List.of());
+
+                // 1) Platform fee per item = finalLineTotal * platformFeePercentage / 100
+                BigDecimal platformPercent = Optional.ofNullable(so.getPlatformFeePercentage())
+                        .orElse(BigDecimal.ZERO);
+                BigDecimal totalPlatformFeeForOrder = BigDecimal.ZERO;
+
+                for (StoreOrderItem it : items) {
+                    BigDecimal baseForFee = Optional.ofNullable(it.getFinalLineTotal())
+                            .orElse(BigDecimal.ZERO); // tuyệt đối không chứa ship
+                    BigDecimal itemPlatformFee = baseForFee
+                            .multiply(platformPercent)
+                            .divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN); // VND
+
+                    it.setPlatformFeeAmount(itemPlatformFee);
+                    totalPlatformFeeForOrder = totalPlatformFeeForOrder.add(itemPlatformFee);
+                }
+                so.setPlatformFeeAmount(totalPlatformFeeForOrder);
+
+                // 2) Phân bổ phí ship (dự kiến + thực tế) cho từng item
+                BigDecimal shipEstimated = Optional.ofNullable(so.getShippingFee()).orElse(BigDecimal.ZERO);
+                BigDecimal shipActual = Optional.ofNullable(so.getActualShippingFee())
+                        .orElse(shipEstimated);
+
+                // Base để phân bổ ship: dùng finalLineTotal (do đã là doanh thu sau mọi discount)
+                BigDecimal totalBaseForShip = items.stream()
+                        .map(it -> Optional.ofNullable(it.getFinalLineTotal()).orElse(BigDecimal.ZERO))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                BigDecimal allocatedEst = BigDecimal.ZERO;
+                BigDecimal allocatedAct = BigDecimal.ZERO;
+
+                if (totalBaseForShip.compareTo(BigDecimal.ZERO) > 0 && !items.isEmpty()) {
+                    for (int i = 0; i < items.size(); i++) {
+                        StoreOrderItem it = items.get(i);
+                        BigDecimal base = Optional.ofNullable(it.getFinalLineTotal()).orElse(BigDecimal.ZERO);
+
+                        BigDecimal estShare = base.multiply(shipEstimated)
+                                .divide(totalBaseForShip, 0, RoundingMode.DOWN);
+                        BigDecimal actShare = base.multiply(shipActual)
+                                .divide(totalBaseForShip, 0, RoundingMode.DOWN);
+
+                        // chỉnh lệch cho item cuối
+                        if (i == items.size() - 1) {
+                            estShare = shipEstimated.subtract(allocatedEst);
+                            actShare = shipActual.subtract(allocatedAct);
+                        }
+
+                        it.setShippingFeeEstimated(estShare);
+                        it.setShippingFeeActual(actShare);
+                        it.setShippingExtraForStore(actShare.subtract(estShare)); // chênh lệch trên item
+
+                        allocatedEst = allocatedEst.add(estShare);
+                        allocatedAct = allocatedAct.add(actShare);
+
+                        BigDecimal net = it.getAmountCharged()          // khách trả cho item (không gồm ship)
+                                .subtract(it.getPlatformFeeAmount())    // trừ platform fee
+                                .add(it.getShippingExtraForStore());    // cộng ship chênh lệch
+                        it.setNetPayoutItem(net);
+                    }
+
+                } else {
+                    // không có base hoặc ship = 0 → tất cả 0
+                    for (StoreOrderItem it : items) {
+                        it.setShippingFeeEstimated(BigDecimal.ZERO);
+                        it.setShippingFeeActual(BigDecimal.ZERO);
+                        it.setShippingExtraForStore(BigDecimal.ZERO);
+                        BigDecimal net = it.getAmountCharged()
+                                .subtract(it.getPlatformFeeAmount()); // không ship, không extra
+                        it.setNetPayoutItem(net);
+                    }
+                }
+
+
                 storeOrderRepository.save(so);
             }
         }
