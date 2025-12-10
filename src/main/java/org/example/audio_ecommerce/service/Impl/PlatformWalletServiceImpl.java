@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service.Impl;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.PlatformTransactionResponse;
 import org.example.audio_ecommerce.dto.response.PlatformWalletResponse;
+import org.example.audio_ecommerce.entity.Enum.WalletOwnerType;
 import org.example.audio_ecommerce.entity.PlatformTransaction;
 import org.example.audio_ecommerce.entity.PlatformWallet;
 import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
@@ -86,17 +87,26 @@ public class PlatformWalletServiceImpl implements PlatformWalletService {
     }
 
     @Override
-public List<PlatformTransactionResponse> filterTransactions(
-        UUID storeId,
-        UUID customerId,
-        TransactionStatus status,
-        TransactionType type,
-        LocalDateTime from,
-        LocalDateTime to
-) {
-    return transactionRepository.filterTransactions(storeId, customerId, status, type, from, to)
-            .stream()
-            .map(this::mapToTransactionResponse)
-            .collect(Collectors.toList());
-}
+    public List<PlatformTransactionResponse> filterTransactions(
+            UUID storeId,
+            UUID customerId,
+            TransactionStatus status,
+            TransactionType type,
+            LocalDateTime from,
+            LocalDateTime to
+    ) {
+        return transactionRepository.filterTransactions(storeId, customerId, status, type, from, to)
+                .stream()
+                .map(this::mapToTransactionResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public PlatformWalletResponse getPlatformWallet() {
+        PlatformWallet wallet = walletRepository.findFirstByOwnerType(WalletOwnerType.PLATFORM)
+                .orElse(null); // hoặc throw nếu bạn muốn
+
+        return wallet != null ? mapToWalletResponse(wallet, true) : null;
+    }
+
 }

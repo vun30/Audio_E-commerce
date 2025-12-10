@@ -8,14 +8,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.response.BaseResponse;
-import org.example.audio_ecommerce.dto.response.StoreWalletTransactionResponse;
+import org.example.audio_ecommerce.dto.response.*;
+import org.example.audio_ecommerce.entity.Enum.StoreWalletBucket;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
+import org.example.audio_ecommerce.service.StoreWalletQueryService;
 import org.example.audio_ecommerce.service.StoreWalletService;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
+import org.example.audio_ecommerce.util.SecurityUtils;
+import org.springframework.data.domain.*;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +29,10 @@ import java.util.UUID;
 public class StoreWalletController {
 
     private final StoreWalletService storeWalletService;
+    private final SecurityUtils securityUtils;
+
+    // ✅ NEW: service chuyên dùng cho phần thống kê theo từng order item
+    private final StoreWalletQueryService storeWalletQueryService;
 
     // =============================================================
     // 🏦 1️⃣ Lấy thông tin ví cửa hàng hiện tại
@@ -148,6 +151,74 @@ public class StoreWalletController {
 
         return ResponseEntity.ok(
                 new BaseResponse<>(200, "✅ Lọc giao dịch thành công", transactions)
+        );
+    }
+
+    // =============================================================
+    // 💰 4️⃣ TỔNG QUAN PAYOUT THEO ITEM (ước tính / pending / done / lãi ròng)
+    // =============================================================
+    @Operation(
+            summary = "Tổng quan ví payout theo từng order item",
+            description = """
+                    Trả về 4 con số cho cửa hàng:
+                    - estimatedGross: doanh thu ước tính (item chưa payout)
+                    - pendingGross: doanh thu đang bị hold (chưa đủ điều kiện payout)
+                    - doneGross: doanh thu đã payout (gross trước phí nền tảng + ship chênh lệch)
+                    - netProfit: lãi ròng sau khi trừ phí nền tảng, ship chênh lệch, giá vốn.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy tổng quan payout thành công")
+    })
+    @GetMapping("/payout/summary")
+    public ResponseEntity<BaseResponse<StoreWalletSummaryFinalResponse>> getPayoutSummary() {
+
+        // ✅ Lấy storeId của cửa hàng đang đăng nhập
+        UUID storeId = securityUtils.getCurrentStoreId();
+
+
+        StoreWalletSummaryFinalResponse summary =
+                storeWalletQueryService.getSummary(storeId);
+
+        return ResponseEntity.ok(
+                new BaseResponse<>(200, "✅ Lấy tổng quan payout thành công", summary)
+        );
+    }
+
+    // =============================================================
+    // 📦 5️⃣ DANH SÁCH ORDER ITEM THEO BUCKET (estimated / pending / done)
+    // =============================================================
+    @Operation(
+            summary = "Danh sách order item theo từng nhóm ví (estimated, pending, done)",
+            description = """
+                    Cho phép cửa hàng xem chi tiết các order item tạo nên từng con số ví:
+                    - bucket=ESTIMATED: tất cả item chưa payout (doanh thu ước tính).
+                    - bucket=PENDING: item chưa payout và chưa eligible_for_payout (đang hold).
+                    - bucket=DONE: item đã payout, bao gồm cả lãi ròng từng item.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy danh sách item thành công")
+    })
+    @GetMapping("/payout/items")
+    public ResponseEntity<BaseResponse<PagedResult<StoreWalletItemResponse>>> getPayoutItems(
+            @Parameter(description = "Nhóm ví: ESTIMATED / PENDING / DONE", required = true)
+            @RequestParam StoreWalletBucket bucket,
+
+            @Parameter(description = "Trang hiện tại (mặc định = 0)")
+            @RequestParam(defaultValue = "0") int page,
+
+            @Parameter(description = "Số lượng mỗi trang (mặc định = 20)")
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        // ✅ Lấy storeId hiện tại
+        UUID storeId = securityUtils.getCurrentStoreId();
+
+        PagedResult<StoreWalletItemResponse> result =
+                storeWalletQueryService.getItemsByBucket(storeId, bucket, page, size);
+
+        return ResponseEntity.ok(
+                new BaseResponse<>(200, "✅ Lấy danh sách item theo bucket thành công", result)
         );
     }
 }
