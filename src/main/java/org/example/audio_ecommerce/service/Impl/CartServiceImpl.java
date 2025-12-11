@@ -763,7 +763,7 @@ public class CartServiceImpl implements CartService {
             }
             co.setItems(coItems);
 
-            // 4d) Subtotal
+            // 4d) Subtotal abc
             BigDecimal subtotal = coItems.stream()
                     .map(CustomerOrderItem::getLinePriceBeforeDiscount)
                     .filter(Objects::nonNull)
@@ -1632,14 +1632,8 @@ public class CartServiceImpl implements CartService {
      * Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price.
      */
     private BigDecimal getBaseUnitPrice(Product p) {
-        if (p == null) return BigDecimal.ZERO;
-        if (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0) {
-            return p.getDiscountPrice();
-        }
-        if (p.getPrice() != null) {
-            return p.getPrice();
-        }
-        return BigDecimal.ZERO;
+        if (p == null || p.getPrice() == null) return BigDecimal.ZERO;
+        return p.getPrice();
     }
 
     /**
