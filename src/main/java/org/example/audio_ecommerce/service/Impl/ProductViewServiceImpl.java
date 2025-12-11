@@ -32,247 +32,265 @@ public class ProductViewServiceImpl implements ProductViewService {
     // 1) LIST THUMBNAIL VIEW + FILTER
     // =========================================================
     @Override
-    public ResponseEntity<BaseResponse> getThumbnailView(
-            String status,
-            UUID categoryId,
-            UUID storeId,
-            String keyword,
-            String provinceCode,
-            String districtCode,
-            String wardCode,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            BigDecimal minRating,
-            Pageable pageable,
-            String sortBy,
-            String sortDir
-    ) {
+public ResponseEntity<BaseResponse> getThumbnailView(
+        String status,
+        UUID categoryId,
+        UUID storeId,
+        String keyword,
+        String provinceCode,
+        String districtCode,
+        String wardCode,
+        BigDecimal minPrice,
+        BigDecimal maxPrice,
+        BigDecimal minRating,
+        Pageable pageable,
+        String sortBy,
+        String sortDir
+) {
 
-        Page<Product> products = productRepo.findAllWithAdvancedFilters(
-                status, categoryId, storeId, keyword,
-                provinceCode, districtCode, wardCode, pageable
-        );
-
-        LocalDateTime now = LocalDateTime.now();
-
-        // ======================================================
-        // 🔥 FILTER PRICE (PRODUCT + VARIANT)
-        // ======================================================
-        List<Product> filtered = products.getContent().stream()
-                .filter(p -> {
-                    BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
-
-                    BigDecimal lowestPrice = basePrice;
-                    if (p.getVariants() != null && !p.getVariants().isEmpty()) {
-                        lowestPrice = p.getVariants().stream()
-                                .map(ProductVariantEntity::getVariantPrice)
-                                .filter(Objects::nonNull)
-                                .min(BigDecimal::compareTo)
-                                .orElse(basePrice);
-                    }
-
-                    if (minPrice != null && lowestPrice.compareTo(minPrice) < 0) return false;
-                    if (maxPrice != null && lowestPrice.compareTo(maxPrice) > 0) return false;
-
-                    return true;
-                })
-
-                // ======================================================
-                // 🔥 FILTER RATING
-                // ======================================================
-                .filter(p ->
-                        minRating == null
-                                || (p.getRatingAverage() != null
-                                && p.getRatingAverage().compareTo(minRating) >= 0)
-                )
-
-                // ======================================================
-                // 🔥 FUZZY SEARCH
-                // ======================================================
-                .filter(p -> {
-                    if (keyword == null || keyword.isBlank()) return true;
-                    return fuzzyMatch(p.getName(), keyword)
-                            || fuzzyMatch(p.getBrandName(), keyword)
-                            || fuzzyMatch(p.getDescription(), keyword);
-                })
-
-                .toList();
-
-        // ======================================================
-        // 🔥 SORTING
-        // ======================================================
-        Comparator<Product> comparator;
-
-        switch (sortBy.toLowerCase()) {
-            case "price" -> {
-                comparator = Comparator.comparing(p -> {
-                    BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
-                    if (p.getVariants() != null && !p.getVariants().isEmpty()) {
-                        return p.getVariants().stream()
-                                .map(ProductVariantEntity::getVariantPrice)
-                                .filter(Objects::nonNull)
-                                .min(BigDecimal::compareTo)
-                                .orElse(basePrice);
-                    }
-                    return basePrice;
-                });
-            }
-            default -> comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
+    // ==========================================
+    // ✔ Convert status -> ENUM chính xác
+    // ==========================================
+    ProductStatus statusEnum = null;
+    if (status != null && !status.isBlank()) {
+        try {
+            statusEnum = ProductStatus.valueOf(status.toUpperCase());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(BaseResponse.error("❌ Invalid product status: " + status));
         }
+    }
 
-        if ("desc".equalsIgnoreCase(sortDir)) comparator = comparator.reversed();
+    // ==========================================
+    // ✔ GỌI REPOSITORY ĐÚNG — ĐIỂM BỊ THIẾU
+    // ==========================================
+    Page<Product> products = productRepo.findAllWithAdvancedFilters(
+            statusEnum,
+            categoryId,
+            storeId,
+            keyword,
+            provinceCode,
+            districtCode,
+            wardCode,
+            pageable
+    );
 
-        filtered = filtered.stream()
-                .sorted(comparator)
-                .toList();
+    LocalDateTime now = LocalDateTime.now();
 
-        // ======================================================
-        // 🔥 BUILD RESPONSE
-        // ======================================================
-        List<Map<String, Object>> data = filtered.stream().map(product -> {
+    // ======================================================
+    // 🔥 FILTER PRICE (PRODUCT + VARIANT)
+    // ======================================================
+    List<Product> filtered = products.getContent().stream()
+            .filter(p -> {
+                BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
 
-            Map<String, Object> p = new LinkedHashMap<>();
-            p.put("productId", product.getProductId());
-            p.put("name", product.getName());
-            p.put("brandName", product.getBrandName());
-            p.put("price", product.getPrice());
-            p.put("discountPrice", product.getDiscountPrice());
-            p.put("finalPrice", product.getFinalPrice());
-            p.put("ratingAverage", product.getRatingAverage());
-            p.put("reviewCount", product.getReviewCount());
-
-            // ⭐ FIX LỖI — MULTIPLE CATEGORY
-            p.put("categories",
-                    product.getCategories() == null ? List.of() :
-                            product.getCategories().stream()
-                                    .map(c -> Map.of(
-                                            "categoryId", c.getCategoryId(),
-                                            "categoryName", c.getName()
-                                    ))
-                                    .toList()
-            );
-
-            p.put("thumbnailUrl",
-                    (product.getImages() != null && !product.getImages().isEmpty())
-                            ? product.getImages().get(0)
-                            : null
-            );
-
-            p.put("variants", buildVariantList(product));
-
-            // STORE INFO
-            Map<String, Object> storeMap = new LinkedHashMap<>();
-            storeMap.put("id", product.getStore().getStoreId());
-            storeMap.put("name", product.getStore().getStoreName());
-            storeMap.put("status", product.getStore().getStatus());
-
-            if (product.getStore().getStoreAddresses() != null &&
-                    !product.getStore().getStoreAddresses().isEmpty()) {
-
-                var addr = product.getStore().getStoreAddresses().get(0);
-                storeMap.put("provinceCode", addr.getProvinceCode());
-                storeMap.put("districtCode", addr.getDistrictCode());
-                storeMap.put("wardCode", addr.getWardCode());
-            } else {
-                storeMap.put("provinceCode", null);
-                storeMap.put("districtCode", null);
-                storeMap.put("wardCode", null);
-            }
-
-            p.put("store", storeMap);
-
-            // VOUCHERS
-            Map<String, Object> voucherMap = new LinkedHashMap<>();
-
-            shopVoucherProductRepo.findActiveShopVoucherProduct(product.getProductId(), now)
-        .ifPresent(svp -> {
-            var v = svp.getVoucher();
-            if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
-
-                Map<String, Object> shopVoucher = new LinkedHashMap<>();
-                shopVoucher.put("source", "SHOP");
-                shopVoucher.put("shopVoucherId", v.getId());
-                shopVoucher.put("shopVoucherProductId", svp.getId());
-                shopVoucher.put("code", v.getCode());
-                shopVoucher.put("title", v.getTitle());
-                shopVoucher.put("type", v.getType() != null ? v.getType().name() : null);
-                shopVoucher.put("discountValue", v.getDiscountValue());
-                shopVoucher.put("discountPercent", v.getDiscountPercent());
-                shopVoucher.put("maxDiscountValue", v.getMaxDiscountValue());
-                shopVoucher.put("minOrderValue", v.getMinOrderValue());
-                shopVoucher.put("startTime", v.getStartTime());
-                shopVoucher.put("endTime", v.getEndTime());
-
-                voucherMap.put("shopVoucher", shopVoucher);
-            }
-        });
-
-
-            // PLATFORM VOUCHERS
-            List<PlatformCampaignProduct> activeMappings =
-                    platformCampaignProductRepo.findAllActiveOnlyStatus(product.getProductId());
-
-            if (!activeMappings.isEmpty()) {
-                Map<UUID, List<PlatformCampaignProduct>> grouped =
-                        activeMappings.stream()
-                                .collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
-
-                List<Map<String, Object>> campaigns = new ArrayList<>();
-
-                for (var entry : grouped.entrySet()) {
-                    List<PlatformCampaignProduct> cps = entry.getValue();
-                    PlatformCampaign c = cps.get(0).getCampaign();
-
-                    Map<String, Object> cMap = new LinkedHashMap<>();
-                    cMap.put("campaignId", c.getId());
-                    cMap.put("code", c.getCode());
-                    cMap.put("name", c.getName());
-                    cMap.put("description", c.getDescription());
-                    cMap.put("campaignType", c.getCampaignType());
-
-                    List<Map<String, Object>> voucherList = cps.stream().map(cp -> {
-                        Map<String, Object> m = new LinkedHashMap<>();
-                        m.put("platformVoucherId", cp.getId());
-                        m.put("campaignId", c.getId());
-                        m.put("type", cp.getType() != null ? cp.getType().name() : null);
-                        m.put("discountValue", cp.getDiscountValue());
-                        m.put("discountPercent", cp.getDiscountPercent());
-                        m.put("maxDiscountValue", cp.getMaxDiscountValue());
-                        m.put("minOrderValue", cp.getMinOrderValue());
-                        m.put("usagePerUser", cp.getUsagePerUser());
-                        m.put("status", cp.getStatus());
-                        return m;
-                    }).toList();
-
-                    cMap.put("vouchers", voucherList);
-                    campaigns.add(cMap);
+                BigDecimal lowestPrice = basePrice;
+                if (p.getVariants() != null && !p.getVariants().isEmpty()) {
+                    lowestPrice = p.getVariants().stream()
+                            .map(ProductVariantEntity::getVariantPrice)
+                            .filter(Objects::nonNull)
+                            .min(BigDecimal::compareTo)
+                            .orElse(basePrice);
                 }
 
-                voucherMap.put("platformVouchers", campaigns);
+                if (minPrice != null && lowestPrice.compareTo(minPrice) < 0) return false;
+                if (maxPrice != null && lowestPrice.compareTo(maxPrice) > 0) return false;
+
+                return true;
+            })
+
+            // ======================================================
+            // 🔥 FILTER RATING
+            // ======================================================
+            .filter(p ->
+                    minRating == null
+                            || (p.getRatingAverage() != null
+                            && p.getRatingAverage().compareTo(minRating) >= 0)
+            )
+
+            // ======================================================
+            // 🔥 FUZZY SEARCH (Name + Brand + Desc)
+            // ======================================================
+            .filter(p -> {
+                if (keyword == null || keyword.isBlank()) return true;
+                return fuzzyMatch(p.getName(), keyword)
+                        || fuzzyMatch(p.getBrandName(), keyword)
+                        || fuzzyMatch(p.getDescription(), keyword);
+            })
+
+            .toList();
+
+    // ======================================================
+    // 🔥 SORTING
+    // ======================================================
+    Comparator<Product> comparator;
+
+    switch (sortBy.toLowerCase()) {
+        case "price" -> {
+            comparator = Comparator.comparing(p -> {
+                BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
+                if (p.getVariants() != null && !p.getVariants().isEmpty()) {
+                    return p.getVariants().stream()
+                            .map(ProductVariantEntity::getVariantPrice)
+                            .filter(Objects::nonNull)
+                            .min(BigDecimal::compareTo)
+                            .orElse(basePrice);
+                }
+                return basePrice;
+            });
+        }
+        default -> comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
+    }
+
+    if ("desc".equalsIgnoreCase(sortDir)) comparator = comparator.reversed();
+
+    filtered = filtered.stream().sorted(comparator).toList();
+
+    // ======================================================
+    // 🔥 BUILD RESPONSE
+    // ======================================================
+    List<Map<String, Object>> data = filtered.stream().map(product -> {
+
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("productId", product.getProductId());
+        p.put("name", product.getName());
+        p.put("brandName", product.getBrandName());
+        p.put("price", product.getPrice());
+        p.put("discountPrice", product.getDiscountPrice());
+        p.put("finalPrice", product.getFinalPrice());
+        p.put("ratingAverage", product.getRatingAverage());
+        p.put("reviewCount", product.getReviewCount());
+
+        // ⭐ MULTI CATEGORY FIX
+        p.put("categories",
+                product.getCategories() == null ? List.of() :
+                        product.getCategories().stream()
+                                .map(c -> Map.of(
+                                        "categoryId", c.getCategoryId(),
+                                        "categoryName", c.getName()
+                                ))
+                                .toList()
+        );
+
+        p.put("thumbnailUrl",
+                (product.getImages() != null && !product.getImages().isEmpty())
+                        ? product.getImages().get(0)
+                        : null
+        );
+
+        p.put("variants", buildVariantList(product));
+
+        // STORE
+        Map<String, Object> storeMap = new LinkedHashMap<>();
+        storeMap.put("id", product.getStore().getStoreId());
+        storeMap.put("name", product.getStore().getStoreName());
+        storeMap.put("status", product.getStore().getStatus());
+
+        if (product.getStore().getStoreAddresses() != null &&
+                !product.getStore().getStoreAddresses().isEmpty()) {
+
+            var addr = product.getStore().getStoreAddresses().get(0);
+            storeMap.put("provinceCode", addr.getProvinceCode());
+            storeMap.put("districtCode", addr.getDistrictCode());
+            storeMap.put("wardCode", addr.getWardCode());
+        } else {
+            storeMap.put("provinceCode", null);
+            storeMap.put("districtCode", null);
+            storeMap.put("wardCode", null);
+        }
+
+        p.put("store", storeMap);
+
+        // VOUCHERS
+        Map<String, Object> voucherMap = new LinkedHashMap<>();
+
+        shopVoucherProductRepo.findActiveShopVoucherProduct(product.getProductId(), now)
+                .ifPresent(svp -> {
+                    var v = svp.getVoucher();
+                    if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
+                        Map<String, Object> shopVoucher = new LinkedHashMap<>();
+                        shopVoucher.put("source", "SHOP");
+                        shopVoucher.put("shopVoucherId", v.getId());
+                        shopVoucher.put("shopVoucherProductId", svp.getId());
+                        shopVoucher.put("code", v.getCode());
+                        shopVoucher.put("title", v.getTitle());
+                        shopVoucher.put("discountValue", v.getDiscountValue());
+                        shopVoucher.put("discountPercent", v.getDiscountPercent());
+                        shopVoucher.put("maxDiscountValue", v.getMaxDiscountValue());
+                        shopVoucher.put("minOrderValue", v.getMinOrderValue());
+                        shopVoucher.put("startTime", v.getStartTime());
+                        shopVoucher.put("endTime", v.getEndTime());
+
+                        voucherMap.put("shopVoucher", shopVoucher);
+                    }
+                });
+
+        // PLATFORM
+        List<PlatformCampaignProduct> activeMappings =
+                platformCampaignProductRepo.findAllActiveOnlyStatus(product.getProductId());
+
+        if (!activeMappings.isEmpty()) {
+            Map<UUID, List<PlatformCampaignProduct>> grouped =
+                    activeMappings.stream()
+                            .collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
+
+            List<Map<String, Object>> campaigns = new ArrayList<>();
+
+            for (var entry : grouped.entrySet()) {
+                List<PlatformCampaignProduct> cps = entry.getValue();
+                PlatformCampaign c = cps.get(0).getCampaign();
+
+                Map<String, Object> cMap = new LinkedHashMap<>();
+                cMap.put("campaignId", c.getId());
+                cMap.put("code", c.getCode());
+                cMap.put("name", c.getName());
+                cMap.put("description", c.getDescription());
+                cMap.put("campaignType", c.getCampaignType());
+
+                List<Map<String, Object>> voucherList = cps.stream().map(cp -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("platformVoucherId", cp.getId());
+                    m.put("campaignId", c.getId());
+                    m.put("type", cp.getType() != null ? cp.getType().name() : null);
+                    m.put("discountValue", cp.getDiscountValue());
+                    m.put("discountPercent", cp.getDiscountPercent());
+                    m.put("maxDiscountValue", cp.getMaxDiscountValue());
+                    m.put("minOrderValue", cp.getMinOrderValue());
+                    m.put("usagePerUser", cp.getUsagePerUser());
+                    m.put("status", cp.getStatus());
+                    return m;
+                }).toList();
+
+                cMap.put("vouchers", voucherList);
+                campaigns.add(cMap);
             }
 
-            if (!voucherMap.isEmpty()) p.put("vouchers", voucherMap);
+            voucherMap.put("platformVouchers", campaigns);
+        }
 
-            return p;
-        }).toList();
+        if (!voucherMap.isEmpty()) p.put("vouchers", voucherMap);
 
-        // ======================================================
-        // PAGINATION
-        // ======================================================
-        int totalElements = filtered.size();
-        int totalPages = (int) Math.ceil((double) totalElements / pageable.getPageSize());
+        return p;
+    }).toList();
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("data", data);
-        result.put("page", Map.of(
-                "pageNumber", pageable.getPageNumber(),
-                "pageSize", pageable.getPageSize(),
-                "totalPages", totalPages,
-                "totalElements", totalElements
-        ));
+    // ======================================================
+    // PAGINATION
+    // ======================================================
+    int totalElements = filtered.size();
+    int totalPages = (int) Math.ceil((double) totalElements / pageable.getPageSize());
 
-        return ResponseEntity.ok(BaseResponse.success("✅ Lấy danh sách thumbnail thành công", result));
-    }
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("data", data);
+    result.put("page", Map.of(
+            "pageNumber", pageable.getPageNumber(),
+            "pageSize", pageable.getPageSize(),
+            "totalPages", totalPages,
+            "totalElements", totalElements
+    ));
+
+    return ResponseEntity.ok(BaseResponse.success("✅ Lấy danh sách thumbnail thành công", result));
+}
+
 
     // =========================================================
     // 2) PDP – ACTIVE VOUCHERS

@@ -100,7 +100,7 @@ public class ProductServiceImpl implements ProductService {
             p.setName(req.getName());
             p.setSlug(generateUniqueSlug(req.getName()));
             p.setSku(req.getSku());
-            p.setStatus(ProductStatus.DRAFT);
+            p.setStatus(ProductStatus.PENDING_APPROVAL);
             p.setCreatedAt(now);
             p.setUpdatedAt(now);
             p.setLastUpdatedAt(now);
@@ -249,7 +249,7 @@ public class ProductServiceImpl implements ProductService {
             p.setLastUpdatedAt(now);
             p.setUpdatedAt(now);
             p.setUpdatedBy(store.getAccount().getId());
-            p.setStatus(ProductStatus.DRAFT);
+            p.setStatus(ProductStatus.PENDING_APPROVAL);
 
             // UPDATE ATTRIBUTE VALUES
             if (req.getAttributeValues() != null) {
@@ -611,7 +611,7 @@ public class ProductServiceImpl implements ProductService {
                     .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
             // Chỉ duyệt được DRAFT
-            if (product.getStatus() != ProductStatus.DRAFT) {
+            if (product.getStatus() != ProductStatus.PENDING_APPROVAL) {
                 throw new RuntimeException("❌ Only DRAFT products can be reviewed");
             }
 
@@ -627,7 +627,7 @@ public class ProductServiceImpl implements ProductService {
             }
             // REJECT
             else {
-                product.setStatus(ProductStatus.DRAFT);  // giữ nguyên
+                product.setStatus(ProductStatus.REJECT);  // giữ nguyên
                 product.setApprovalReason(req.getReason());
             }
 

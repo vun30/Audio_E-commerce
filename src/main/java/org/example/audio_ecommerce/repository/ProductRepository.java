@@ -21,10 +21,10 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     // =============================
     // BASIC FINDERS
     // =============================
-    Optional<Product> findBySku(String sku);
-    Optional<Product> findBySlug(String slug);
-
-    Page<Product> findAllByStatus(ProductStatus status, Pageable pageable);
+//    Optional<Product> findBySku(String sku);
+//    Optional<Product> findBySlug(String slug);
+//
+//    Page<Product> findAllByStatus(ProductStatus status, Pageable pageable);
 
     @Query("SELECT p FROM Product p WHERE LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%'))")
     Page<Product> searchByName(@Param("keyword") String keyword, Pageable pageable);
@@ -38,17 +38,17 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     // MANY-TO-MANY CATEGORY QUERIES
     // =============================
 
-    /** Lấy product theo categoryId */
-    Page<Product> findByCategories_CategoryId(UUID categoryId, Pageable pageable);
-
-    /** Kiểm tra category có đang được sử dụng không */
-    boolean existsByCategories(Category category);
-
-    /** Kiểm tra bằng categoryId */
-    boolean existsByCategories_CategoryId(UUID categoryId);
-
-    /** Lấy tất cả theo danh sách ID */
-    List<Product> findAllByProductIdIn(List<UUID> productIds);
+//    /** Lấy product theo categoryId */
+//    Page<Product> findByCategories_CategoryId(UUID categoryId, Pageable pageable);
+//
+//    /** Kiểm tra category có đang được sử dụng không */
+//    boolean existsByCategories(Category category);
+//
+//    /** Kiểm tra bằng categoryId */
+//    boolean existsByCategories_CategoryId(UUID categoryId);
+//
+//    /** Lấy tất cả theo danh sách ID */
+//    List<Product> findAllByProductIdIn(List<UUID> productIds);
 
     // =============================
     // PRICE
@@ -82,21 +82,24 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     // =============================
     // ADVANCED FILTER (STORE ADDRESS + CATEGORY)
     // =============================
-    @Query("""
-    SELECT DISTINCT p FROM Product p
-    JOIN p.store s
-    LEFT JOIN s.storeAddresses addr
-    LEFT JOIN p.categories c
-    WHERE (:status IS NULL OR p.status = CAST(:status AS org.example.audio_ecommerce.entity.Enum.ProductStatus))
-      AND (:categoryId IS NULL OR c.categoryId = :categoryId)
-      AND (:storeId IS NULL OR s.storeId = :storeId)
-      AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))
-      AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
-      AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
-      AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
+@Query("""
+SELECT DISTINCT p FROM Product p
+JOIN p.store s
+LEFT JOIN s.storeAddresses addr
+LEFT JOIN p.categories c
+WHERE (:status IS NULL OR p.status = :status)
+  AND (:categoryId IS NULL OR c.categoryId = :categoryId)
+  AND (:storeId IS NULL OR s.storeId = :storeId)
+  AND (:keyword IS NULL 
+       OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%'))
+       OR LOWER(p.brandName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+  )
+  AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
+  AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
+  AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
 """)
 Page<Product> findAllWithAdvancedFilters(
-        @Param("status") String status,
+        @Param("status") ProductStatus status,
         @Param("categoryId") UUID categoryId,
         @Param("storeId") UUID storeId,
         @Param("keyword") String keyword,
@@ -105,6 +108,8 @@ Page<Product> findAllWithAdvancedFilters(
         @Param("wardCode") String wardCode,
         Pageable pageable
 );
+
+
 
     // =============================
     // STORE UTIL
