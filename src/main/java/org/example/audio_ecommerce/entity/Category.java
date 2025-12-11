@@ -4,33 +4,33 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
 
+import java.util.List;
 import java.util.UUID;
 
+@Entity
+@Table (name = "categories")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Entity
-@Table(name = "categories")
 public class Category {
 
     @Id
-    @GeneratedValue(generator = "uuid2")
+    @GeneratedValue (generator = "uuid2")
     @GenericGenerator(name = "uuid2", strategy = "uuid2")
     @Column(name = "category_id", columnDefinition = "CHAR(36)")
     private UUID categoryId;
 
-    @Column(nullable = false, unique = true, length = 255)
-    private String name; // 🔹 Tên danh mục (VD: Loa, Micro, DAC, Mixer, Amp,...)
+    @Column(nullable = false)
+    private String name;
 
-    @Column(length = 255)
-    private String slug; // 🔹 Slug SEO
+    // Category cha
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    private Category parent;
 
-    @Column(columnDefinition = "TEXT")
-    private String description; // 🔹 Mô tả danh mục
-
-    private String iconUrl; // 🔹 Icon đại diện danh mục
-
-    private Integer sortOrder; // 🔹 Thứ tự sắp xếp hiển thị
+    // Danh sách thuộc tính của Category
+    @OneToMany(mappedBy = "category", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<CategoryAttribute> attributes;
 }

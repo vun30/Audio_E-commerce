@@ -85,12 +85,12 @@ public class StoreController {
                     """
     )
     @PatchMapping("/{storeId}/status")
-    public ResponseEntity<BaseResponse> updateStoreStatus(
-            @PathVariable UUID storeId,
-            @Valid @RequestBody UpdateStoreStatusRequest request) {
-        return storeService.updateStoreStatus(storeId, request.getStatus());
-    }
-
+public ResponseEntity<BaseResponse> updateStoreStatus(
+        @PathVariable UUID storeId,
+        @Valid @RequestBody UpdateStoreStatusRequest request
+) {
+    return storeService.updateStoreStatus(storeId, request.getStatus(), request.getReason());
+}
     @Operation(
         summary = "Shop tự đổi trạng thái cửa hàng (ACTIVE <-> PAUSED)",
         description = """

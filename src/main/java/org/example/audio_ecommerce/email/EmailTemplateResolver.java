@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.email.dto.KycApprovedData;
 import org.example.audio_ecommerce.email.dto.KycRejectedData;
 import org.example.audio_ecommerce.email.dto.KycSubmittedData;
+import org.example.audio_ecommerce.email.dto.StoreStatusChangedData;
 import org.springframework.stereotype.Component;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -14,15 +15,22 @@ public class EmailTemplateResolver {
 
     private final TemplateEngine templateEngine;
 
+    // =========================================
+    // MAIN RESOLVER — chỉ còn 1 hàm duy nhất
+    // =========================================
     public EmailTemplate resolve(EmailTemplateType type, Object data) {
         return switch (type) {
             case ACCOUNT_CREATED -> accountCreated((AccountData) data);
             case ACCOUNT_WELCOME -> accountWelcome((AccountData) data);
-            case KYC_SUBMITTED -> kycSubmitted((KycSubmittedData) data); // 👈 mới
-            case KYC_APPROVED -> kycApproved((KycApprovedData) data);   // 👈 cập nhật
-            case KYC_REJECTED -> kycRejected((KycRejectedData) data);   // 👈 cập nhật
+            case KYC_SUBMITTED -> kycSubmitted((KycSubmittedData) data);
+            case KYC_APPROVED -> kycApproved((KycApprovedData) data);
+            case KYC_REJECTED -> kycRejected((KycRejectedData) data);
             case ORDER_CONFIRMED -> orderConfirmed((OrderData) data);
             case RESET_PASSWORD -> resetPassword((AccountData) data);
+
+            // ⭐⭐ CASE MỚI CHO SHOP STATUS ⭐⭐
+            case STORE_STATUS_UPDATED -> storeStatusUpdated((StoreStatusChangedData) data);
+
             default -> throw new IllegalArgumentException("❌ Template chưa được định nghĩa: " + type);
         };
     }
@@ -62,6 +70,7 @@ public class EmailTemplateResolver {
         Context ctx = new Context();
         ctx.setVariable("name", data.getName());
         String html = templateEngine.process("email/account_created", ctx);
+
         return EmailTemplate.builder()
                 .to(data.getEmail())
                 .subject("🎉 Chào mừng bạn đến với AudioEcommerce!")
@@ -84,6 +93,7 @@ public class EmailTemplateResolver {
         ctx.setVariable("siteUrl", data.getSiteUrl());
 
         String html = templateEngine.process("email/kyc_submitted", ctx);
+
         return EmailTemplate.builder()
                 .to(data.getEmail())
                 .subject("📨 Đã nhận hồ sơ KYC cho cửa hàng " + data.getStoreName())
@@ -99,6 +109,7 @@ public class EmailTemplateResolver {
         ctx.setVariable("siteUrl", data.getSiteUrl());
 
         String html = templateEngine.process("email/kyc_approved", ctx);
+
         return EmailTemplate.builder()
                 .to(data.getEmail())
                 .subject("✅ Cửa hàng " + data.getStoreName() + " đã được xác thực thành công!")
@@ -115,6 +126,7 @@ public class EmailTemplateResolver {
         ctx.setVariable("siteUrl", data.getSiteUrl());
 
         String html = templateEngine.process("email/kyc_rejected", ctx);
+
         return EmailTemplate.builder()
                 .to(data.getEmail())
                 .subject("❌ Hồ sơ KYC của cửa hàng " + data.getStoreName() + " chưa được phê duyệt")
@@ -134,11 +146,12 @@ public class EmailTemplateResolver {
         ctx.setVariable("phoneNumber", data.getPhoneNumber());
         ctx.setVariable("shippingNote", data.getShippingNote());
         ctx.setVariable("items", data.getItems());
+
         String html = templateEngine.process("email/order_confirmed", ctx);
-        String orderCode = data.getOrderCode() != null ? data.getOrderCode() : "";
+
         return EmailTemplate.builder()
                 .to(data.getEmail())
-                .subject("🛒 Đơn hàng #" + orderCode + " của bạn đã được xác nhận")
+                .subject("🛒 Đơn hàng #" + (data.getOrderCode() != null ? data.getOrderCode() : "") + " của bạn đã được xác nhận")
                 .content(html)
                 .build();
     }
@@ -148,10 +161,31 @@ public class EmailTemplateResolver {
         Context ctx = new Context();
         ctx.setVariable("name", data.getName());
         ctx.setVariable("resetLink", data.getSiteUrl());
+
         String html = templateEngine.process("email/reset_password", ctx);
+
         return EmailTemplate.builder()
                 .to(data.getEmail())
                 .subject("🔑 Đặt lại mật khẩu tài khoản của bạn")
+                .content(html)
+                .build();
+    }
+
+    // ==================== STORE STATUS UPDATED (NEW) ====================
+    private EmailTemplate storeStatusUpdated(StoreStatusChangedData data) {
+        Context ctx = new Context();
+
+        ctx.setVariable("ownerName", data.getOwnerName());
+        ctx.setVariable("storeName", data.getStoreName());
+        ctx.setVariable("newStatus", data.getNewStatus());
+        ctx.setVariable("reason", data.getReason());
+        ctx.setVariable("siteUrl", data.getSiteUrl());
+
+        String html = templateEngine.process("email/store_status_updated", ctx);
+
+        return EmailTemplate.builder()
+                .to(data.getEmail())
+                .subject("📢 Cập nhật trạng thái cửa hàng: " + data.getStoreName())
                 .content(html)
                 .build();
     }

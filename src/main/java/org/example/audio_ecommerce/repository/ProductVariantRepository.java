@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.repository;
 
 import org.example.audio_ecommerce.entity.ProductVariantEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -66,4 +67,8 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariantEn
     // 📌 LẤY DANH SÁCH VARIANT THEO LIST ID (dùng cho update/delete)
     // ============================================================
     List<ProductVariantEntity> findAllByIdIn(List<UUID> ids);
+
+         @Query("SELECT COUNT(soi) FROM StoreOrderItem soi WHERE soi.variantId = :variantId")
+    int countOrdersByVariantId(UUID variantId);
+
 }
