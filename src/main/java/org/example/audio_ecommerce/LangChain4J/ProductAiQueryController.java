@@ -12,23 +12,46 @@ import java.util.Map;
 public class ProductAiQueryController {
 
     private final ProductAiQueryService aiService;
+    private final ProductQueryIntentDetector intentDetector;
+    private final AudioChatService audioChatService;
 
-    @GetMapping("/search")
-    public ResponseEntity<?> search(@RequestParam String question) {
+    @PostMapping("/search")
+public ResponseEntity<?> search(@RequestBody AiQueryRequest request) {
 
-        var result = aiService.searchProduct(question);
+    String question = request.getQuestion();
+    String userId = (request.getUserId() == null || request.getUserId().isBlank())
+            ? "ANONYMOUS_USER"
+            : request.getUserId();
 
-        String message = result.isEmpty()
-                ? "Không tìm thấy sản phẩm phù hợp với câu hỏi/điều kiện giá bạn đưa ra"
-                : "Tìm thấy " + result.size() + " sản phẩm phù hợp";
+    String intent = intentDetector.detectIntent(question);
 
-        return ResponseEntity.ok(
-                Map.of(
-                        "question", question,
-                        "resultCount", result.size(),
-                        "resultProductIds", result,
-                        "message", message
-                )
-        );
+    switch (intent) {
+        case "ADVICE" -> {
+            String reply = audioChatService.chat(userId, question);
+            return ResponseEntity.ok(Map.of(
+                    "mode", "advice",
+                    "question", question,
+                    "reply", reply
+            ));
+        }
+
+        case "SEARCH" -> {
+            Map<String, Object> result = aiService.searchProduct(userId, question);
+            return ResponseEntity.ok(Map.of(
+                    "mode", "product_search",
+                    "question", question,
+                    "result", result
+            ));
+        }
+
+        default -> {
+            String reply = audioChatService.chat(userId, question);
+            return ResponseEntity.ok(Map.of(
+                    "mode", "none",
+                    "question", question,
+                    "reply", reply
+            ));
+        }
     }
+}
 }

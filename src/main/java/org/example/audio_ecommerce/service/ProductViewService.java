@@ -26,7 +26,9 @@ public interface ProductViewService {
             BigDecimal minPrice,
             BigDecimal maxPrice,
             BigDecimal minRating,
-            Pageable pageable
+            Pageable pageable,
+            String sortBy,
+            String sortDir
     );
 
     ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType);
