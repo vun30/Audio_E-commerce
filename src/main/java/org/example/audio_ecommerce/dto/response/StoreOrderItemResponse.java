@@ -33,4 +33,19 @@ public class StoreOrderItemResponse {
     // Legacy fields kept for compatibility
     private BigDecimal unitPrice;
     private BigDecimal lineTotal;
+
+    private Boolean eligibleForPayout;
+    private Boolean isPayout;
+    private Boolean isReturned;
+
+    private BigDecimal shippingFeeEstimated;
+    private BigDecimal shippingFeeActual;
+    private BigDecimal shippingExtraForStore;
+
+    private BigDecimal platformFeeAmount;
+    private BigDecimal netPayoutItem;
+
+    private Boolean payoutProcessed;
+
+    private BigDecimal platformFeePercentage;
 }

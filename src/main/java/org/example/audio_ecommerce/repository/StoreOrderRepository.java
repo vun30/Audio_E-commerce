@@ -2,12 +2,14 @@ package org.example.audio_ecommerce.repository;
 
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -82,4 +84,20 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         }, pageable);
     }
+
+    @Query("select so from StoreOrder so left join fetch so.items i where so.paymentMethod = :pm and so.deliveredAt is null")
+    List<StoreOrder> findUnDeliveredByPaymentMethodFetchItems(@Param("pm") PaymentMethod pm);
+
+    @Query("select so from StoreOrder so left join fetch so.items i where so.deliveredAt between :from and :to")
+    List<StoreOrder> findDeliveredBetweenFetchItems(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("select so from StoreOrder so left join fetch so.items i where so.store.storeId = :storeId and so.deliveredAt between :from and :to")
+    List<StoreOrder> findDeliveredBetweenByStoreFetchItems(@Param("storeId") UUID storeId, @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    @Query("select so from StoreOrder so left join fetch so.items i where so.deliveredAt = :date")
+    List<StoreOrder> findDeliveredAtFetchItems(@Param("date") LocalDateTime date);
+
+    // fallback: fetch all storeOrders with items (careful perf)
+    @Query("select distinct so from StoreOrder so left join fetch so.items")
+    List<StoreOrder> findAllWithItemsFetch();
 }
