@@ -86,7 +86,7 @@ public class SettlementService {
         Map<UUID, BigDecimal> storeTotals = order.getItems().stream()
                 .collect(Collectors.groupingBy(
                         CustomerOrderItem::getStoreId,
-                        Collectors.mapping(CustomerOrderItem::getLineTotal,
+                        Collectors.mapping(CustomerOrderItem::getFinalLineTotal,
                                 Collectors.reducing(BigDecimal.ZERO, BigDecimal::add))
                 ));
 
@@ -99,7 +99,7 @@ public class SettlementService {
 
             sw.setPendingBalance(sw.getPendingBalance().add(amount));
             sw.setTotalRevenue(sw.getTotalRevenue().add(amount));
-            sw.setUpdatedAt(java.time.LocalDateTime.now());
+            sw.setUpdatedAt(LocalDateTime.now());
             storeWalletRepo.save(sw);
 
             StoreWalletTransaction stx = StoreWalletTransaction.builder()
@@ -138,15 +138,13 @@ public class SettlementService {
         }
 
         // ===== 2) Chỉ chọn item đủ điều kiện trả tiền:
-        //  - eligibleForPayout = true (đã qua 7 ngày, không bị return block, ... do service khác set)
-        //  - isPayout = false      (chưa chuyển tiền lần nào)
         List<StoreOrderItem> itemsToPayout = allItems.stream()
                 .filter(it -> Boolean.TRUE.equals(it.getEligibleForPayout()))
                 .filter(it -> !Boolean.TRUE.equals(it.getPayoutProcessed()))
                 .toList();
 
         if (itemsToPayout.isEmpty()) {
-            log.info("[Settlement] orderId={} hiện không có item nào eligible_for_payout=true & is_payout=false.", order.getId());
+            log.info("[Settlement] orderId={} hiện không có item nào eligible_for_payout=true & payoutProcessed=false.", order.getId());
             return;
         }
 
@@ -164,7 +162,7 @@ public class SettlementService {
             List<StoreOrderItem> batchItems = entry.getValue();
             UUID storeId = so.getStore().getStoreId();
 
-            // ===== 3.1 Tổng tiền hàng CỦA BATCH NÀY (chỉ những item eligible=true & is_payout=false) =====
+            // ===== 3.1 Tổng tiền hàng CỦA BATCH NÀY (chỉ những item eligible=true & payoutProcessed=false) =====
             BigDecimal batchProductsTotal = batchItems.stream()
                     .map(StoreOrderItem::getLineTotal)
                     .filter(Objects::nonNull)
@@ -189,36 +187,12 @@ public class SettlementService {
             }
 
             BigDecimal ratio = batchProductsTotal
-                    .divide(fullProductsTotal, 6, RoundingMode.HALF_UP); // tỉ lệ batch
+                    .divide(fullProductsTotal, 6, RoundingMode.HALF_UP);
 
-            // ===== 3.3 Phí ship chênh lệch cho cả đơn, rồi phân bổ theo ratio =====
-            BigDecimal customerShipFee = Optional.ofNullable(so.getShippingFee()).orElse(BigDecimal.ZERO);
-            BigDecimal actualShipFee = Optional.ofNullable(so.getActualShippingFee())
-                    .orElseGet(() -> ghnOrderRepo.findByStoreOrderId(so.getId())
-                            .map(GhnOrder::getTotalFee)
-                            .orElse(BigDecimal.ZERO));
-
-            BigDecimal totalExtraShip = actualShipFee.subtract(customerShipFee);
-            if (totalExtraShip.compareTo(BigDecimal.ZERO) < 0) {
-                totalExtraShip = BigDecimal.ZERO;
-            }
-
-            // extra ship chỉ tính cho batch theo tỉ lệ
-            BigDecimal batchExtraShip = totalExtraShip
-                    .multiply(ratio)
-                    .setScale(0, RoundingMode.DOWN);
-
-            // ===== 3.4 Phí nền tảng: dựa theo % snapshot và tổng tiền hàng batch =====
-            BigDecimal platformFeePercentage = Optional.ofNullable(so.getPlatformFeePercentage())
-                    .orElse(BigDecimal.ZERO);
-            BigDecimal platformFeeRate = platformFeePercentage
-                    .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
-
-            BigDecimal batchPlatformFeeAmount = batchProductsTotal
-                    .multiply(platformFeeRate)
-                    .setScale(0, RoundingMode.DOWN);
-
-            BigDecimal totalDeductions = batchPlatformFeeAmount.add(batchExtraShip);
+            // ===== 3.3 & 3.4: NO DEDUCTIONS — trả 100% tiền hàng =====
+            BigDecimal batchExtraShip = BigDecimal.ZERO;
+            BigDecimal batchPlatformFeeAmount = BigDecimal.ZERO;
+            BigDecimal totalDeductions = BigDecimal.ZERO;
 
             // ===== 3.5 Net payout cho batch =====
             BigDecimal batchNetPayout = batchProductsTotal.subtract(totalDeductions);
@@ -231,16 +205,15 @@ public class SettlementService {
             log.info("[Settlement] storeOrder={} | batchProducts={} | ratio={} | batchPlatformFee={} | batchExtraShip={} | batchNet={}",
                     so.getId(), batchProductsTotal, ratio, batchPlatformFeeAmount, batchExtraShip, batchNetPayout);
 
-            // ===== 3.6 Cập nhật StoreOrder (cộng dồn) =====
+            // ===== 3.6 Cập nhật StoreOrder (cộng dồn) - note: platformFee/extraShip cộng thêm 0 =====
             BigDecimal oldNetPayout = Optional.ofNullable(so.getNetPayoutToStore()).orElse(BigDecimal.ZERO);
             BigDecimal oldPlatformFee = Optional.ofNullable(so.getPlatformFeeAmount()).orElse(BigDecimal.ZERO);
             BigDecimal oldExtraShip = Optional.ofNullable(so.getShippingExtraForStore()).orElse(BigDecimal.ZERO);
 
             so.setNetPayoutToStore(oldNetPayout.add(batchNetPayout));
-            so.setPlatformFeeAmount(oldPlatformFee.add(batchPlatformFeeAmount));
-            so.setShippingExtraForStore(oldExtraShip.add(batchExtraShip));
-            so.setActualShippingFee(actualShipFee);
-
+            so.setPlatformFeeAmount(oldPlatformFee.add(batchPlatformFeeAmount)); // sẽ cộng 0
+            so.setShippingExtraForStore(oldExtraShip.add(batchExtraShip)); // sẽ cộng 0
+            // actualShippingFee giữ nguyên nếu đã có
             // JSON chi tiết (batch + tổng)
             try {
                 ObjectNode detail = objectMapper.createObjectNode();
@@ -248,7 +221,7 @@ public class SettlementService {
                 detail.put("batchPlatformFeeAmount", batchPlatformFeeAmount.longValueExact());
                 detail.put("batchShippingExtraForStore", batchExtraShip.longValueExact());
                 detail.put("batchNetPayoutToStore", batchNetPayout.longValueExact());
-                detail.put("actualShippingFee", actualShipFee.longValueExact());
+                // actualShippingFee chỉ put nếu có
                 detail.put("netPayoutToStoreTotal", so.getNetPayoutToStore().longValueExact());
                 detail.put("platformFeeAmountTotal", so.getPlatformFeeAmount().longValueExact());
                 detail.put("shippingExtraForStoreTotal", so.getShippingExtraForStore().longValueExact());
@@ -285,7 +258,7 @@ public class SettlementService {
                     .createdAt(now)
                     .build());
 
-            // ===== 3.8 Giao dịch Platform: payout + fee + extra ship (batch) =====
+            // ===== 3.8 Giao dịch Platform: chỉ tạo PAYOUT_STORE (không có PLATFORM_FEE / SHIPPING_FEE_ADJUST) =====
             platformTxRepo.save(PlatformTransaction.builder()
                     .wallet(plat)
                     .orderId(order.getId())
@@ -293,69 +266,27 @@ public class SettlementService {
                     .amount(batchNetPayout)
                     .type(TransactionType.PAYOUT_STORE)
                     .status(TransactionStatus.DONE)
-                    .description("Payout to store (partial) | storeOrder=" + so.getId())
+                    .description("Payout to store (partial, full product amount) | storeOrder=" + so.getId())
                     .createdAt(now)
                     .updatedAt(now)
                     .build());
 
-            if (batchPlatformFeeAmount.compareTo(BigDecimal.ZERO) > 0) {
-                platformTxRepo.save(PlatformTransaction.builder()
-                        .wallet(plat)
-                        .orderId(order.getId())
-                        .storeId(storeId)
-                        .amount(batchPlatformFeeAmount)
-                        .type(TransactionType.PLATFORM_FEE)
-                        .status(TransactionStatus.DONE)
-                        .description("Platform fee (partial) | storeOrder=" + so.getId())
-                        .createdAt(now)
-                        .updatedAt(now)
-                        .build());
-            }
-
-            if (batchExtraShip.compareTo(BigDecimal.ZERO) > 0) {
-                platformTxRepo.save(PlatformTransaction.builder()
-                        .wallet(plat)
-                        .orderId(order.getId())
-                        .storeId(storeId)
-                        .amount(batchExtraShip)
-                        .type(TransactionType.SHIPPING_FEE_ADJUST)
-                        .status(TransactionStatus.DONE)
-                        .description("Extra shipping fee charged to store (partial) | storeOrder=" + so.getId())
-                        .createdAt(now)
-                        .updatedAt(now)
-                        .build());
-            }
-
             // ===== 3.9 Ghi doanh thu cho batch =====
+            // Lưu doanh thu cửa hàng (platformFee = 0, shippingDiff = 0)
             revenueService.recordStoreRevenue(
                     storeId,
                     so.getId(),
                     batchNetPayout,
-                    batchPlatformFeeAmount,
-                    batchExtraShip,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
                     now.toLocalDate()
             );
 
-            if (batchPlatformFeeAmount.compareTo(BigDecimal.ZERO) > 0) {
-                revenueService.recordPlatformRevenue(
-                        so.getId(),
-                        PlatformRevenueType.COMMISSION,
-                        batchPlatformFeeAmount,
-                        now.toLocalDate()
-                );
-            }
+            // Không record platform revenue vì không có commission / shipping diff
 
-            if (batchExtraShip.compareTo(BigDecimal.ZERO) > 0) {
-                revenueService.recordPlatformRevenue(
-                        so.getId(),
-                        PlatformRevenueType.SHIPPING_DIFF,
-                        batchExtraShip,
-                        now.toLocalDate()
-                );
-            }
             // ===== 3.10 Đánh dấu các item trong batch đã được xử lý payout =====
             for (StoreOrderItem it : batchItems) {
-                it.setPayoutProcessed(true);   // ✅ chỉ dùng flag này, KHÔNG đụng isPayout
+                it.setPayoutProcessed(true);
             }
             storeOrderItemRepo.saveAll(batchItems);
         }
@@ -369,7 +300,7 @@ public class SettlementService {
         plat.setUpdatedAt(now);
         platformWalletRepo.save(plat);
 
-        // ===== 5) Nếu vẫn còn item eligible=true & is_payout=false → giữ HOLD = PENDING, ngược lại chuyển DONE =====
+        // ===== 5) Finalize HOLD tx nếu không còn item pending payout =====
         boolean hasRemainingItemToPayout = allItems.stream()
                 .anyMatch(it ->
                         Boolean.TRUE.equals(it.getEligibleForPayout())
@@ -395,6 +326,7 @@ public class SettlementService {
         log.info("[Settlement] SUCCESS (partial) | orderId={} | totalProductsPayout={}",
                 order.getId(), totalProductsAllStores);
     }
+
 
 
 
