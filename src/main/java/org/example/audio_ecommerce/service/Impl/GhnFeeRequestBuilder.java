@@ -61,7 +61,7 @@ public final class GhnFeeRequestBuilder {
         int[] oneParcel = aggregateStack(dims);
 
         GhnFeeRequest req = new GhnFeeRequest();
-        req.setService_type_id(serviceTypeId == null ? 5 : serviceTypeId); // default hàng nặng
+        req.setService_type_id(serviceTypeId == null ? 2 : serviceTypeId); // default hàng nặng
 
         // ✅ ORIGIN: LẤY TỪ ĐỊA CHỈ SHOP, KHÔNG LẤY TỪ PRODUCT NỮA
         req.setFrom_district_id(parseIntSafe(fromDistrictCode));
