@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.dto.request;
 
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.CategoryAttributeDataType;
 
 import java.util.List;
 import java.util.UUID;
@@ -13,28 +14,32 @@ import java.util.UUID;
 public class UpdateCategoryRequest {
 
     private String name;
+    private String slug;
+    private String description;
+    private String iconUrl;
+    private Integer sortOrder;
     private UUID parentId;
 
     private List<AttributeToAdd> attributesToAdd;
     private List<AttributeToUpdate> attributesToUpdate;
     private List<UUID> attributesToDelete;
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
+    @Getter @Setter
+    @NoArgsConstructor @AllArgsConstructor @Builder
     public static class AttributeToAdd {
         private String attributeName;
         private String attributeLabel;
-        private String dataType;
+        private CategoryAttributeDataType dataType;
+        private List<String> options;
     }
 
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
+    @Getter @Setter
+    @NoArgsConstructor @AllArgsConstructor @Builder
     public static class AttributeToUpdate {
         private UUID attributeId;
         private String attributeName;
         private String attributeLabel;
-        private String dataType;
+        private CategoryAttributeDataType dataType;
+        private List<String> options;
     }
 }

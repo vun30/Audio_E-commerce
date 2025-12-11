@@ -23,40 +23,42 @@ public class CategoryController {
 
     private final CategoryService categoryService;
 
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     // CREATE CATEGORY
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     @Operation(
             summary = "Tạo category mới",
             description = """
-                API tạo danh mục mới với các trường:
-                - name: Tên category
-                - parentId: null nếu là danh mục cha
-                - attributes: danh sách thuộc tính kỹ thuật
+                API để tạo danh mục sản phẩm mới.
                 
-                FE dùng trong màn Admin để thêm danh mục.
+                Hỗ trợ:
+                - Category cha/con (parentId)
+                - Thuộc tính động (attributes)
+                - Thuộc tính có options nếu dataType = SELECT | MULTI_SELECT
+                
+                FE dùng cho màn Admin -> Quản lý danh mục.
                 """,
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
-                    description = "Payload tạo category",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(
                                     name = "Example Create Category",
                                     value = """
                                     {
-                                      "name": "Loa",
+                                      "name": "Micro",
                                       "parentId": null,
                                       "attributes": [
                                         {
-                                          "attributeName": "frequencyResponse",
-                                          "attributeLabel": "Dải tần",
-                                          "dataType": "STRING"
+                                          "attributeName": "polarPattern",
+                                          "attributeLabel": "Hướng thu",
+                                          "dataType": "SELECT",
+                                          "options": ["Cardioid", "Omni", "Super-Cardioid"]
                                         },
                                         {
-                                          "attributeName": "impedance",
-                                          "attributeLabel": "Trở kháng",
-                                          "dataType": "STRING"
+                                          "attributeName": "maxSPL",
+                                          "attributeLabel": "Mức SPL",
+                                          "dataType": "NUMBER"
                                         }
                                       ]
                                     }
@@ -67,21 +69,7 @@ public class CategoryController {
     )
     @ApiResponse(
             responseCode = "200",
-            description = "Tạo category thành công",
-            content = @Content(
-                    mediaType = "application/json",
-                    examples = @ExampleObject(value = """
-                    {
-                      "status": 200,
-                      "message": "Category created successfully",
-                      "data": {
-                        "categoryId": "fb4e71a0-bf50-4491-8768-fbbb6820093f",
-                        "name": "Loa",
-                        "parentId": null
-                      }
-                    }
-                    """)
-            )
+            description = "Tạo category thành công"
     )
     @PostMapping
     public ResponseEntity<BaseResponse> createCategory(
@@ -91,48 +79,49 @@ public class CategoryController {
     }
 
 
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     // UPDATE CATEGORY
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     @Operation(
             summary = "Cập nhật category",
             description = """
-                API cho phép cập nhật:
-                - Tên category
-                - parentId
-                - Thêm thuộc tính mới
-                - Sửa thuộc tính cũ
-                - Xoá thuộc tính
+                API cập nhật thông tin category.
                 
-                FE dùng khi chỉnh sửa thông tin category.
+                Cho phép:
+                - Đổi tên, mô tả, icon, parentId
+                - Thêm attribute mới
+                - Cập nhật attribute cũ
+                - Xóa attribute
+                - Cập nhật options (xoá options cũ và thay options mới)
+                
+                FE dùng cho màn Admin.
                 """,
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Payload update category",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(
                                     name = "Example Update Category",
                                     value = """
                                     {
-                                      "name": "Loa Hi-End",
-                                      "parentId": null,
+                                      "name": "Micro Cao Cấp",
                                       "attributesToAdd": [
                                         {
-                                          "attributeName": "driverSize",
-                                          "attributeLabel": "Kích thước driver",
-                                          "dataType": "STRING"
+                                          "attributeName": "sensitivity",
+                                          "attributeLabel": "Độ nhạy",
+                                          "dataType": "NUMBER"
                                         }
                                       ],
                                       "attributesToUpdate": [
                                         {
-                                          "attributeId": "ab6dc74d-03d9-4c30-936b-c7f020bef752",
-                                          "attributeName": "frequencyResponse",
-                                          "attributeLabel": "Dải tần (Hz)",
-                                          "dataType": "STRING"
+                                          "attributeId": "a1",
+                                          "attributeName": "polarPattern",
+                                          "attributeLabel": "Hướng thu",
+                                          "dataType": "SELECT",
+                                          "options": ["Cardioid", "Omni", "Figure-8"]
                                         }
                                       ],
                                       "attributesToDelete": [
-                                        "73e504c0-9ac4-467e-8f03-dbb30509ff41"
+                                        "a2"
                                       ]
                                     }
                                     """
@@ -140,74 +129,72 @@ public class CategoryController {
                     )
             )
     )
-    @ApiResponse(
-            responseCode = "200",
-            description = "Cập nhật thành công"
-    )
+    @ApiResponse(responseCode = "200", description = "Cập nhật thành công")
     @PutMapping("/{categoryId}")
     public ResponseEntity<BaseResponse> updateCategory(
             @Parameter(description = "ID category cần update")
             @PathVariable UUID categoryId,
-
             @RequestBody UpdateCategoryRequest req
     ) {
         return categoryService.updateCategory(categoryId, req);
     }
 
 
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     // DELETE CATEGORY
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     @Operation(
             summary = "Xoá category",
             description = """
-                Xoá category theo ID.
-                - Không xoá được nếu đang có sản phẩm sử dụng category này.
+                Xóa category theo ID.
+                
+                Ràng buộc:
+                - Không thể xóa nếu đang có danh mục con
+                - Không thể xóa nếu đang có sản phẩm sử dụng category này
                 """
     )
-    @ApiResponse(
-            responseCode = "200",
-            description = "Xoá thành công"
-    )
-    @ApiResponse(
-            responseCode = "400",
-            description = "Không thể xoá (đang được sử dụng)"
-    )
+    @ApiResponse(responseCode = "200", description = "Xóa thành công")
+    @ApiResponse(responseCode = "400", description = "Không thể xoá do ràng buộc hệ thống")
     @DeleteMapping("/{categoryId}")
     public ResponseEntity<BaseResponse> deleteCategory(
-            @Parameter(description = "ID category cần xoá")
+            @Parameter(description = "ID category cần xóa")
             @PathVariable UUID categoryId
     ) {
         return categoryService.deleteCategory(categoryId);
     }
 
 
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     // GET CATEGORY DETAIL
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     @Operation(
             summary = "Lấy chi tiết category",
-            description = "Trả về thông tin danh mục và toàn bộ thuộc tính kỹ thuật."
+            description = """
+                Lấy đầy đủ thông tin category bao gồm:
+                - Thông tin cơ bản
+                - Danh sách thuộc tính (attributes)
+                - Danh sách options của từng attribute (nếu có)
+                """
     )
     @ApiResponse(
             responseCode = "200",
             description = "Lấy dữ liệu thành công",
             content = @Content(
-                    mediaType = "application/json",
                     examples = @ExampleObject("""
                     {
                       "status": 200,
                       "message": "Category detail",
                       "data": {
                         "categoryId": "fb4e71a0-bf50-4491-8768-fbbb6820093f",
-                        "name": "Loa",
+                        "name": "Micro",
                         "parentId": null,
                         "attributes": [
                           {
-                            "attributeId": "ab6dc74d-03d9-4c30-936b-c7f020bef752",
-                            "attributeName": "frequencyResponse",
-                            "attributeLabel": "Dải tần",
-                            "dataType": "STRING"
+                            "attributeId": "a1",
+                            "attributeName": "polarPattern",
+                            "attributeLabel": "Hướng thu",
+                            "dataType": "SELECT",
+                            "options": ["Cardioid", "Omni", "Super-Cardioid"]
                           }
                         ]
                       }
@@ -223,46 +210,21 @@ public class CategoryController {
     }
 
 
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     // GET CATEGORY TREE
-    // ---------------------------------------------------------------------------------------
+    // ========================================================================================
     @Operation(
             summary = "Lấy danh sách category dạng cây",
             description = """
-                API trả về danh mục dạng cây:
-                - Danh mục cha → danh mục con → danh mục cháu
-                
-                FE dùng khi hiển thị bộ lọc category hoặc dropdown phân cấp.
+                Category tree:
+                - Category cha → con → cháu
+                - Phục vụ dropdown chọn danh mục hoặc hiển thị sidebar cây danh mục
                 """
     )
-    @ApiResponse(
-            responseCode = "200",
-            description = "Lấy tree thành công",
-            content = @Content(
-                    mediaType = "application/json",
-                    examples = @ExampleObject("""
-                    {
-                      "status": 200,
-                      "message": "Category tree",
-                      "data": [
-                        {
-                          "categoryId": "id1",
-                          "name": "Loa",
-                          "children": [
-                            {
-                              "categoryId": "id2",
-                              "name": "Loa Bluetooth",
-                              "children": []
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                    """)
-            )
-    )
+    @ApiResponse(responseCode = "200", description = "Lấy thành công")
     @GetMapping("/tree")
     public ResponseEntity<BaseResponse> getCategoryTree() {
         return categoryService.getCategoryTree();
     }
+
 }

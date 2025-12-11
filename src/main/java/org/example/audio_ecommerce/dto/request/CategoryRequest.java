@@ -2,6 +2,8 @@ package org.example.audio_ecommerce.dto.request;
 
 import lombok.*;
 
+import java.util.UUID;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -13,4 +15,5 @@ public class CategoryRequest {
     private String description;
     private String iconUrl;
     private Integer sortOrder;
+    private UUID parentId;
 }
