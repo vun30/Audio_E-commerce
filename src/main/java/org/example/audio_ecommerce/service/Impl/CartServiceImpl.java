@@ -237,6 +237,7 @@ public class CartServiceImpl implements CartService {
         Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
                 .orElseGet(() -> Cart.builder().customer(customer).status(CartStatus.ACTIVE).build());
         if (cart.getItems() == null) cart.setItems(new ArrayList<>());
+        System.out.println(" ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡getActiveCart: " + cart);
         return toResponse(cart);
     }
 
@@ -764,7 +765,7 @@ public class CartServiceImpl implements CartService {
 
             // 4d) Subtotal
             BigDecimal subtotal = coItems.stream()
-                    .map(CustomerOrderItem::getLineTotal)
+                    .map(CustomerOrderItem::getLinePriceBeforeDiscount)
                     .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
