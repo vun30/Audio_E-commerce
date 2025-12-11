@@ -40,4 +40,18 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     List<StoreOrderItem> findAllByStoreOrder_ShippingFeeRealIsNotNull();
 
+     @Query("""
+        SELECT COUNT(i)
+        FROM StoreOrderItem i
+        WHERE i.refId = :productId AND i.type = 'PRODUCT'
+    """)
+    int countOrdersByProduct(UUID productId);
+
+    @Query("""
+        SELECT COUNT(i)
+        FROM StoreOrderItem i
+        WHERE i.variantId = :variantId
+    """)
+    int countOrdersByVariant(UUID variantId);
+
 }

@@ -9,6 +9,7 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.ProductResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ProductService;
 import org.springframework.data.domain.*;
@@ -32,6 +33,8 @@ public class ProductServiceImpl implements ProductService {
     private final CategoryAttributeRepository categoryAttributeRepository;
     private final ProductAttributeValueRepository productAttributeValueRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final PlatformCampaignProductRepository platformCampaignProductRepository;
+    private final StoreOrderItemRepository storeOrderItemRepository;
 
     // ================================================
     // SLUG HELPER
@@ -189,28 +192,46 @@ public class ProductServiceImpl implements ProductService {
     // ================================================
     @Override
     public ResponseEntity<BaseResponse> updateProduct(UUID id, UpdateProductRequest req) {
+
+
         try {
-            String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-            String email = principal.contains(":") ? principal.split(":")[0] : principal;
+             String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
 
-            Store store = storeRepository.findByAccount_Email(email)
-                    .orElseThrow(() -> new RuntimeException("❌ Store not found"));
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Store not found"));
 
-            Product p = productRepository.findById(id)
-                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+        Product p = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("❌ Product not found"));
 
-            if (!p.getStore().getStoreId().equals(store.getStoreId())) {
-                throw new RuntimeException("❌ You cannot update product from another store");
+        // RULE 1: Kiểm tra product thuộc store login
+        assertProductBelongsToStore(p, store);
+
+        // RULE 2: Kiểm tra trạng thái cho phép update
+        assertValidProductStatus(p);
+
+        // RULE 3: Kiểm tra price hợp lệ
+        assertValidPrice(req.getPrice());
+
+        // RULE 4: Kiểm tra stock hợp lệ
+        assertValidStock(req.getStockQuantity());
+
+        // RULE 5: Product đang tham gia chiến dịch thì không cho update thông tin quan trọng
+        assertProductNotInActiveCampaign(id);
+
+        // RULE 6: Product đã có đơn thì không cho update thông tin quan trọng
+assertProductNotOrdered(id);
+
+
+        // UPDATE CATEGORY
+        if (req.getCategoryIds() != null && !req.getCategoryIds().isEmpty()) {
+            List<Category> categories = categoryRepository.findAllById(req.getCategoryIds());
+            if (categories.size() != req.getCategoryIds().size()) {
+                throw new RuntimeException("❌ Some categoryIds are invalid");
             }
+            p.setCategories(categories);
+        }
 
-            // UPDATE CATEGORY
-            if (req.getCategoryIds() != null && !req.getCategoryIds().isEmpty()) {
-                List<Category> categories = categoryRepository.findAllById(req.getCategoryIds());
-                if (categories.size() != req.getCategoryIds().size()) {
-                    throw new RuntimeException("❌ Some categoryIds are invalid");
-                }
-                p.setCategories(categories);
-            }
 
             // BASIC UPDATE
             if (req.getName() != null) p.setName(req.getName());
@@ -288,47 +309,69 @@ public class ProductServiceImpl implements ProductService {
             }
 
             // DELETE VARIANTS
-            if (req.getVariantsToDelete() != null) {
-                for (UUID vid : req.getVariantsToDelete()) {
-                    if (!productVariantRepository.existsByIdAndProduct_ProductId(vid, id)) {
-                        throw new RuntimeException("❌ Variant ID not belongs to product");
-                    }
-                    productVariantRepository.deleteById(vid);
-                }
-            }
+if (req.getVariantsToDelete() != null) {
+    for (UUID vid : req.getVariantsToDelete()) {
+
+        // ❗Chặn xoá nếu variant đã có đơn
+        assertVariantDeletable(vid);
+
+        if (!productVariantRepository.existsByIdAndProduct_ProductId(vid, id)) {
+            throw new RuntimeException("❌ Variant ID not belongs to product");
+        }
+        productVariantRepository.deleteById(vid);
+    }
+}
 
             // UPDATE VARIANTS
-            if (req.getVariantsToUpdate() != null) {
-                for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
-                    ProductVariantEntity variant = productVariantRepository
-                            .findByIdAndProduct_ProductId(v.getVariantId(), id)
-                            .orElseThrow(() -> new RuntimeException("❌ Variant not found"));
+if (req.getVariantsToUpdate() != null) {
+    for (UpdateProductRequest.VariantToUpdate v : req.getVariantsToUpdate()) {
 
-                    if (v.getOptionName() != null) variant.setOptionName(v.getOptionName());
-                    if (v.getOptionValue() != null) variant.setOptionValue(v.getOptionValue());
-                    if (v.getVariantPrice() != null) variant.setVariantPrice(v.getVariantPrice());
-                    if (v.getVariantStock() != null) variant.setVariantStock(v.getVariantStock());
-                    if (v.getVariantUrl() != null) variant.setVariantUrl(v.getVariantUrl());
-                    if (v.getVariantSku() != null) variant.setVariantSku(v.getVariantSku());
+        ProductVariantEntity old =
+                productVariantRepository.findByIdAndProduct_ProductId(v.getVariantId(), id)
+                        .orElseThrow(() -> new RuntimeException("❌ Variant not found"));
 
-                    productVariantRepository.save(variant);
-                }
-            }
+        // ❗ Validate giá âm / stock âm
+        assertVariantRequest(v);
+
+        // ❗Không cho đổi giá nếu variant đã có đơn
+        assertVariantPriceChangeAllowed(v, old);
+
+        // → Nếu qua rule thì mới update
+        if (v.getOptionName() != null) old.setOptionName(v.getOptionName());
+        if (v.getOptionValue() != null) old.setOptionValue(v.getOptionValue());
+        if (v.getVariantPrice() != null) old.setVariantPrice(v.getVariantPrice());
+        if (v.getVariantStock() != null) old.setVariantStock(v.getVariantStock());
+        if (v.getVariantUrl() != null) old.setVariantUrl(v.getVariantUrl());
+        if (v.getVariantSku() != null) old.setVariantSku(v.getVariantSku());
+
+        productVariantRepository.save(old);
+    }
+}
+
 
             // ADD VARIANTS
-            if (req.getVariantsToAdd() != null) {
-                for (UpdateProductRequest.VariantToAdd v : req.getVariantsToAdd()) {
-                    ProductVariantEntity newV = new ProductVariantEntity();
-                    newV.setProduct(p);
-                    newV.setOptionName(v.getOptionName());
-                    newV.setOptionValue(v.getOptionValue());
-                    newV.setVariantPrice(v.getVariantPrice());
-                    newV.setVariantStock(v.getVariantStock());
-                    newV.setVariantUrl(v.getVariantUrl());
-                    newV.setVariantSku(v.getVariantSku());
-                    productVariantRepository.save(newV);
-                }
-            }
+if (req.getVariantsToAdd() != null) {
+    for (UpdateProductRequest.VariantToAdd v : req.getVariantsToAdd()) {
+
+        // ❗ Validate input khi ADD
+        if (v.getVariantPrice() != null && v.getVariantPrice().compareTo(BigDecimal.ZERO) < 0)
+            throw new RuntimeException("❌ Variant price cannot be negative");
+
+        if (v.getVariantStock() != null && v.getVariantStock() < 0)
+            throw new RuntimeException("❌ Variant stock cannot be negative");
+
+        ProductVariantEntity newV = new ProductVariantEntity();
+        newV.setProduct(p);
+        newV.setOptionName(v.getOptionName());
+        newV.setOptionValue(v.getOptionValue());
+        newV.setVariantPrice(v.getVariantPrice());
+        newV.setVariantStock(v.getVariantStock());
+        newV.setVariantUrl(v.getVariantUrl());
+        newV.setVariantSku(v.getVariantSku());
+        productVariantRepository.save(newV);
+    }
+}
+
 
             // SYNC STOCK
             List<ProductVariantEntity> finalVariants =
@@ -648,6 +691,122 @@ public class ProductServiceImpl implements ProductService {
             );
         }
     }
+
+// ================================================
+// VALIDATION HELPERS
+// ================================================
+
+private void assertProductBelongsToStore(Product p, Store store) {
+    if (!p.getStore().getStoreId().equals(store.getStoreId())) {
+        throw new RuntimeException("❌ You cannot update a product of another store");
+    }
+}
+
+private void assertValidProductStatus(Product p) {
+    if (!(p.getStatus() == ProductStatus.ACTIVE || p.getStatus() == ProductStatus.UNLISTED)) {
+        throw new RuntimeException("❌ Product cannot be updated when status = " + p.getStatus());
+    }
+}
+
+private void assertValidPrice(BigDecimal price) {
+    if (price != null && price.compareTo(BigDecimal.ZERO) < 0) {
+        throw new RuntimeException("❌ Price cannot be negative");
+    }
+}
+
+private void assertValidStock(Integer stock) {
+    if (stock != null && stock < 0) {
+        throw new RuntimeException("❌ Stock cannot be negative");
+    }
+}
+
+private boolean variantHasOrder(UUID variantId) {
+    return productVariantRepository.countOrdersByVariantId(variantId) > 0;
+}
+
+private void assertVariantDeletable(UUID variantId) {
+    if (variantHasOrder(variantId)) {
+        throw new RuntimeException("❌ Cannot delete variant that already has orders");
+    }
+}
+
+private void assertVariantRequest(UpdateProductRequest.VariantToUpdate v) {
+    if (v.getVariantPrice() != null && v.getVariantPrice().compareTo(BigDecimal.ZERO) < 0) {
+        throw new RuntimeException("❌ Variant price cannot be negative");
+    }
+    if (v.getVariantStock() != null && v.getVariantStock() < 0) {
+        throw new RuntimeException("❌ Variant stock cannot be negative");
+    }
+}
+
+private void assertVariantPriceChangeAllowed(UpdateProductRequest.VariantToUpdate v, ProductVariantEntity old) {
+    if (v.getVariantPrice() != null && variantHasOrder(old.getId())) {
+        if (v.getVariantPrice().compareTo(old.getVariantPrice()) != 0) {
+            throw new RuntimeException("❌ Cannot change price of a variant that already has orders");
+        }
+    }
+}
+
+private void assertProductNotInActiveCampaign(UUID productId) {
+
+    List<PlatformCampaignProduct> list =
+            platformCampaignProductRepository.findAllByProduct_ProductId(productId);
+
+    if (list.isEmpty()) return; // Không tham gia campaign → OK
+
+    LocalDateTime now = LocalDateTime.now();
+
+    for (PlatformCampaignProduct cp : list) {
+
+        VoucherStatus st = cp.getStatus();
+
+        // ❗ CHỈ CHO PHÉP KHI EXPIRED hoặc REJECTED
+        if (st == VoucherStatus.EXPIRED || st == VoucherStatus.REJECTED) {
+            continue;
+        }
+
+        // Nếu đang ACTIVE → chặn ngay
+        if (st == VoucherStatus.ACTIVE && now.isAfter(cp.getStartTime()) && now.isBefore(cp.getEndTime())) {
+            throw new RuntimeException("❌ Product is in an ACTIVE campaign — cannot update.");
+        }
+
+        boolean isUpcoming = now.isBefore(cp.getStartTime());
+
+// Nếu chiến dịch chưa chạy và không nằm trong trạng thái được phép cập nhật
+if (isUpcoming && !(st == VoucherStatus.EXPIRED || st == VoucherStatus.REJECTED)) {
+    throw new RuntimeException("❌ Product is registered for an upcoming campaign — cannot update.");
+}
+
+        // Nếu đang mở đăng ký
+        if (st == VoucherStatus.ONOPEN) {
+            throw new RuntimeException("❌ Product is in campaign registration phase — cannot update.");
+        }
+
+        // Nếu admin đã APPROVE nhưng chưa chạy
+        if (st == VoucherStatus.APPROVE) {
+            throw new RuntimeException("❌ Product campaign is approved and pending start — cannot update.");
+        }
+
+        // Nếu DRAFT (*đã đăng ký nhưng chờ duyệt*)
+        if (st == VoucherStatus.DRAFT) {
+            throw new RuntimeException("❌ Product is pending campaign approval — cannot update.");
+        }
+
+        // Nếu DISABLED → vẫn không cho update
+        if (st == VoucherStatus.DISABLED) {
+            throw new RuntimeException("❌ Product is disabled inside a campaign — cannot update.");
+        }
+    }
+}
+
+private void assertProductNotOrdered(UUID productId) {
+    int count = storeOrderItemRepository.countOrdersByProduct(productId);
+    if (count > 0) {
+        throw new RuntimeException("❌ Product already has orders — cannot update core information.");
+    }
+}
+
+
 
 
 }
