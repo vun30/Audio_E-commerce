@@ -151,7 +151,7 @@ public class SettlementReportService {
             // guard null items
             if (so.getItems() == null || so.getItems().isEmpty()) continue;
 
-            // filter items according to report type
+            // filter items according to report typer
             List<StoreOrderItem> relevantItems = so.getItems().stream()
                     .filter(Objects::nonNull)
                     .filter(item -> {
