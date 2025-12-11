@@ -79,7 +79,7 @@ public class OAuth2AuthenticationSuccessHandler implements AuthenticationSuccess
         // 5) Trả JSON (kèm sẵn id cho tiện FE)
         try {
             String redirectUrl = String.format(
-                    "http://localhost:5173/oauth-success?accessToken=%s&refreshToken=%s&accountId=%s&customerId=%s",
+                    "https://sep-490-audio-wep-app.vercel.app/oauth-success?accessToken=%s&refreshToken=%s&accountId=%s&customerId=%s",
                     accessToken,
                     refreshToken,
                     account.getId(),

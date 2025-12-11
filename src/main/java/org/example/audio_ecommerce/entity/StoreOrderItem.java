@@ -149,4 +149,27 @@ public class StoreOrderItem {
     @Builder.Default
     private Boolean isReturned = false;
 
+    @Column(name = "shipping_fee_estimated", precision = 18, scale = 2)
+    private BigDecimal shippingFeeEstimated = BigDecimal.ZERO;   // phí ship dự kiến phân bổ cho item
+
+    @Column(name = "shipping_fee_actual", precision = 18, scale = 2)
+    private BigDecimal shippingFeeActual = BigDecimal.ZERO;      // phí ship thực tế phân bổ cho item
+
+    @Column(name = "shipping_extra_for_store", precision = 18, scale = 2)
+    private BigDecimal shippingExtraForStore = BigDecimal.ZERO;  // phần chênh lệch GHN - khách trả trên item
+
+    @Column(name = "platform_fee_amount", precision = 18, scale = 2)
+    private BigDecimal platformFeeAmount = BigDecimal.ZERO;      // tiền phí nền tảng trên item
+
+    @Column(name = "net_payout_item", precision = 18, scale = 2)
+    private BigDecimal netPayoutItem = BigDecimal.ZERO;
+
+    @Column(
+            name = "payout_processed",
+            nullable = false,
+            columnDefinition = "TINYINT(1) DEFAULT 0"
+    )
+    @Builder.Default
+    private Boolean payoutProcessed = false;
+
 }

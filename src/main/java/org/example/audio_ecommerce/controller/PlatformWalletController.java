@@ -22,10 +22,10 @@ import java.util.UUID;
 @Tag(
         name = "Platform Wallet",
         description = """
-        Các API quản lý ví trung gian của nền tảng.
-        Bao gồm: ví của hệ thống (Platform), ví cửa hàng (Shop), và ví khách hàng (Customer).  
-        Hỗ trợ xem danh sách, xem chi tiết ví, và lọc giao dịch.
-        """
+                Các API quản lý ví trung gian của nền tảng.
+                Bao gồm: ví của hệ thống (Platform), ví cửa hàng (Shop), và ví khách hàng (Customer).  
+                Hỗ trợ xem danh sách, xem chi tiết ví, và lọc giao dịch.
+                """
 )
 @RestController
 @RequestMapping("/api/platform-wallets")
@@ -81,46 +81,69 @@ public class PlatformWalletController {
     // 🔍 LỌC GIAO DỊCH
     // ==============================
     @Operation(
-        summary = "Lọc danh sách giao dịch (shop hoặc customer)",
-        description = """
-                - API cho phép lọc danh sách **transaction** theo nhiều tiêu chí:  
-                  • `storeId`: lọc giao dịch theo cửa hàng.  
-                  • `customerId`: lọc giao dịch theo khách hàng.  
-                  • `status`: trạng thái giao dịch (`PENDING`, `DONE`, `FAILED`).  
-                  • `type`: loại giao dịch (`HOLD`, `RELEASE`, `REFUND`, `WITHDRAW`, `DEPOSIT`, ...).  
-                  • `from`, `to`: khoảng thời gian bắt đầu và kết thúc (ISO date).  
-                - Các tham số đều là **tuỳ chọn**, có thể kết hợp nhiều điều kiện cùng lúc.  
-                - Kết quả trả về là danh sách các giao dịch đã lọc.
+            summary = "Lọc danh sách giao dịch (shop hoặc customer)",
+            description = """
+                    - API cho phép lọc danh sách **transaction** theo nhiều tiêu chí:  
+                      • `storeId`: lọc giao dịch theo cửa hàng.  
+                      • `customerId`: lọc giao dịch theo khách hàng.  
+                      • `status`: trạng thái giao dịch (`PENDING`, `DONE`, `FAILED`).  
+                      • `type`: loại giao dịch (`HOLD`, `RELEASE`, `REFUND`, `WITHDRAW`, `DEPOSIT`, ...).  
+                      • `from`, `to`: khoảng thời gian bắt đầu và kết thúc (ISO date).  
+                    - Các tham số đều là **tuỳ chọn**, có thể kết hợp nhiều điều kiện cùng lúc.  
+                    - Kết quả trả về là danh sách các giao dịch đã lọc.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lọc giao dịch thành công",
+                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = PlatformTransactionResponse.class)))),
+    })
+    @GetMapping("/transactions/filter")
+    public ResponseEntity<List<PlatformTransactionResponse>> filterTransactions(
+            @Parameter(description = "ID cửa hàng cần lọc (UUID)", example = "d7f1c3c8-0b33-49d4-bad4-9e0bb2b8b9a3")
+            @RequestParam(required = false) UUID storeId,
+
+            @Parameter(description = "ID khách hàng cần lọc (UUID)", example = "a5e1f3b8-2d44-4ef1-bcd4-98c12aee99ff")
+            @RequestParam(required = false) UUID customerId,
+
+            @Parameter(description = "Trạng thái giao dịch (PENDING, DONE, FAILED)", example = "DONE")
+            @RequestParam(required = false) TransactionStatus status,
+
+            @Parameter(description = "Loại giao dịch (HOLD, RELEASE, REFUND, WITHDRAW, ...)", example = "REFUND")
+            @RequestParam(required = false) TransactionType type,
+
+            @Parameter(description = "Ngày bắt đầu lọc (ISO format)", example = "2025-10-01T00:00:00")
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime from,
+
+            @Parameter(description = "Ngày kết thúc lọc (ISO format)", example = "2025-10-12T23:59:59")
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime to
+    ) {
+        return ResponseEntity.ok(walletService.filterTransactions(storeId, customerId, status, type, from, to));
+    }
+
+    // ==============================
+// 🏦 LẤY VÍ CỦA PLATFORM
+// ==============================
+    @Operation(
+            summary = "Lấy ví của Platform (hệ thống)",
+            description = """
+                - API trả về ví duy nhất của nền tảng.  
+                - Ví Platform giữ tiền khách thanh toán online (HOLD),  
+                  sau đó phân phối cho shop khi đủ điều kiện.  
+                - Dữ liệu bao gồm số dư tổng, pending, done và lịch sử giao dịch.
                 """
-)
-@ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Lọc giao dịch thành công",
-                content = @Content(array = @ArraySchema(schema = @Schema(implementation = PlatformTransactionResponse.class)))),
-})
-@GetMapping("/transactions/filter")
-public ResponseEntity<List<PlatformTransactionResponse>> filterTransactions(
-        @Parameter(description = "ID cửa hàng cần lọc (UUID)", example = "d7f1c3c8-0b33-49d4-bad4-9e0bb2b8b9a3")
-        @RequestParam(required = false) UUID storeId,
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy ví platform thành công",
+                    content = @Content(schema = @Schema(implementation = PlatformWalletResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Không tìm thấy ví platform")
+    })
+    @GetMapping("/platform")
+    public ResponseEntity<PlatformWalletResponse> getPlatformWallet() {
+        return ResponseEntity.ok(walletService.getPlatformWallet());
+    }
 
-        @Parameter(description = "ID khách hàng cần lọc (UUID)", example = "a5e1f3b8-2d44-4ef1-bcd4-98c12aee99ff")
-        @RequestParam(required = false) UUID customerId,
-
-        @Parameter(description = "Trạng thái giao dịch (PENDING, DONE, FAILED)", example = "DONE")
-        @RequestParam(required = false) TransactionStatus status,
-
-        @Parameter(description = "Loại giao dịch (HOLD, RELEASE, REFUND, WITHDRAW, ...)", example = "REFUND")
-        @RequestParam(required = false) TransactionType type,
-
-        @Parameter(description = "Ngày bắt đầu lọc (ISO format)", example = "2025-10-01T00:00:00")
-        @RequestParam(required = false)
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-        LocalDateTime from,
-
-        @Parameter(description = "Ngày kết thúc lọc (ISO format)", example = "2025-10-12T23:59:59")
-        @RequestParam(required = false)
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
-        LocalDateTime to
-) {
-    return ResponseEntity.ok(walletService.filterTransactions(storeId, customerId, status, type, from, to));
- }
 }

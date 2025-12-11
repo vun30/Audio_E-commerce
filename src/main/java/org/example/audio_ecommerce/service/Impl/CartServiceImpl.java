@@ -231,11 +231,13 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional(readOnly = true)
     public CartResponse getActiveCart(UUID customerId) {
+        System.out.println(" ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡getActiveCart: " + customerId);
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
         Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
                 .orElseGet(() -> Cart.builder().customer(customer).status(CartStatus.ACTIVE).build());
         if (cart.getItems() == null) cart.setItems(new ArrayList<>());
+        System.out.println(" ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡getActiveCart: " + cart);
         return toResponse(cart);
     }
 
@@ -669,6 +671,14 @@ public class CartServiceImpl implements CartService {
             List<CustomerOrderItem> coItems = new ArrayList<>();
             List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
+                UUID refIdForVoucher;
+                if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                    refIdForVoucher = ci.getProduct().getProductId();
+                } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                    refIdForVoucher = ci.getCombo().getComboId();
+                } else {
+                    refIdForVoucher = ci.getReferenceId(); // fallback: nếu sau này có type khác
+                }
                 // ==== TÍNH SNAPSHOT GIÁ GIỐNG BÊN STORE_ORDER_ITEM ====
                 BigDecimal baseListUnit = ci.getType() == CartItemType.COMBO
                         ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
@@ -703,14 +713,14 @@ public class CartServiceImpl implements CartService {
                 CustomerOrderItem coi = CustomerOrderItem.builder()
                         .customerOrder(co)
                         .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
+                        .refId(refIdForVoucher)
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
                         .variantId(ci.getVariantIdOrNull())
                         .variantOptionName(ci.getVariantOptionNameSnapshot())
                         .variantOptionValue(ci.getVariantOptionValueSnapshot())
-                        .unitPrice(ci.getUnitPrice()) // giá FE thấy ở cart (sau campaign/bulk)
-                        .lineTotal(ci.getLineTotal()) // = unitPrice * qty (trước voucher)
+                        .unitPrice(baseListUnit.setScale(0, RoundingMode.DOWN)) // giá FE thấy ở cart (sau campaign/bulk)
+                        .lineTotal(lineBefore) // = unitPrice * qty (trước voucher)
                         .storeId(storeIdKey)
                         .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
                         .linePriceBeforeDiscount(lineBefore)
@@ -728,7 +738,7 @@ public class CartServiceImpl implements CartService {
                 StoreOrderItem soi = StoreOrderItem.builder()
                         .storeOrder(null) // sẽ set sau khi có StoreOrder
                         .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
+                        .refId(refIdForVoucher)
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
                         .variantId(ci.getVariantIdOrNull())
@@ -753,9 +763,9 @@ public class CartServiceImpl implements CartService {
             }
             co.setItems(coItems);
 
-            // 4d) Subtotal
+            // 4d) Subtotal abc
             BigDecimal subtotal = coItems.stream()
-                    .map(CustomerOrderItem::getLineTotal)
+                    .map(CustomerOrderItem::getLinePriceBeforeDiscount)
                     .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -901,6 +911,83 @@ public class CartServiceImpl implements CartService {
                         }
                     }
                 }
+
+                // ============================
+                // ✅ NEW: TÍNH PHÍ NỀN TẢNG + PHÂN BỔ PHÍ SHIP CHO TỪNG ITEM
+                // ============================
+                List<StoreOrderItem> items = Optional.ofNullable(so.getItems()).orElse(List.of());
+
+                // 1) Platform fee per item = finalLineTotal * platformFeePercentage / 100
+                BigDecimal platformPercent = Optional.ofNullable(so.getPlatformFeePercentage())
+                        .orElse(BigDecimal.ZERO);
+                BigDecimal totalPlatformFeeForOrder = BigDecimal.ZERO;
+
+                for (StoreOrderItem it : items) {
+                    BigDecimal baseForFee = Optional.ofNullable(it.getFinalLineTotal())
+                            .orElse(BigDecimal.ZERO); // tuyệt đối không chứa ship
+                    BigDecimal itemPlatformFee = baseForFee
+                            .multiply(platformPercent)
+                            .divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN); // VND
+
+                    it.setPlatformFeeAmount(itemPlatformFee);
+                    totalPlatformFeeForOrder = totalPlatformFeeForOrder.add(itemPlatformFee);
+                }
+                so.setPlatformFeeAmount(totalPlatformFeeForOrder);
+
+                // 2) Phân bổ phí ship (dự kiến + thực tế) cho từng item
+                BigDecimal shipEstimated = Optional.ofNullable(so.getShippingFee()).orElse(BigDecimal.ZERO);
+                BigDecimal shipActual = Optional.ofNullable(so.getActualShippingFee())
+                        .orElse(shipEstimated);
+
+                // Base để phân bổ ship: dùng finalLineTotal (do đã là doanh thu sau mọi discount)
+                BigDecimal totalBaseForShip = items.stream()
+                        .map(it -> Optional.ofNullable(it.getFinalLineTotal()).orElse(BigDecimal.ZERO))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                BigDecimal allocatedEst = BigDecimal.ZERO;
+                BigDecimal allocatedAct = BigDecimal.ZERO;
+
+                if (totalBaseForShip.compareTo(BigDecimal.ZERO) > 0 && !items.isEmpty()) {
+                    for (int i = 0; i < items.size(); i++) {
+                        StoreOrderItem it = items.get(i);
+                        BigDecimal base = Optional.ofNullable(it.getFinalLineTotal()).orElse(BigDecimal.ZERO);
+
+                        BigDecimal estShare = base.multiply(shipEstimated)
+                                .divide(totalBaseForShip, 0, RoundingMode.DOWN);
+                        BigDecimal actShare = base.multiply(shipActual)
+                                .divide(totalBaseForShip, 0, RoundingMode.DOWN);
+
+                        // chỉnh lệch cho item cuối
+                        if (i == items.size() - 1) {
+                            estShare = shipEstimated.subtract(allocatedEst);
+                            actShare = shipActual.subtract(allocatedAct);
+                        }
+
+                        it.setShippingFeeEstimated(estShare);
+                        it.setShippingFeeActual(actShare);
+                        it.setShippingExtraForStore(actShare.subtract(estShare)); // chênh lệch trên item
+
+                        allocatedEst = allocatedEst.add(estShare);
+                        allocatedAct = allocatedAct.add(actShare);
+
+                        BigDecimal net = it.getAmountCharged()          // khách trả cho item (không gồm ship)
+                                .subtract(it.getPlatformFeeAmount())    // trừ platform fee
+                                .add(it.getShippingExtraForStore());    // cộng ship chênh lệch
+                        it.setNetPayoutItem(net);
+                    }
+
+                } else {
+                    // không có base hoặc ship = 0 → tất cả 0
+                    for (StoreOrderItem it : items) {
+                        it.setShippingFeeEstimated(BigDecimal.ZERO);
+                        it.setShippingFeeActual(BigDecimal.ZERO);
+                        it.setShippingExtraForStore(BigDecimal.ZERO);
+                        BigDecimal net = it.getAmountCharged()
+                                .subtract(it.getPlatformFeeAmount()); // không ship, không extra
+                        it.setNetPayoutItem(net);
+                    }
+                }
+
 
                 storeOrderRepository.save(so);
             }
@@ -1545,14 +1632,8 @@ public class CartServiceImpl implements CartService {
      * Giá base của product: ưu tiên discountPrice nếu > 0, fallback sang price.
      */
     private BigDecimal getBaseUnitPrice(Product p) {
-        if (p == null) return BigDecimal.ZERO;
-        if (p.getDiscountPrice() != null && p.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0) {
-            return p.getDiscountPrice();
-        }
-        if (p.getPrice() != null) {
-            return p.getPrice();
-        }
-        return BigDecimal.ZERO;
+        if (p == null || p.getPrice() == null) return BigDecimal.ZERO;
+        return p.getPrice();
     }
 
     /**
@@ -1977,11 +2058,18 @@ public class CartServiceImpl implements CartService {
                     ? ci.getProduct().getStore().getStoreId()
                     : (ci.getCombo() != null ? ci.getCombo().getStore().getStoreId() : null);
             if (storeId == null) continue;
-
+            UUID refIdForVoucher;
+            if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                refIdForVoucher = ci.getProduct().getProductId();
+            } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                refIdForVoucher = ci.getCombo().getComboId();
+            } else {
+                refIdForVoucher = ci.getReferenceId(); // fallback nếu sau này có type khác
+            }
             // build StoreOrderItem "ảo" để tính voucher
             StoreOrderItem soi = StoreOrderItem.builder()
                     .type(ci.getType().name())
-                    .refId(ci.getReferenceId())
+                    .refId(refIdForVoucher)
                     .name(ci.getNameSnapshot())
                     .quantity(ci.getQuantity())
                     .variantId(ci.getVariantIdOrNull())
