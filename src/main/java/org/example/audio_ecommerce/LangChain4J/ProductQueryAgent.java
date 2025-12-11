@@ -14,39 +14,96 @@ public class ProductQueryAgent {
     public String generateSql(String fullPrompt) {
 
         var response = chatModel.generate(
-                SystemMessage.from("""
-                        VERSION: 999999
-                        You generate ONLY MySQL SELECT queries.
-                        RULES:
-                        - No comments
-                        - No explanation
-                        - No markdown
-                        - Only SELECT allowed
-                        - Use only schema columns
-                        - ALWAYS append: LIMIT 20
-                        - Always output a single valid MySQL statement.
-                        PRICE LOGIC:
-                        When the user refers to price, budget, cost, cheaper, expensive or any numeric range related to pricing:
-                        1. Treat the effective price of a product as the COALESCE of (variant_price, final_price, discount_price, price).
-                        2. This means you MUST LEFT JOIN product_variants (alias pv) to products (alias p) when price filtering is requested.
-                        3. Use expression: COALESCE(pv.variant_price, p.final_price, p.discount_price, p.price)
-                        4. Always select DISTINCT p.product_id to avoid duplicates when there are multiple variants.
-                        5. If ordering by price, order by the same COALESCE expression.
-                        6. If filtering by a range, apply it to the COALESCE expression.
-                        GENERAL GUIDELINES:
-                        - Alias products as p when joining.
-                        - Only use columns present in the provided schema.
-                        - If the question asks for limits like top N cheaper or most expensive, still append LIMIT 20 but also ORDER BY price ascending/descending accordingly.
-                        - Never use UPDATE/DELETE/INSERT; only SELECT.
-                        - If no price-related terms are in the question, you may omit the variant join unless variant attributes are explicitly referenced.
-                        OUTPUT:
-                        - Return only the SQL without surrounding backticks.
-                        - Ensure it ends with LIMIT 20.
-                        """),
-                UserMessage.from(fullPrompt)
+            SystemMessage.from("""
+                    VERSION: 100002
+                    You generate ONLY MySQL SELECT queries.
+
+                    ===========================
+                    GLOBAL RULES
+                    ===========================
+                    - No comments
+                    - No markdown
+                    - No explanation
+                    - Only SELECT allowed
+                    - Always return ONE SQL query
+                    - Always SELECT DISTINCT p.product_id
+                    - Always append LIMIT 20
+
+                    Alias:
+                        products p
+                        product_variants pv
+                        product_categories pc
+                        categories c
+                        category_attributes ca
+                        product_attribute_values pav
+
+                    ===========================
+                    ALLOWED FILTER TYPES
+                    ===========================
+                    1. CATEGORY NAME
+                    2. BRAND NAME
+                    3. PRICE RANGE / BUDGET
+                    4. CATEGORY ATTRIBUTE VALUES (fuzzy match)
+
+                    ===========================
+                    CATEGORY RULE
+                    ===========================
+                    JOIN pc + c
+                    Filter: c.name LIKE '%keyword%'
+
+                    ===========================
+                    PRICE RULE
+                    ===========================
+                    Effective price =
+                      COALESCE(pv.variant_price, p.final_price, p.discount_price, p.price)
+
+                    Price tolerance (±20%):
+                        If user gives number N → range N*0.8 to N*1.2
+
+                    Always LEFT JOIN pv when price is involved.
+
+                    ===========================
+                    BRAND RULE
+                    ===========================
+                    p.brand_name LIKE '%keyword%'
+
+                    ===========================
+                    ATTRIBUTE RULE (Dynamic + Fuzzy)
+                    ===========================
+                    JOIN pav + ca
+
+                    Fuzzy match attribute name:
+                        LOWER(ca.attribute_name) LIKE LOWER('%keyword%')
+                     OR LOWER(ca.attribute_label) LIKE LOWER('%keyword%')
+
+                    If numeric attribute → extract number:
+                        CAST(REGEXP_REPLACE(pav.value, '[^0-9.]','') AS DECIMAL(18,2))
+
+                    Numeric tolerance:
+                        ±30%
+
+                    IMPORTANT:
+                    - If no attribute in schema matches the keyword → DO NOT apply any attribute filter.
+                    - Never generate impossible conditions.
+
+                    ===========================
+                    COMBO LOGIC
+                    ===========================
+                    If user requests multi-component combo:
+                        WHERE c.name IN ('loa','micro','mixer','amply','dac')
+
+                    ===========================
+                    FINAL FORMAT
+                    ===========================
+                    SELECT DISTINCT p.product_id
+                    FROM ...
+                    JOIN ...
+                    WHERE ...
+                    LIMIT 20
+                    """),
+            UserMessage.from(fullPrompt)
         );
 
         return response.content().text();
-
     }
 }

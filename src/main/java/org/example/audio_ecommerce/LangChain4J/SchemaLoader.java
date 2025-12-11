@@ -9,107 +9,74 @@ public class SchemaLoader {
         return """
                 ============================
                 TABLE: products
-                (Product attributes only)
-                ============================
                 Columns:
-                  product_id (PK),
+                  product_id,
                   name,
                   brand_name,
-                  model,
-                  description,
-                  short_description,
-                  video_url,
-                  sku,
-                  weight,
-                  dimensions,
-                  amplifier_type,
-                  auto_return,
-                  balanced_output,
-                  battery_capacity,
-                  bit_depth,
-                  built_in_effects,
-                  channel_count,
-                  color,
-                  compatible_devices,
-                  connection_type,
-                  coverage_pattern,
-                  crossover_frequency,
-                  dac_chipset,
-                  driver_configuration,
-                  driver_size,
-                  enclosure_type,
-                  eq_bands,
-                  fader_type,
-                  frequency_response,
-                  has_built_in_battery,
-                  has_phantom_power,
-                  headphone_accessory_type,
-                  headphone_connection_type,
-                  headphone_features,
-                  headphone_type,
-                  impedance,
-                  input_channels,
-                  input_interface,
-                  maxspl,
-                  mic_output_impedance,
-                  mic_sensitivity,
-                  mic_type,
-                  midi_support,
-                  motor_type,
-                  output_channels,
-                  output_interface,
-                  placement_type,
-                  platter_material,
-                  plug_type,
-                  polar_pattern,
-                  power_handling,
-                  sample_rate,
-                  sensitivity,
-                  sirim_approved,
-                  sirim_certified,
-                  snr,
-                  support_airplay,
-                  support_bluetooth,
-                  support_wifi,
-                  thd,
-                  tonearm_type,
-                  total_power_output,
-                  usb_audio_interface,
-                  voltage_input,
                   price,
                   discount_price,
-                  final_price,
-                  category_id (FK → categories.category_id)
+                  final_price
 
                 ============================
                 TABLE: product_variants
-                ============================
                 Columns:
-                  id (PK),
-                  product_id (FK),
+                  id,
+                  product_id,
                   option_name,
                   option_value,
-                  variant_price,
-                  variant_stock,
-                  variant_sku
-                NOTE: Use variant_price when present instead of product base price for price queries.
+                  variant_price
+
+                ============================
+                TABLE: product_categories
+                Columns:
+                  product_id,
+                  category_id
 
                 ============================
                 TABLE: categories
-                ============================
                 Columns:
-                  category_id (PK),
+                  category_id,
                   name,
-                  description,
-                  icon_url,
-                  slug,
-                  sort_order
+                  parent_id
 
                 ============================
-                PRICE SELECTION HINT
-                Effective price expression for filtering/sorting:
-                COALESCE(product_variants.variant_price, products.final_price, products.discount_price, products.price)
+                TABLE: category_attributes
+                Columns:
+                  attribute_id,
+                  category_id,
+                  attribute_name,
+                  attribute_label,
+                  data_type
+
+                Notes:
+                  attribute_name and attribute_label are used for fuzzy matching.
+                  Example fuzzy match: keyword "delay" can match "latency", "response_time"
+                  Only apply attribute filtering if fuzzy match finds a valid attribute.
+
+                ============================
+                TABLE: product_attribute_values
+                Columns:
+                  id,
+                  product_id,
+                  category_attribute_id,
+                  value
+
+                ============================
+                PRICE LOGIC
+                Effective price =
+                    COALESCE(pv.variant_price, p.final_price, p.discount_price, p.price)
+                Tolerance: ±20%
+
+                ATTRIBUTE LOGIC
+                Numeric extraction:
+                    CAST(REGEXP_REPLACE(value, '[^0-9.]','') AS DECIMAL)
+                Tolerance: ±30%
+
+                Fuzzy rules:
+                    If no attribute matches keyword, skip attribute filter entirely.
                 ============================
                 """;
     }
 }
+
+
