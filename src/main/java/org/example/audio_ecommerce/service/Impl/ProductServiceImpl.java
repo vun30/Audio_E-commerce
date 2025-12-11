@@ -703,10 +703,14 @@ private void assertProductBelongsToStore(Product p, Store store) {
 }
 
 private void assertValidProductStatus(Product p) {
-    if (!(p.getStatus() == ProductStatus.ACTIVE || p.getStatus() == ProductStatus.UNLISTED)) {
+    if (!(p.getStatus() == ProductStatus.ACTIVE
+            || p.getStatus() == ProductStatus.UNLISTED
+            || p.getStatus() == ProductStatus.REJECT)) {
+
         throw new RuntimeException("❌ Product cannot be updated when status = " + p.getStatus());
     }
 }
+
 
 private void assertValidPrice(BigDecimal price) {
     if (price != null && price.compareTo(BigDecimal.ZERO) < 0) {
