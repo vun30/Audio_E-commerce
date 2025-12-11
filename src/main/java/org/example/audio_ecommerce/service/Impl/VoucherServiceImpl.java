@@ -97,6 +97,29 @@ public class VoucherServiceImpl implements VoucherService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    private int eligibleQuantity(ShopVoucher v, List<StoreOrderItem> items) {
+        List<ShopVoucherProduct> binds = v.getVoucherProducts();
+        if (binds == null || binds.isEmpty()) {
+            // áp cho toàn bộ sản phẩm của shop
+            return items.stream()
+                    .mapToInt(it -> Optional.ofNullable(it.getQuantity()).orElse(0))
+                    .sum();
+        }
+        Set<UUID> allowed = binds.stream()
+                .filter(ShopVoucherProduct::isActive)
+                .map(bp -> bp.getProduct() != null ? bp.getProduct().getProductId() : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        return items.stream()
+                .filter(it -> "PRODUCT".equalsIgnoreCase(it.getType())
+                        && it.getRefId() != null
+                        && allowed.contains(it.getRefId()))
+                .mapToInt(it -> Optional.ofNullable(it.getQuantity()).orElse(0))
+                .sum();
+    }
+
+
     private BigDecimal discountOf(ShopVoucher v, BigDecimal base) {
         if (base==null) base = BigDecimal.ZERO;
         if (v.getType()== VoucherType.FIXED) {
@@ -132,44 +155,72 @@ public class VoucherServiceImpl implements VoucherService {
             if (cpOpt.isEmpty()) continue;
             var cp = cpOpt.get();
 
-            // ✅ CHECK remainingUsage
+            // ✅ CHECK remainingUsage (tổng toàn hệ thống)
             if (cp.getRemainingUsage() != null && cp.getRemainingUsage() <= 0) {
                 continue;
             }
 
-            // ✅ CHECK usagePerUser theo customer
-            if (customerId != null && cp.getUsagePerUser() != null && cp.getUsagePerUser() > 0) {
-                PlatformCampaignProductUsage usage = platformUsageRepo
-                        .findByCampaignProduct_IdAndCustomer_Id(cp.getId(), customerId)
-                        .orElse(null);
-
-                int usedCount = usage != null ? usage.getUsedCount() : 0;
-                if (usedCount >= cp.getUsagePerUser()) {
-                    // user này hết lượt dùng voucher này
-                    continue;
-                }
-            }
-
-            // 1) gom tất cả StoreOrderItem liên quan đến product này
+            // 1) Gom subtotal & quantity theo store cho campaign product này
             Map<UUID, BigDecimal> eligibleSubtotalByStore = new HashMap<>();
             BigDecimal eligibleSubtotalTotal = BigDecimal.ZERO;
+            int totalEligibleQty = 0;
 
             for (Map.Entry<UUID, List<StoreOrderItem>> e : storeItemsMap.entrySet()) {
                 UUID storeId = e.getKey();
-                BigDecimal sum = e.getValue().stream()
-                        .filter(item -> matchesCampaignProduct(item, cp))
-                        .map(StoreOrderItem::getLineTotal)
-                        .filter(Objects::nonNull)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal sum = BigDecimal.ZERO;
+
+                for (StoreOrderItem item : e.getValue()) {
+                    if (!matchesCampaignProduct(item, cp)) continue;
+
+                    BigDecimal line = Optional.ofNullable(item.getLineTotal()).orElse(BigDecimal.ZERO);
+                    if (line.signum() <= 0) continue;
+
+                    sum = sum.add(line);
+                    Integer q = item.getQuantity();
+                    if (q != null && q > 0) {
+                        totalEligibleQty += q;
+                    }
+                }
+
                 if (sum.signum() > 0) {
                     eligibleSubtotalByStore.put(storeId, sum);
                     eligibleSubtotalTotal = eligibleSubtotalTotal.add(sum);
                 }
             }
 
-            if (eligibleSubtotalTotal.signum() <= 0) continue; // nothing to discount
+            if (eligibleSubtotalTotal.signum() <= 0 || totalEligibleQty <= 0) {
+                // không có item nào match campaign này
+                continue;
+            }
 
-            // 2) tính số tiền giảm của voucher hiện tại
+            // 2) CHECK usagePerUser theo customer + quantity
+            Integer usagePerUser = cp.getUsagePerUser();
+            PlatformCampaignProductUsage usage = null;
+            int usedCount = 0;
+
+            if (customerId != null && usagePerUser != null && usagePerUser > 0) {
+                usage = platformUsageRepo
+                        .findByCampaignProduct_IdAndCustomer_Id(cp.getId(), customerId)
+                        .orElse(null);
+
+                usedCount = (usage != null && usage.getUsedCount() != null)
+                        ? usage.getUsedCount()
+                        : 0;
+
+                if (usedCount >= usagePerUser) {
+                    // Hết sạch lượt
+                    continue;
+                }
+
+                int remaining = usagePerUser - usedCount;
+                // Nếu quantity của lần này > remaining → theo rule: không cho hưởng ưu đãi luôn
+                // (giống logic trong CartServiceImpl.resolveUnitPriceInternal)
+                if (totalEligibleQty > remaining) {
+                    continue;
+                }
+            }
+
+            // 3) Tính số tiền giảm
             BigDecimal rawDiscount = BigDecimal.ZERO;
             switch (cp.getType()) {
                 case FIXED -> {
@@ -178,55 +229,59 @@ public class VoucherServiceImpl implements VoucherService {
                 }
                 case PERCENT -> {
                     Integer pct = Optional.ofNullable(cp.getDiscountPercent()).orElse(0);
-                    BigDecimal cut = eligibleSubtotalTotal.multiply(BigDecimal.valueOf(pct))
+                    BigDecimal cut = eligibleSubtotalTotal
+                            .multiply(BigDecimal.valueOf(pct))
                             .divide(BigDecimal.valueOf(100));
                     BigDecimal cap = Optional.ofNullable(cp.getMaxDiscountValue()).orElse(null);
                     if (cap != null && cap.signum() > 0) cut = cut.min(cap);
                     rawDiscount = cut;
                 }
                 case SHIPPING -> {
-                    // Giảm vào tổng theo thiết kế “toàn sàn shipping”
                     BigDecimal val = Optional.ofNullable(cp.getDiscountValue()).orElse(BigDecimal.ZERO);
-                    rawDiscount = val; // có thể cap theo shippingFeeTotal nếu muốn
+                    rawDiscount = val;
                 }
                 default -> {}
             }
             if (rawDiscount.signum() <= 0) continue;
 
-            // 3) phân bổ theo tỷ lệ eligibleSubtotal của từng store
-            Map<UUID, BigDecimal> alloc = proportionalAllocate(rawDiscount, eligibleSubtotalByStore, eligibleSubtotalTotal);
+            // 4) Phân bổ theo store như cũ
+            Map<UUID, BigDecimal> alloc = proportionalAllocate(
+                    rawDiscount,
+                    eligibleSubtotalByStore,
+                    eligibleSubtotalTotal
+            );
 
-            // 4) merge vào output
             for (Map.Entry<UUID, BigDecimal> a : alloc.entrySet()) {
                 out.discountByStore.merge(a.getKey(), a.getValue(), BigDecimal::add);
             }
+
             String key = cp.getCampaign() != null && cp.getCampaign().getCode() != null
                     ? cp.getCampaign().getCode()
                     : String.valueOf(cp.getId());
             out.platformDiscountMap.merge(key, rawDiscount, BigDecimal::add);
 
-            // ✅ trừ remainingUsage
+            // 5) Trừ remainingUsage (nếu bạn muốn cũng theo quantity)
+            int consumeQty = totalEligibleQty; // số lượt bị "đốt" trong lần này
+
             if (cp.getRemainingUsage() != null && cp.getRemainingUsage() > 0) {
-                cp.setRemainingUsage(cp.getRemainingUsage() - 1);
+                int newRemain = cp.getRemainingUsage() - consumeQty;
+                cp.setRemainingUsage(Math.max(newRemain, 0));
             }
 
-            // ✅ update usage per customer
-            if (customerId != null) {
-                PlatformCampaignProductUsage usage = platformUsageRepo
-                        .findByCampaignProduct_IdAndCustomer_Id(cp.getId(), customerId)
-                        .orElseGet(() -> {
-                            Customer c = new Customer();
-                            c.setId(customerId); // id từ BaseEntity
+            // 6) Update usage per customer theo quantity
+            if (customerId != null && usagePerUser != null && usagePerUser > 0) {
+                if (usage == null) {
+                    Customer c = new Customer();
+                    c.setId(customerId);
 
-                            return PlatformCampaignProductUsage.builder()
-                                    .campaignProduct(cp)
-                                    .customer(c)
-                                    .usedCount(0)
-                                    .build();
-                        });
+                    usage = PlatformCampaignProductUsage.builder()
+                            .campaignProduct(cp)
+                            .customer(c)
+                            .usedCount(0)
+                            .build();
+                }
 
-
-                int newCount = usage.getUsedCount() + 1;
+                int newCount = usedCount + consumeQty;
                 usage.setUsedCount(newCount);
                 LocalDateTime now = LocalDateTime.now();
                 if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(now);
@@ -237,6 +292,7 @@ public class VoucherServiceImpl implements VoucherService {
 
         return out;
     }
+
 
     private boolean matchesCampaignProduct(StoreOrderItem item, PlatformCampaignProduct cp) {
         // item.refId là UUID của Product/Combo — ở đây platform áp cho PRODUCT
@@ -291,7 +347,8 @@ public class VoucherServiceImpl implements VoucherService {
 
             BigDecimal applied = BigDecimal.ZERO;
             BigDecimal storeSubtotal = items.stream()
-                    .map(StoreOrderItem::getLineTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .map(StoreOrderItem::getLineTotal)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             // tổng giảm nền tảng của store này
             BigDecimal platformDiscountForStore = platformDiscountByStore
@@ -306,27 +363,45 @@ public class VoucherServiceImpl implements VoucherService {
 
                 ShopVoucher v = voucherRepo.findByShop_StoreIdAndCodeIgnoreCase(storeId, code).orElse(null);
                 if (v == null || v.getStatus() != VoucherStatus.ACTIVE) continue;
-                if (v.getStartTime()!=null && now.isBefore(v.getStartTime())) continue;
-                if (v.getEndTime()!=null && now.isAfter(v.getEndTime())) continue;
-                if (v.getRemainingUsage()!=null && v.getRemainingUsage()<=0) continue;
+                if (v.getStartTime() != null && now.isBefore(v.getStartTime())) continue;
+                if (v.getEndTime() != null && now.isAfter(v.getEndTime())) continue;
+                if (v.getRemainingUsage() != null && v.getRemainingUsage() <= 0) continue;
 
-                if (customerId != null && v.getUsagePerUser() != null && v.getUsagePerUser() > 0) {
-                    ShopVoucherUsage usage = shopVoucherUsageRepo
+                // ====== Tính subtotal & quantity đủ điều kiện ======
+                BigDecimal eligibleSubtotal = eligibleSubtotal(v, items);
+                int eligibleQty = eligibleQuantity(v, items);
+
+                if (eligibleQty <= 0) continue; // không có sản phẩm nào áp voucher
+                if (v.getMinOrderValue() != null && eligibleSubtotal.compareTo(v.getMinOrderValue()) < 0) continue;
+
+                // ====== CHECK usagePerUser theo customer + quantity ======
+                Integer usagePerUser = v.getUsagePerUser();
+                ShopVoucherUsage usage = null;
+                int usedCount = 0;
+
+                if (customerId != null && usagePerUser != null && usagePerUser > 0) {
+                    usage = shopVoucherUsageRepo
                             .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
                             .orElse(null);
 
-                    int usedCount = usage != null ? usage.getUsedCount() : 0;
-                    if (usedCount >= v.getUsagePerUser()) {
-                        // user này hết lượt dùng voucher này
+                    usedCount = (usage != null && usage.getUsedCount() != null)
+                            ? usage.getUsedCount()
+                            : 0;
+
+                    if (usedCount >= usagePerUser) {
+                        // user này đã hết sạch lượt
+                        continue;
+                    }
+
+                    int remaining = usagePerUser - usedCount;
+                    // Nếu số lượng sản phẩm lần này > số lượt còn lại → block luôn voucher
+                    // (giống rule bạn đang dùng cho campaign product)
+                    if (eligibleQty > remaining) {
                         continue;
                     }
                 }
 
-                // subtotal đủ điều kiện áp voucher (dùng để check minOrder)
-                BigDecimal eligibleSubtotal = eligibleSubtotal(v, items);
-                if (v.getMinOrderValue()!=null && eligibleSubtotal.compareTo(v.getMinOrderValue())<0) continue;
-
-                // ✅ Base để tính giảm shop
+                // ====== Base để tính giảm shop ======
                 BigDecimal baseForShop;
                 if (v.getType() == VoucherType.SHIPPING) {
                     // shipping voucher không phụ thuộc giảm nền tảng
@@ -338,52 +413,54 @@ public class VoucherServiceImpl implements VoucherService {
                 if (baseForShop.signum() <= 0) continue;
 
                 BigDecimal discount = discountOf(v, baseForShop);
-                BigDecimal cap = storeSubtotal.subtract(applied);
-                if (cap.signum()<=0) break;
-                if (discount.compareTo(cap)>0) discount = cap;
+                BigDecimal cap = storeSubtotal.subtract(applied); // tránh giảm quá subtotal
+                if (cap.signum() <= 0) break;
+                if (discount.compareTo(cap) > 0) discount = cap;
 
                 if (discount.signum() > 0) {
                     applied = applied.add(discount);
                     // ✅ lưu chi tiết theo mã
                     detail.merge(code, discount, BigDecimal::add);
 
-                    // ✅ trừ remainingUsage
+                    // ====== SỐ LƯỢT BỊ TIÊU HAO THEO QUANTITY ======
+                    int consumeQty = eligibleQty;
+
+                    // ✅ trừ remainingUsage theo quantity
                     if (v.getRemainingUsage() != null && v.getRemainingUsage() > 0) {
-                        v.setRemainingUsage(v.getRemainingUsage() - 1);
+                        int newRemain = v.getRemainingUsage() - consumeQty;
+                        v.setRemainingUsage(Math.max(newRemain, 0));
                     }
 
-                    // ✅ update usage per customer
-                    if (customerId != null) {
-                        ShopVoucherUsage usage = shopVoucherUsageRepo
-                                .findByVoucher_IdAndCustomer_Id(v.getId(), customerId)
-                                .orElseGet(() -> {
-                                    Customer c = new Customer();
-                                    c.setId(customerId);
+                    // ✅ update usage per customer theo quantity
+                    if (customerId != null && usagePerUser != null && usagePerUser > 0) {
+                        if (usage == null) {
+                            Customer c = new Customer();
+                            c.setId(customerId);
 
-                                    return ShopVoucherUsage.builder()
-                                            .voucher(v)
-                                            .customer(c)
-                                            .usedCount(0)
-                                            .build();
-                                });
+                            usage = ShopVoucherUsage.builder()
+                                    .voucher(v)
+                                    .customer(c)
+                                    .usedCount(0)
+                                    .build();
+                        }
 
-
-                        int newCount = usage.getUsedCount() + 1;
+                        int newCount = usedCount + consumeQty;
                         usage.setUsedCount(newCount);
                         LocalDateTime nowL = LocalDateTime.now();
                         if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(nowL);
                         usage.setLastUsedAt(nowL);
                         shopVoucherUsageRepo.save(usage);
                     }
-
                 }
             }
-            if (applied.signum()>0) {
+
+            if (applied.signum() > 0) {
                 out.discountByStore.merge(storeId, applied, BigDecimal::add);
             }
         }
         return out;
     }
+
 
     @Override
     public BaseResponse<Map<String, Object>> getShopVoucherUsage(
