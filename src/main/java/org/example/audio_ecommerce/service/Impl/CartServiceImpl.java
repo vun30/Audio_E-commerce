@@ -1760,7 +1760,7 @@ public class CartServiceImpl implements CartService {
         // 2) Lấy list campaign active cho product này tại thời điểm hiện tại
         LocalDateTime now = LocalDateTime.now();
         List<PlatformCampaignProduct> cps =
-                platformCampaignProductRepository.findAllActiveByProduct(product.getProductId(), now);
+                platformCampaignProductRepository.findAllActiveByProductLegacy(product.getProductId(), now);
         log.info("[CAMPAIGN-CHECK] campaignsFound={} for productId={} at now={}",
                 (cps == null ? 0 : cps.size()), product.getProductId(), now);
         if (cps == null || cps.isEmpty()) {
