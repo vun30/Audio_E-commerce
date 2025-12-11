@@ -231,7 +231,7 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional(readOnly = true)
     public CartResponse getActiveCart(UUID customerId) {
-        log.warn(">>> [API CALLED] GET CART for customerId={}", customerId);
+        System.out.println(" ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡getActiveCart: " + customerId);
         Customer customer = customerRepo.findById(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Customer not found"));
         Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
