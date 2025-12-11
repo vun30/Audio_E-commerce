@@ -16,6 +16,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Tag(
@@ -90,12 +92,11 @@ public class SettlementReportController {
         SettlementReportResponse resp = reportService.getReport(type, date, storeId);
 
         // Build a small payload containing only the totalAmount (and report metadata)
-        var summary = java.util.Map.of(
-                "reportType", resp.getReportType(),
-                "date", resp.getDate(),
-                "storeId", storeId,
-                "totalAmount", resp.getTotalAmount()
-        );
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("reportType", resp == null ? null : resp.getReportType());
+        summary.put("date", resp == null ? null : resp.getDate());
+        summary.put("storeId", storeId);
+        summary.put("totalAmount", resp == null ? null : resp.getTotalAmount());
 
         return ResponseEntity.ok(BaseResponse.builder()
                 .status(HttpStatus.OK.value())

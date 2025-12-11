@@ -94,26 +94,44 @@ public class SettlementReportService {
                 break;
             case DELI_COD:
             case DELI_ONLINE:
-                if (from == null) throw new IllegalArgumentException("date is required for DELI_* reports");
-                storeOrders = (storeId == null)
-                        ? storeOrderRepository.findDeliveredBetweenFetchItems(from, to)
-                        : storeOrderRepository.findDeliveredBetweenByStoreFetchItems(storeId, from, to);
+                if (from == null) {
+                    // date null -> lấy tất cả delivered (không filter theo ngày). Nếu cần filter theo storeId, thực hiện sau.
+                    storeOrders = storeOrderRepository.findAllWithItemsFetch().stream()
+                            .filter(so -> so.getDeliveredAt() != null) // chỉ lấy delivered
+                            .collect(Collectors.toList());
+                } else {
+                    storeOrders = (storeId == null)
+                            ? storeOrderRepository.findDeliveredBetweenFetchItems(from, to)
+                            : storeOrderRepository.findDeliveredBetweenByStoreFetchItems(storeId, from, to);
+                }
                 break;
             case PLATFORM_FEE_TO_COLLECT:
             case TOTAL_COLLECTED:
-                if (from == null) throw new IllegalArgumentException("date is required for PLATFORM_FEE_TO_COLLECT/TOTAL_COLLECTED");
-                storeOrders = (storeId == null)
-                        ? storeOrderRepository.findDeliveredBetweenFetchItems(from, to)
-                        : storeOrderRepository.findDeliveredBetweenByStoreFetchItems(storeId, from, to);
+                if (from == null) {
+                    // date null -> lấy tất cả delivered (tính platform fee hoặc total collected sao cho phù hợp)
+                    storeOrders = storeOrderRepository.findAllWithItemsFetch().stream()
+                            .filter(so -> so.getDeliveredAt() != null)
+                            .collect(Collectors.toList());
+                } else {
+                    storeOrders = (storeId == null)
+                            ? storeOrderRepository.findDeliveredBetweenFetchItems(from, to)
+                            : storeOrderRepository.findDeliveredBetweenByStoreFetchItems(storeId, from, to);
+                }
                 break;
             default:
                 storeOrders = storeOrderRepository.findAllWithItemsFetch();
         }
 
+        // Nếu caller truyền storeId nhưng repo trả toàn bộ, lọc theo storeId ở đây
+        if (storeId != null) {
+            storeOrders = storeOrders.stream()
+                    .filter(so -> so.getStore() != null && storeId.equals(so.getStore().getStoreId()))
+                    .collect(Collectors.toList());
+        }
+
         List<StoreOrderReportEntry> entries = new ArrayList<>();
         BigDecimal totalAcross = BigDecimal.ZERO;
 
-        // make final copies for lambda usage
         final LocalDateTime finalFrom = from;
         final LocalDateTime finalTo = to;
         final LocalDate finalDate = date;
@@ -130,34 +148,27 @@ public class SettlementReportService {
             else if (type == SettlementReportType.DELI_ONLINE) finalExpectedPmForDeli = PaymentMethod.ONLINE;
             else finalExpectedPmForDeli = null;
 
+            // guard null items
+            if (so.getItems() == null || so.getItems().isEmpty()) continue;
+
             // filter items according to report type
             List<StoreOrderItem> relevantItems = so.getItems().stream()
                     .filter(Objects::nonNull)
                     .filter(item -> {
                         switch (type) {
                             case UNDELI_COD:
-                                return !Boolean.TRUE.equals(item.getEligibleForPayout())
-                                        && !Boolean.TRUE.equals(item.getPayoutProcessed())
-                                        && so.getDeliveredAt() == null
-                                        && finalExpectedPmForUndel != null
-                                        && so.getPaymentMethod() == finalExpectedPmForUndel;
                             case UNDELI_ONLINE:
-                                // undelivered + eligible=true & payoutProcessed=false + deliveredAt == null
                                 return !Boolean.TRUE.equals(item.getEligibleForPayout())
                                         && !Boolean.TRUE.equals(item.getPayoutProcessed())
                                         && so.getDeliveredAt() == null
                                         && finalExpectedPmForUndel != null
                                         && so.getPaymentMethod() == finalExpectedPmForUndel;
                             case DELI_COD:
-
                             case DELI_ONLINE:
-                                // delivered (within date) + eligible=true && payoutProcessed=false
-                                boolean deliveredMatch = so.getDeliveredAt() != null
-                                        && finalExpectedPmForDeli != null
-                                        && so.getPaymentMethod() == finalExpectedPmForDeli;
-                                if (!deliveredMatch) return false;
+                                if (so.getDeliveredAt() == null) return false;
+                                if (finalExpectedPmForDeli != null && so.getPaymentMethod() != finalExpectedPmForDeli) return false;
                                 if (finalFrom == null || finalTo == null) {
-                                    // if no date provided, accept all delivered
+                                    // date null -> accept all delivered items that are eligible & not processed
                                     return Boolean.TRUE.equals(item.getEligibleForPayout())
                                             && !Boolean.TRUE.equals(item.getPayoutProcessed());
                                 } else {
@@ -167,10 +178,8 @@ public class SettlementReportService {
                                             && so.getDeliveredAt().isBefore(finalTo);
                                 }
                             case PLATFORM_FEE_TO_COLLECT:
-                                // eligible=true && payoutProcessed=false && deliveredAt on date => platform fee to collect
                                 if (so.getDeliveredAt() == null) return false;
                                 if (finalFrom == null || finalTo == null) {
-                                    // require date for this report by earlier check, but keep safe
                                     return Boolean.TRUE.equals(item.getEligibleForPayout())
                                             && !Boolean.TRUE.equals(item.getPayoutProcessed());
                                 }
@@ -179,7 +188,6 @@ public class SettlementReportService {
                                         && !so.getDeliveredAt().isBefore(finalFrom)
                                         && so.getDeliveredAt().isBefore(finalTo);
                             case TOTAL_COLLECTED:
-                                // eligible=true && payoutProcessed=true && deliveredAt on date => total already collected
                                 if (so.getDeliveredAt() == null) return false;
                                 if (finalFrom == null || finalTo == null) {
                                     return Boolean.TRUE.equals(item.getEligibleForPayout())
@@ -197,7 +205,7 @@ public class SettlementReportService {
 
             if (relevantItems.isEmpty()) continue;
 
-            // aggregate numbers
+            // aggregate numbers (unchanged)
             BigDecimal productsTotal = relevantItems.stream()
                     .map(i -> Optional.ofNullable(i.getLineTotal()).orElse(BigDecimal.ZERO))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -223,7 +231,7 @@ public class SettlementReportService {
             StoreOrderReportEntry entry = StoreOrderReportEntry.builder()
                     .storeOrderId(so.getId())
                     .orderCode(so.getOrderCode())
-                    .storeId(so.getStore().getStoreId())
+                    .storeId(so.getStore() != null ? so.getStore().getStoreId() : null)
                     .paymentMethod(so.getPaymentMethod())
                     .createdAt(so.getCreatedAt())
                     .deliveredAt(so.getDeliveredAt())
@@ -265,4 +273,5 @@ public class SettlementReportService {
                 .totalAmount(totalAcross)
                 .build();
     }
+
 }
