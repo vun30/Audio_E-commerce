@@ -763,7 +763,7 @@ public class CartServiceImpl implements CartService {
             }
             co.setItems(coItems);
 
-            // 4d) Subtotal
+            // 4d) Subtotal abc
             BigDecimal subtotal = coItems.stream()
                     .map(CustomerOrderItem::getLinePriceBeforeDiscount)
                     .filter(Objects::nonNull)
