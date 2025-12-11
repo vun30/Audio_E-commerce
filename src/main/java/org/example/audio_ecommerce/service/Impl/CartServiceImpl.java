@@ -669,6 +669,14 @@ public class CartServiceImpl implements CartService {
             List<CustomerOrderItem> coItems = new ArrayList<>();
             List<StoreOrderItem> soItems = new ArrayList<>();
             for (CartItem ci : entry.getValue()) {
+                UUID refIdForVoucher;
+                if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                    refIdForVoucher = ci.getProduct().getProductId();
+                } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                    refIdForVoucher = ci.getCombo().getComboId();
+                } else {
+                    refIdForVoucher = ci.getReferenceId(); // fallback: nếu sau này có type khác
+                }
                 // ==== TÍNH SNAPSHOT GIÁ GIỐNG BÊN STORE_ORDER_ITEM ====
                 BigDecimal baseListUnit = ci.getType() == CartItemType.COMBO
                         ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
@@ -703,7 +711,7 @@ public class CartServiceImpl implements CartService {
                 CustomerOrderItem coi = CustomerOrderItem.builder()
                         .customerOrder(co)
                         .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
+                        .refId(refIdForVoucher)
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
                         .variantId(ci.getVariantIdOrNull())
@@ -728,7 +736,7 @@ public class CartServiceImpl implements CartService {
                 StoreOrderItem soi = StoreOrderItem.builder()
                         .storeOrder(null) // sẽ set sau khi có StoreOrder
                         .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
+                        .refId(refIdForVoucher)
                         .name(ci.getNameSnapshot())
                         .quantity(ci.getQuantity())
                         .variantId(ci.getVariantIdOrNull())
@@ -2054,11 +2062,18 @@ public class CartServiceImpl implements CartService {
                     ? ci.getProduct().getStore().getStoreId()
                     : (ci.getCombo() != null ? ci.getCombo().getStore().getStoreId() : null);
             if (storeId == null) continue;
-
+            UUID refIdForVoucher;
+            if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                refIdForVoucher = ci.getProduct().getProductId();
+            } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                refIdForVoucher = ci.getCombo().getComboId();
+            } else {
+                refIdForVoucher = ci.getReferenceId(); // fallback nếu sau này có type khác
+            }
             // build StoreOrderItem "ảo" để tính voucher
             StoreOrderItem soi = StoreOrderItem.builder()
                     .type(ci.getType().name())
-                    .refId(ci.getReferenceId())
+                    .refId(refIdForVoucher)
                     .name(ci.getNameSnapshot())
                     .quantity(ci.getQuantity())
                     .variantId(ci.getVariantIdOrNull())

@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service.Impl;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.request.PlatformVoucherUse;
 import org.example.audio_ecommerce.dto.request.StoreVoucherUse;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
@@ -23,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -148,15 +150,51 @@ public class VoucherServiceImpl implements VoucherService {
         PlatformVoucherResult out = new PlatformVoucherResult();
         if (platformVouchers == null || platformVouchers.isEmpty()) return out;
 
+        //
+        log.info("[PLATFORM_VOUCHER] customerId={}, platformVouchers={}, storeCount={}",
+                customerId,
+                platformVouchers.size(),
+                storeItemsMap != null ? storeItemsMap.size() : 0
+        );
+         //
         for (PlatformVoucherUse use : platformVouchers) {
             if (use == null || use.getCampaignProductId() == null) continue;
 
+            //
+            log.info("[PLATFORM_VOUCHER] >>> Handling campaignProductId={}", use.getCampaignProductId());
+            //
             var cpOpt = campaignProductRepo.findUsableById(use.getCampaignProductId());
-            if (cpOpt.isEmpty()) continue;
+            if (cpOpt.isEmpty()){
+                campaignProductRepo.findById(use.getCampaignProductId()).ifPresentOrElse(
+                        cpRaw -> log.info(
+                                "[PLATFORM_VOUCHER][DEBUG_RAW] id={}, status={}, remainingUsage={}, usagePerUser={}, " +
+                                        "startTime={}, endTime={}",
+                                cpRaw.getId(),
+                                cpRaw.getStatus(),
+                                cpRaw.getRemainingUsage(),
+                                cpRaw.getUsagePerUser(),
+                                cpRaw.getStartTime(),
+                                cpRaw.getEndTime()
+                        ),
+                        () -> log.warn("[PLATFORM_VOUCHER][DEBUG_RAW] id={} NOT FOUND IN DB",
+                                use.getCampaignProductId())
+                );
+                log.info("[PLATFORM_VOUCHER] campaignProductId={} NOT USABLE -> skip", use.getCampaignProductId());
+                continue;}
             var cp = cpOpt.get();
+
+            log.info("[PLATFORM_VOUCHER] cpId={}, productId={}, type={}, remainingUsage={}, usagePerUser={}",
+                    cp.getId(),
+                    cp.getProduct() != null ? cp.getProduct().getProductId() : null,
+                    cp.getType(),
+                    cp.getRemainingUsage(),
+                    cp.getUsagePerUser()
+            );
 
             // ✅ CHECK remainingUsage (tổng toàn hệ thống)
             if (cp.getRemainingUsage() != null && cp.getRemainingUsage() <= 0) {
+                log.info("[PLATFORM_VOUCHER] cpId={} remainingUsage={} <= 0 -> SKIP",
+                        cp.getId(), cp.getRemainingUsage());
                 continue;
             }
 
@@ -168,10 +206,19 @@ public class VoucherServiceImpl implements VoucherService {
             for (Map.Entry<UUID, List<StoreOrderItem>> e : storeItemsMap.entrySet()) {
                 UUID storeId = e.getKey();
                 BigDecimal sum = BigDecimal.ZERO;
+                int localMatchCount = 0;
 
                 for (StoreOrderItem item : e.getValue()) {
+                    log.info("[PLATFORM_VOUCHER][DEBUG_ITEMS] storeId={}, itemRefId={}, itemType={}, lineTotal={}, qty={}, cpProductId={}",
+                            storeId,
+                            item.getRefId(),
+                            item.getType(),
+                            item.getLineTotal(),
+                            item.getQuantity(),
+                            cp.getProduct() != null ? cp.getProduct().getProductId() : null
+                    );
                     if (!matchesCampaignProduct(item, cp)) continue;
-
+                    localMatchCount++;
                     BigDecimal line = Optional.ofNullable(item.getLineTotal()).orElse(BigDecimal.ZERO);
                     if (line.signum() <= 0) continue;
 
@@ -181,11 +228,14 @@ public class VoucherServiceImpl implements VoucherService {
                         totalEligibleQty += q;
                     }
                 }
-
+                log.info("[PLATFORM_VOUCHER][STORE_SUMMARY] cpId={}, storeId={}, sum={}, localMatchCount={}",
+                        cp.getId(), storeId, sum, localMatchCount);
                 if (sum.signum() > 0) {
                     eligibleSubtotalByStore.put(storeId, sum);
                     eligibleSubtotalTotal = eligibleSubtotalTotal.add(sum);
                 }
+                log.info("[PLATFORM_VOUCHER] cpId={} eligibleSubtotalTotal={}, totalEligibleQty={}, storeMatchCount={}",
+                        cp.getId(), eligibleSubtotalTotal, totalEligibleQty, eligibleSubtotalByStore.size());
             }
 
             if (eligibleSubtotalTotal.signum() <= 0 || totalEligibleQty <= 0) {
@@ -197,7 +247,8 @@ public class VoucherServiceImpl implements VoucherService {
             Integer usagePerUser = cp.getUsagePerUser();
             PlatformCampaignProductUsage usage = null;
             int usedCount = 0;
-
+            log.info("[PLATFORM_VOUCHER] cpId={} customerId={} usedCount={} / usagePerUser={}",
+                    cp.getId(), customerId, usedCount, usagePerUser);
             if (customerId != null && usagePerUser != null && usagePerUser > 0) {
                 usage = platformUsageRepo
                         .findByCampaignProduct_IdAndCustomer_Id(cp.getId(), customerId)
@@ -208,6 +259,8 @@ public class VoucherServiceImpl implements VoucherService {
                         : 0;
 
                 if (usedCount >= usagePerUser) {
+                    log.info("[PLATFORM_VOUCHER] cpId={} customerId={} EXCEED usagePerUser -> SKIP",
+                            cp.getId(), customerId);
                     // Hết sạch lượt
                     continue;
                 }
@@ -216,6 +269,8 @@ public class VoucherServiceImpl implements VoucherService {
                 // Nếu quantity của lần này > remaining → theo rule: không cho hưởng ưu đãi luôn
                 // (giống logic trong CartServiceImpl.resolveUnitPriceInternal)
                 if (totalEligibleQty > remaining) {
+                    log.info("[PLATFORM_VOUCHER] cpId={} totalEligibleQty={} > remainingPerUser={} -> SKIP",
+                            cp.getId(), totalEligibleQty, remaining);
                     continue;
                 }
             }
@@ -242,7 +297,11 @@ public class VoucherServiceImpl implements VoucherService {
                 }
                 default -> {}
             }
-            if (rawDiscount.signum() <= 0) continue;
+            log.info("[PLATFORM_VOUCHER] cpId={} rawDiscount={}", cp.getId(), rawDiscount);
+            if (rawDiscount.signum() <= 0) {
+                log.info("[PLATFORM_VOUCHER] cpId={} rawDiscount <= 0 -> SKIP", cp.getId());
+                continue;
+            }
 
             // 4) Phân bổ theo store như cũ
             Map<UUID, BigDecimal> alloc = proportionalAllocate(
@@ -250,7 +309,7 @@ public class VoucherServiceImpl implements VoucherService {
                     eligibleSubtotalByStore,
                     eligibleSubtotalTotal
             );
-
+            log.info("[PLATFORM_VOUCHER] cpId={} allocByStore={}", cp.getId(), alloc);
             for (Map.Entry<UUID, BigDecimal> a : alloc.entrySet()) {
                 out.discountByStore.merge(a.getKey(), a.getValue(), BigDecimal::add);
             }
@@ -265,6 +324,8 @@ public class VoucherServiceImpl implements VoucherService {
 
             if (cp.getRemainingUsage() != null && cp.getRemainingUsage() > 0) {
                 int newRemain = cp.getRemainingUsage() - consumeQty;
+                log.info("[PLATFORM_VOUCHER] cpId={} remainingUsage {} -> {} (consumeQty={})",
+                        cp.getId(), cp.getRemainingUsage(), Math.max(newRemain, 0), consumeQty);
                 cp.setRemainingUsage(Math.max(newRemain, 0));
             }
 
@@ -282,6 +343,8 @@ public class VoucherServiceImpl implements VoucherService {
                 }
 
                 int newCount = usedCount + consumeQty;
+                log.info("[PLATFORM_VOUCHER] cpId={} customerId={} usedCount {} -> {} (consumeQty={})",
+                        cp.getId(), customerId, usedCount, newCount, consumeQty);
                 usage.setUsedCount(newCount);
                 LocalDateTime now = LocalDateTime.now();
                 if (usage.getFirstUsedAt() == null) usage.setFirstUsedAt(now);
