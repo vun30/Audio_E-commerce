@@ -156,7 +156,7 @@ public class VoucherServiceImpl implements VoucherService {
                 platformVouchers.size(),
                 storeItemsMap != null ? storeItemsMap.size() : 0
         );
-         //
+        //
         for (PlatformVoucherUse use : platformVouchers) {
             if (use == null || use.getCampaignProductId() == null) continue;
 
