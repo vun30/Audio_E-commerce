@@ -1425,6 +1425,45 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
         }
     }
 
+    @Override
+@Transactional
+public ResponseEntity<BaseResponse> withdrawCampaignProduct(UUID campaignProductId) {
+
+    Store store = getCurrentStore(); // lấy store hiện tại
+
+    PlatformCampaignProduct cp = campaignProductRepository.findById(campaignProductId)
+            .orElseThrow(() -> new RuntimeException("❌ Campaign product not found"));
+
+    PlatformCampaign campaign = cp.getCampaign();
+
+    // 1️⃣ Rule: Campaign phải đang ở ONOPEN (mở đăng ký)
+    if (campaign.getStatus() != VoucherStatus.ONOPEN) {
+        throw new RuntimeException("🚫 Chỉ được rút sản phẩm khi campaign đang ONOPEN (mở đăng ký)");
+    }
+
+    // 2️⃣ Rule: Sản phẩm phải thuộc store hiện tại
+    if (!cp.getStore().getStoreId().equals(store.getStoreId())) {
+        throw new RuntimeException("🚫 Bạn không thể rút sản phẩm của store khác");
+    }
+
+    // 3️⃣ Rule: Chỉ được rút khi chưa duyệt (DRAFT)
+    if (cp.getStatus() != VoucherStatus.DRAFT) {
+        throw new RuntimeException("🚫 Chỉ được rút sản phẩm khi còn ở trạng thái DRAFT (chưa được duyệt)");
+    }
+
+    // 4️⃣ Xóa record luôn (Shopee cũng làm vậy)
+    campaignProductRepository.delete(cp);
+
+    return ResponseEntity.ok(
+            new BaseResponse<>(
+                    200,
+                    "✅ Đã rút sản phẩm '" + cp.getProduct().getName() +
+                            "' khỏi campaign '" + campaign.getName() + "'",
+                    null
+            )
+    );
+}
+
 
 }
 

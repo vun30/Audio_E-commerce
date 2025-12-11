@@ -72,5 +72,7 @@ public interface PlatformCampaignService {
 
     ResponseEntity<BaseResponse> getCampaignProductDetails(UUID storeId, UUID campaignId, String status);
 
+    ResponseEntity<BaseResponse> withdrawCampaignProduct(UUID campaignProductId);
+
 }
 

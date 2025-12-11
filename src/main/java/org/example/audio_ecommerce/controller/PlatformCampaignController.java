@@ -451,7 +451,12 @@ public ResponseEntity<BaseResponse> getCampaignProductDetails(
 }
 
 
-
+ @DeleteMapping("/campaign-products/{campaignProductId}/withdraw")
+    public ResponseEntity<BaseResponse> withdrawCampaignProduct(
+            @PathVariable UUID campaignProductId
+    ) {
+        return platformCampaignService.withdrawCampaignProduct(campaignProductId);
+    }
 
 
 
