@@ -521,10 +521,9 @@ public class StoreServiceImpl implements StoreService {
         // Lấy danh sách store có chứa keyword (thô)
         Page<Store> stores = storeRepository.findByStoreNameContainingIgnoreCase(keyword, pageable);
 
-        // 🔥 Lọc sạch: chỉ lấy store bắt đầu bằng keyword
+        // 🔥 FUZZY SEARCH CHỈ THEO TÊN CỬA HÀNG
         List<Store> filtered = stores.getContent().stream()
-                .filter(s -> s.getStoreName() != null &&
-                        s.getStoreName().toLowerCase().startsWith(finalKeyword))
+                .filter(s -> fuzzyMatch(s.getStoreName(), finalKeyword))
                 .toList();
 
         // Map dữ liệu trả về
@@ -604,6 +603,11 @@ public class StoreServiceImpl implements StoreService {
         );
 
         return ResponseEntity.ok(new BaseResponse<>(200, "📦 Default store address retrieved", result));
+    }
+
+    private boolean fuzzyMatch(String text, String keyword) {
+        if (text == null || keyword == null) return false;
+        return text.toLowerCase().contains(keyword.toLowerCase());
     }
 
 
