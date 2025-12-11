@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.dto.response;
 
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.CategoryAttributeDataType;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,13 +19,16 @@ public class CategoryResponse {
 
     private List<AttributeResponse> attributes;
 
-    @Data
+    @Getter
+    @Setter
     @NoArgsConstructor
     @AllArgsConstructor
+    @Builder
     public static class AttributeResponse {
         private UUID attributeId;
         private String attributeName;
         private String attributeLabel;
-        private String dataType;
+        private CategoryAttributeDataType dataType;
+        private List<String> options;   // MUST NOT BE '?'
     }
 }
