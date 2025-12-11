@@ -136,14 +136,20 @@ public class SettlementReportService {
                     .filter(item -> {
                         switch (type) {
                             case UNDELI_COD:
+                                return !Boolean.TRUE.equals(item.getEligibleForPayout())
+                                        && !Boolean.TRUE.equals(item.getPayoutProcessed())
+                                        && so.getDeliveredAt() == null
+                                        && finalExpectedPmForUndel != null
+                                        && so.getPaymentMethod() == finalExpectedPmForUndel;
                             case UNDELI_ONLINE:
                                 // undelivered + eligible=true & payoutProcessed=false + deliveredAt == null
-                                return Boolean.TRUE.equals(item.getEligibleForPayout())
+                                return !Boolean.TRUE.equals(item.getEligibleForPayout())
                                         && !Boolean.TRUE.equals(item.getPayoutProcessed())
                                         && so.getDeliveredAt() == null
                                         && finalExpectedPmForUndel != null
                                         && so.getPaymentMethod() == finalExpectedPmForUndel;
                             case DELI_COD:
+
                             case DELI_ONLINE:
                                 // delivered (within date) + eligible=true && payoutProcessed=false
                                 boolean deliveredMatch = so.getDeliveredAt() != null
