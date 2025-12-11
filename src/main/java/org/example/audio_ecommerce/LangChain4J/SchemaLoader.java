@@ -26,6 +26,12 @@ public class SchemaLoader {
                   option_value,
                   variant_price
 
+                Variant Logic:
+                  - Một product có thể có nhiều biến thể (màu, size, version...)
+                  - Nếu có variant_price → dùng variant_price làm giá hiệu lực cho biến thể đó
+                  - Nếu có nhiều biến thể → giá hiệu lực MIN = biến thể rẻ nhất
+                  - Nếu user không chỉ rõ biến thể → luôn ưu tiên giá thấp nhất
+
                 ============================
                 TABLE: product_categories
                 Columns:
@@ -49,9 +55,9 @@ public class SchemaLoader {
                   data_type
 
                 Notes:
-                  attribute_name and attribute_label are used for fuzzy matching.
-                  Example fuzzy match: keyword "delay" can match "latency", "response_time"
-                  Only apply attribute filtering if fuzzy match finds a valid attribute.
+                  attribute_name & attribute_label dùng cho fuzzy match.
+                  Example fuzzy: "delay" ~ "latency" ~ "response_time"
+                  Nếu không match attribute → bỏ qua filter attribute.
 
                 ============================
                 TABLE: product_attribute_values
@@ -62,21 +68,38 @@ public class SchemaLoader {
                   value
 
                 ============================
-                PRICE LOGIC
+                PRICE LOGIC (Updated with Variant Logic)
                 Effective price =
-                    COALESCE(pv.variant_price, p.final_price, p.discount_price, p.price)
-                Tolerance: ±20%
+                    COALESCE(
+                        pv.variant_price,        -- ưu tiên biến thể nếu có
+                        p.final_price,
+                        p.discount_price,
+                        p.price
+                    )
 
+                If a product has multiple variants:
+                    effective_price = MIN(pv.variant_price)
+
+                Budget tolerance: ±20%
+
+                ============================
                 ATTRIBUTE LOGIC
                 Numeric extraction:
                     CAST(REGEXP_REPLACE(value, '[^0-9.]','') AS DECIMAL)
-                Tolerance: ±30%
+                Numeric tolerance: ±30%
 
-                Fuzzy rules:
-                    If no attribute matches keyword, skip attribute filter entirely.
+                Only apply attribute filtering if fuzzy match succeeds.
+
+                ============================
+                VARIANT SEARCH LOGIC
+                - Nếu user hỏi "màu", "phiên bản", "bản bluetooth", "bản USB":
+                    → JOIN pv + filter option_value fuzzy match
+                - Nếu user không nói biến thể:
+                    → vẫn JOIN pv để lấy giá chính xác nhất (biến thể rẻ nhất)
+                - Ưu tiên:
+                    variant_price > final_price > discount_price > price
+
                 ============================
                 """;
     }
 }
-
-
