@@ -33,21 +33,18 @@ public class ProductViewServiceImpl implements ProductViewService {
     // =========================================================
     @Override
     public ResponseEntity<BaseResponse> getThumbnailView(
-        String status,
-        UUID categoryId,
-        UUID storeId,
-        String keyword,
-        String provinceCode,
-        String districtCode,
-        String wardCode,
-        BigDecimal minPrice,
-        BigDecimal maxPrice,
-        BigDecimal minRating,
-        Pageable pageable,
-        String sortBy,      // NEW
-        String sortDir      // NEW
-)
- {
+            String status,
+            UUID categoryId,
+            UUID storeId,
+            String keyword,
+            String provinceCode,
+            String districtCode,
+            String wardCode,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            BigDecimal minRating,
+            Pageable pageable
+    ) {
 
         Page<Product> products = productRepo.findAllWithAdvancedFilters(
                 status, categoryId, storeId, keyword,
@@ -98,54 +95,6 @@ public class ProductViewServiceImpl implements ProductViewService {
                                 || (p.getRatingAverage() != null
                                 && p.getRatingAverage().compareTo(minRating) >= 0)
                 )
-
-                 // ======================================================
-        // ⭐ 2️⃣.1 FUZZY SEARCH THEO KEYWORD (THÊM Ở ĐÂY)
-        // ======================================================
-        .filter(p -> {
-            if (keyword == null || keyword.isBlank()) return true;
-
-            return fuzzyMatch(p.getName(), keyword)
-                    || fuzzyMatch(p.getBrandName(), keyword)
-                    || fuzzyMatch(p.getDescription(), keyword);
-        })
-                .toList();
-
-
-
-        // ======================================================
-// 3️⃣ SORTING — THÊM NGAY Ở ĐÂY
-// ======================================================
-        Comparator<Product> comparator;
-
-        switch (sortBy.toLowerCase()) {
-            case "price" -> {
-                comparator = Comparator.comparing(p -> {
-                    BigDecimal basePrice = (p.getFinalPrice() != null)
-                            ? p.getFinalPrice()
-                            : p.getPrice();
-
-                    if (p.getVariants() != null && !p.getVariants().isEmpty()) {
-                        return p.getVariants().stream()
-                                .map(ProductVariantEntity::getVariantPrice)
-                                .filter(Objects::nonNull)
-                                .min(BigDecimal::compareTo)
-                                .orElse(basePrice);
-                    }
-                    return basePrice;
-                });
-            }
-            default -> { // sortBy = name
-                comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
-            }
-        }
-
-        if ("desc".equalsIgnoreCase(sortDir)) {
-            comparator = comparator.reversed();
-        }
-
-        filtered = filtered.stream()
-                .sorted(comparator)
                 .toList();
 
         // ======================================================
@@ -319,12 +268,12 @@ public class ProductViewServiceImpl implements ProductViewService {
         Product p = productRepo.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-        // 🔥 CHECK PRODUCT PHẢI ACTIVE — nếu không → báo lỗi luôn
-        if (p.getStatus() != ProductStatus.ACTIVE) {
-            return ResponseEntity
-                    .badRequest()
-                    .body(BaseResponse.error("❌ Product is not active"));
-        }
+           // 🔥 CHECK PRODUCT PHẢI ACTIVE — nếu không → báo lỗi luôn
+    if (p.getStatus() != ProductStatus.ACTIVE) {
+        return ResponseEntity
+                .badRequest()
+                .body(BaseResponse.error("❌ Product is not active"));
+    }
 
 
         Map<String, Object> productMap = new LinkedHashMap<>();
@@ -463,11 +412,4 @@ public class ProductViewServiceImpl implements ProductViewService {
         }).toList();
     }
 
-    // ==========================================
-// 🔧 FUZZY SEARCH SUPPORT METHOD
-// ==========================================
-private boolean fuzzyMatch(String text, String keyword) {
-    if (text == null || keyword == null) return false;
-    return text.toLowerCase().contains(keyword.toLowerCase().trim());
-}
 }
