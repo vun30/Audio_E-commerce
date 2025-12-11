@@ -229,6 +229,20 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                         // Legacy
                         .unitPrice(item.getUnitPrice())
                         .lineTotal(item.getLineTotal())
+                        .eligibleForPayout(item.getEligibleForPayout())
+                        .isPayout(item.getIsPayout())
+                        .isReturned(item.getIsReturned())
+
+                        .shippingFeeEstimated(item.getShippingFeeEstimated())
+                        .shippingFeeActual(item.getShippingFeeActual())
+                        .shippingExtraForStore(item.getShippingExtraForStore())
+
+                        .platformFeeAmount(item.getPlatformFeeAmount())
+                        .netPayoutItem(item.getNetPayoutItem())
+
+                        .payoutProcessed(item.getPayoutProcessed())
+
+                        .platformFeePercentage(item.getPlatformFeePercentage())
                         .build())
                 .collect(Collectors.toList());
     }
