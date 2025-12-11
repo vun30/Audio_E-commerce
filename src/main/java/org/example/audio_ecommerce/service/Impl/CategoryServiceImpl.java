@@ -1,79 +1,230 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.request.CategoryRequest;
+import org.example.audio_ecommerce.dto.request.CreateCategoryRequest;
+import org.example.audio_ecommerce.dto.request.UpdateCategoryRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.dto.response.CategoryResponse;
 import org.example.audio_ecommerce.entity.Category;
+import org.example.audio_ecommerce.entity.CategoryAttribute;
+import org.example.audio_ecommerce.repository.CategoryAttributeRepository;
 import org.example.audio_ecommerce.repository.CategoryRepository;
+import org.example.audio_ecommerce.repository.ProductRepository;
 import org.example.audio_ecommerce.service.CategoryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final CategoryAttributeRepository categoryAttributeRepository;
+    private final ProductRepository productRepository;
 
+    // =============================================================
+    // CREATE
+    // =============================================================
     @Override
-    public ResponseEntity<BaseResponse> getAllCategories(String keyword) {
-        List<Category> categories = (keyword != null && !keyword.isBlank())
-                ? categoryRepository.findByNameContainingIgnoreCase(keyword)
-                : categoryRepository.findAllByOrderBySortOrderAsc();
+    public ResponseEntity<BaseResponse> createCategory(CreateCategoryRequest req) {
+        try {
+            Category parent = null;
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "Danh sách category", categories));
-    }
+            if (req.getParentId() != null) {
+                parent = categoryRepository.findById(req.getParentId())
+                        .orElseThrow(() -> new RuntimeException("Parent category not found"));
+            }
 
-    @Override
-    public ResponseEntity<BaseResponse> getCategoryById(UUID categoryId) {
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy danh mục"));
+            Category category = Category.builder()
+                    .name(req.getName())
+                    .parent(parent)
+                    .build();
 
-        return ResponseEntity.ok(new BaseResponse<>(200, "Chi tiết category", category));
-    }
+            categoryRepository.save(category);
 
-    @Override
-    public ResponseEntity<BaseResponse> createCategory(CategoryRequest request) {
-        if (categoryRepository.existsByName(request.getName())) {
-            throw new RuntimeException("Danh mục đã tồn tại");
+            // SAVE ATTRIBUTES
+            if (req.getAttributes() != null) {
+                for (CreateCategoryRequest.AttributeRequest a : req.getAttributes()) {
+                    CategoryAttribute attr = CategoryAttribute.builder()
+                            .category(category)
+                            .attributeName(a.getAttributeName())
+                            .attributeLabel(a.getAttributeLabel())
+                            .dataType(a.getDataType())
+                            .build();
+
+                    categoryAttributeRepository.save(attr);
+                }
+            }
+
+            return ResponseEntity.ok(BaseResponse.success("Category created", category.getCategoryId()));
+
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(BaseResponse.error(e.getMessage()));
         }
-
-        Category category = Category.builder()
-                .name(request.getName())
-                .slug(request.getSlug())
-                .description(request.getDescription())
-                .iconUrl(request.getIconUrl())
-                .sortOrder(request.getSortOrder())
-                .build();
-
-        categoryRepository.save(category);
-        return ResponseEntity.ok(new BaseResponse<>(201, "Tạo danh mục thành công", category));
     }
 
+    // =============================================================
+    // UPDATE
+    // =============================================================
     @Override
-    public ResponseEntity<BaseResponse> updateCategory(UUID categoryId, CategoryRequest request) {
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy danh mục"));
+    public ResponseEntity<BaseResponse> updateCategory(UUID categoryId, UpdateCategoryRequest req) {
+        try {
+            Category category = categoryRepository.findById(categoryId)
+                    .orElseThrow(() -> new RuntimeException("Category not found"));
 
-        if (request.getName() != null) category.setName(request.getName());
-        if (request.getSlug() != null) category.setSlug(request.getSlug());
-        if (request.getDescription() != null) category.setDescription(request.getDescription());
-        if (request.getIconUrl() != null) category.setIconUrl(request.getIconUrl());
-        if (request.getSortOrder() != null) category.setSortOrder(request.getSortOrder());
+            // Update basic
+            if (req.getName() != null) category.setName(req.getName());
 
-        categoryRepository.save(category);
-        return ResponseEntity.ok(new BaseResponse<>(200, "Cập nhật danh mục thành công", category));
+            // Update parent
+            if (req.getParentId() != null) {
+                Category parent = categoryRepository.findById(req.getParentId())
+                        .orElseThrow(() -> new RuntimeException("Parent category not found"));
+                category.setParent(parent);
+            }
+
+            // DELETE attributes
+            if (req.getAttributesToDelete() != null) {
+                for (UUID attrId : req.getAttributesToDelete()) {
+                    categoryAttributeRepository.deleteById(attrId);
+                }
+            }
+
+            // UPDATE attributes
+            if (req.getAttributesToUpdate() != null) {
+                for (UpdateCategoryRequest.AttributeToUpdate u : req.getAttributesToUpdate()) {
+                    CategoryAttribute attr = categoryAttributeRepository.findById(u.getAttributeId())
+                            .orElseThrow(() -> new RuntimeException("Attribute not found"));
+
+                    attr.setAttributeName(u.getAttributeName());
+                    attr.setAttributeLabel(u.getAttributeLabel());
+                    attr.setDataType(u.getDataType());
+
+                    categoryAttributeRepository.save(attr);
+                }
+            }
+
+            // ADD attributes
+            if (req.getAttributesToAdd() != null) {
+                for (UpdateCategoryRequest.AttributeToAdd a : req.getAttributesToAdd()) {
+                    CategoryAttribute newAttr = CategoryAttribute.builder()
+                            .category(category)
+                            .attributeName(a.getAttributeName())
+                            .attributeLabel(a.getAttributeLabel())
+                            .dataType(a.getDataType())
+                            .build();
+
+                    categoryAttributeRepository.save(newAttr);
+                }
+            }
+
+            categoryRepository.save(category);
+
+            return ResponseEntity.ok(BaseResponse.success("Category updated"));
+
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(BaseResponse.error(e.getMessage()));
+        }
     }
 
+    // =============================================================
+    // DELETE
+    // =============================================================
     @Override
     public ResponseEntity<BaseResponse> deleteCategory(UUID categoryId) {
-        if (!categoryRepository.existsById(categoryId)) {
-            throw new RuntimeException("Không tìm thấy danh mục");
+        try {
+            Category category = categoryRepository.findById(categoryId)
+                    .orElseThrow(() -> new RuntimeException("Category not found"));
+
+            // Cannot delete if category has children
+            if (categoryRepository.existsByParent(category)) {
+                return ResponseEntity.badRequest()
+                        .body(BaseResponse.error("Cannot delete category with children"));
+            }
+
+            // Cannot delete if product is using this category
+
+            if (productRepository.existsByCategoriesContaining(category)) {
+                return ResponseEntity.badRequest()
+                        .body(BaseResponse.error("Category is used by products"));
+            }
+
+            categoryAttributeRepository.deleteAll(categoryAttributeRepository.findAllByCategory_CategoryId(categoryId));
+
+            categoryRepository.delete(category);
+
+            return ResponseEntity.ok(BaseResponse.success("Category deleted"));
+
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(BaseResponse.error(e.getMessage()));
         }
-        categoryRepository.deleteById(categoryId);
-        return ResponseEntity.ok(new BaseResponse<>(200, "Xóa danh mục thành công", null));
     }
+
+    // =============================================================
+    // GET CATEGORY BY ID
+    // =============================================================
+    @Override
+    public ResponseEntity<BaseResponse> getCategory(UUID categoryId) {
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new RuntimeException("Category not found"));
+
+        List<CategoryAttribute> attrs = categoryAttributeRepository.findAllByCategory_CategoryId(categoryId);
+
+        CategoryResponse res = CategoryResponse.builder()
+                .categoryId(category.getCategoryId())
+                .name(category.getName())
+                .parentId(category.getParent() != null ? category.getParent().getCategoryId() : null)
+                .attributes(
+                        attrs.stream().map(a ->
+                                new CategoryResponse.AttributeResponse(
+                                        a.getAttributeId(),
+                                        a.getAttributeName(),
+                                        a.getAttributeLabel(),
+                                        a.getDataType()
+                                )
+                        ).toList()
+                )
+                .build();
+
+        return ResponseEntity.ok(BaseResponse.success("Category detail", res));
+    }
+
+    // =============================================================
+    // GET CATEGORY TREE
+    // =============================================================
+ @Override
+public ResponseEntity<BaseResponse> getCategoryTree() {
+
+    List<Category> all = categoryRepository.findAll();
+
+    // FIX KEY NULL: dùng ROOT thay cho null
+    Map<Object, List<Category>> grouped =
+            all.stream().collect(Collectors.groupingBy(
+                    c -> (c.getParent() == null)
+                            ? "ROOT"
+                            : c.getParent().getCategoryId()
+            ));
+
+    List<Map<String, Object>> tree = buildTree("ROOT", grouped);
+
+    return ResponseEntity.ok(BaseResponse.success("Category tree", tree));
+}
+
+
+    private List<Map<String, Object>> buildTree(Object parentKey, Map<Object, List<Category>> grouped) {
+    List<Category> children = grouped.get(parentKey);
+    if (children == null) return List.of();
+
+    return children.stream().map(c -> {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("categoryId", c.getCategoryId());
+        node.put("name", c.getName());
+        node.put("children", buildTree(c.getCategoryId(), grouped));
+        return node;
+    }).toList();
+}
+
+
 }

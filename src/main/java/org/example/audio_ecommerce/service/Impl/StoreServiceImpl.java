@@ -7,6 +7,10 @@ import org.example.audio_ecommerce.dto.request.UpdateStoreRequest.StoreAddressRe
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.StoreResponse;
 import org.example.audio_ecommerce.dto.response.UpdateStoreResponse;
+import org.example.audio_ecommerce.email.EmailService;
+import org.example.audio_ecommerce.email.EmailTemplateType;
+import org.example.audio_ecommerce.email.dto.StoreStatusChangedData;
+import org.example.audio_ecommerce.entity.Account;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.entity.StoreAddressEntity;
@@ -27,6 +31,7 @@ public class StoreServiceImpl implements StoreService {
 
     private final StoreRepository storeRepository;
     private final ProductRepository productRepository;
+    private final EmailService emailService;
 
     // =========================================================
     // 🔐 Lấy store theo accountId trong JWT (hiện tại đang login)
@@ -368,44 +373,63 @@ public class StoreServiceImpl implements StoreService {
         return ResponseEntity.ok(new BaseResponse<>(200, "Store found by account", response));
     }
 
-    @Override
-    @Transactional
-    public ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus status) {
+@Override
+@Transactional
+public ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus status, String reason) {
 
-        Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new RuntimeException("Store not found"));
+    Store store = storeRepository.findById(storeId)
+            .orElseThrow(() -> new RuntimeException("Store not found"));
 
-        store.setStatus(status);
-        storeRepository.save(store);
+    // ❗ Không lưu reason vào DB
+    store.setStatus(status);
+    storeRepository.save(store);
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("storeId", storeId);
-        result.put("newStatus", status);
+    // Update trạng thái sản phẩm (giữ nguyên logic)
+    Map<String, Object> result = new HashMap<>();
+    result.put("storeId", storeId);
+    result.put("newStatus", status);
+    result.put("reason", reason); // trả về FE xem, không lưu
 
-        int affected = 0;
+    int affected = 0;
 
-        // ⭐ 1. Admin SUSPEND store → toàn bộ product SUSPENDED
-        if (status == StoreStatus.SUSPENDED) {
-            affected = productRepository.suspendAllProductsByStore(storeId);
-            result.put("productsSuspended", affected);
-        }
-
-        // ⭐ 2. Admin PAUSED store → toàn bộ product UNLISTED
-        else if (status == StoreStatus.PAUSED) {
-            affected = productRepository.unlistAllProductsByStore(storeId);
-            result.put("productsUnlisted", affected);
-        }
-
-        // ⭐ 3. Admin ACTIVE store → toàn bộ product ACTIVE
-        else if (status == StoreStatus.ACTIVE) {
-            affected = productRepository.activateAllProductsByStore(storeId);
-            result.put("productsActivated", affected);
-        }
-
-        return ResponseEntity.ok(
-                BaseResponse.success("Cập nhật trạng thái thành công", result)
-        );
+    if (status == StoreStatus.SUSPENDED) {
+        affected = productRepository.suspendAllProductsByStore(storeId);
+        result.put("productsSuspended", affected);
     }
+    else if (status == StoreStatus.PAUSED) {
+        affected = productRepository.unlistAllProductsByStore(storeId);
+        result.put("productsUnlisted", affected);
+    }
+    else if (status == StoreStatus.ACTIVE) {
+        affected = productRepository.activateAllProductsByStore(storeId);
+        result.put("productsActivated", affected);
+    }
+
+    // ⭐⭐⭐ SEND EMAIL TO STORE ⭐⭐⭐
+    try {
+        Account acc = store.getAccount();
+
+        StoreStatusChangedData data = StoreStatusChangedData.builder()
+                .email(acc.getEmail())
+                .ownerName(acc.getName()) // đổi theo field của bạn
+                .storeName(store.getStoreName())
+                .newStatus(status.name())
+                .reason(reason) // gửi kèm email
+                .siteUrl("https://sep-490-audio-wep-app.vercel.app/seller/login")
+                .build();
+
+        emailService.sendEmail(EmailTemplateType.STORE_STATUS_UPDATED, data);
+
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+
+    return ResponseEntity.ok(
+            BaseResponse.success("Cập nhật trạng thái thành công", result)
+    );
+}
+
+
 
 
     @Override

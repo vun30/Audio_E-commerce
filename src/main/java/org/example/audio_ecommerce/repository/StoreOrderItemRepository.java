@@ -44,6 +44,20 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     List<StoreOrderItem> findAllByStoreOrder_ShippingFeeRealIsNotNull();
 
+     @Query("""
+        SELECT COUNT(i)
+        FROM StoreOrderItem i
+        WHERE i.refId = :productId AND i.type = 'PRODUCT'
+    """)
+    int countOrdersByProduct(UUID productId);
+
+    @Query("""
+        SELECT COUNT(i)
+        FROM StoreOrderItem i
+        WHERE i.variantId = :variantId
+    """)
+    int countOrdersByVariant(UUID variantId);
+
     List<StoreOrderItem> findAllByStoreOrder_Store_StoreId(UUID storeId);
 
     // Bucket: ESTIMATED – tất cả item chưa payout (không cần quá detail điều kiện, bạn có thể refine sau)

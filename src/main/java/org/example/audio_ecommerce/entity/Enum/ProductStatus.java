@@ -9,5 +9,7 @@ public enum ProductStatus {
     UNLISTED,       // Ẩn tạm thời khỏi listing
     SUSPENDED,      // Tạm ngưng do vi phạm
     DELETED,        // Xóa khỏi hệ thống
-    BANNED          // Bị cấm (nếu cần phân biệt với suspended)
+    BANNED,         // Bị cấm (nếu cần phân biệt với suspended)
+    REJECT,      // Bị từ chối (ví dụ khi duyệt sản phẩm không đạt)
+    PENDING_APPROVAL // Chờ duyệt (ví dụ khi sản phẩm mới tạo cần admin duyệt)
 }

@@ -1376,7 +1376,15 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
                 map.put("productId", prod != null ? prod.getProductId() : null);
                 map.put("productName", prod != null ? prod.getName() : null);
                 map.put("brandName", prod != null ? prod.getBrandName() : null);
-                map.put("category", prod != null && prod.getCategory() != null ? prod.getCategory().getName() : null);
+                map.put(
+        "categories",
+        prod != null && prod.getCategories() != null
+                ? prod.getCategories().stream()
+                    .map(Category::getName)
+                    .toList()
+                : List.of()
+);
+
                 map.put("discountType", p.getType());
                 map.put("discountValue", p.getDiscountValue());
                 map.put("discountPercent", p.getDiscountPercent());

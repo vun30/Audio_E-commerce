@@ -80,7 +80,7 @@ public class StoreOrderItem {
     private BigDecimal finalUnitPrice;
 
     @Column(name = "final_line_total")
-    private BigDecimal finalLineTotal; // sau tất cả chiết khấu  là giá finalLineTotal = finalUnitPrice * quantity
+    private BigDecimal finalLineTotal; // sau tất cả chiết khấu  là giá finalLineTotal = finalUnitPrice * quantity -  all chiết khấu
 
     @Column(name = "amount_charged")
     private BigDecimal amountCharged;
@@ -117,13 +117,13 @@ public class StoreOrderItem {
 //    private String refundReason;
 
     // ===== Dispute =====
-    @Column(
-            name = "dispute_flag",
-            nullable = false,
-            columnDefinition = "TINYINT(1) DEFAULT 0"
-    )
-    @Builder.Default
-    private Boolean disputeFlag = false;
+//    @Column(
+//            name = "dispute_flag",
+//            nullable = false,
+//            columnDefinition = "TINYINT(1) DEFAULT 0"
+//    )
+//    @Builder.Default
+//    private Boolean disputeFlag = false;
 
     @Column(
             name = "eligible_for_payout",
