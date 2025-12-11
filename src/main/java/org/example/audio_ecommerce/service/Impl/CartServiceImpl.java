@@ -237,6 +237,7 @@ public class CartServiceImpl implements CartService {
         Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
                 .orElseGet(() -> Cart.builder().customer(customer).status(CartStatus.ACTIVE).build());
         if (cart.getItems() == null) cart.setItems(new ArrayList<>());
+        System.out.println(" ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡getActiveCart: " + cart);
         return toResponse(cart);
     }
 
