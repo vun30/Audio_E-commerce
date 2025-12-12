@@ -1,7 +1,11 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.response.PayoutGroup;
+import org.example.audio_ecommerce.dto.response.PayoutItemDetail;
+import org.example.audio_ecommerce.dto.response.PayoutOverviewResponse;
 import org.example.audio_ecommerce.entity.*;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 import org.example.audio_ecommerce.entity.Enum.PayoutBillStatus;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.PayoutBillService;
@@ -327,4 +331,115 @@ public List<PayoutBill> autoCreateBillsForAllStores() {
         }
     }
 
+    public PayoutOverviewResponse getOverview(UUID storeId, LocalDateTime from, LocalDateTime to) {
+
+        return PayoutOverviewResponse.builder()
+                .undeliCOD(buildGroup(storeId, false, PaymentMethod.COD, from, to))
+                .undeliONLINE(buildGroup(storeId, false, PaymentMethod.ONLINE, from, to))
+                .deliCOD(buildDeliveredGroup(storeId, PaymentMethod.COD, from, to))
+                .deliONLINE(buildDeliveredGroup(storeId, PaymentMethod.ONLINE, from, to))
+                .platformFee(buildPlatformFee(storeId, from, to))
+                .totalPaid(buildTotalPaid(storeId, from, to))
+                .build();
+    }
+
+    // ============================================================
+    //     GROUP: Undelivered COD / Undelivered ONLINE
+    // ============================================================
+    private PayoutGroup buildGroup(UUID storeId,
+                                   boolean isDelivered,
+                                   PaymentMethod payment,
+                                   LocalDateTime from,
+                                   LocalDateTime to) {
+
+        List<StoreOrderItem> items =
+                storeOrderItemRepository.findItemsForOverview(storeId, isDelivered, payment, false, from, to);
+
+        return mapToGroup(items);
+    }
+
+    // ============================================================
+    //     GROUP: Delivered COD / Delivered ONLINE
+    // ============================================================
+    private PayoutGroup buildDeliveredGroup(UUID storeId,
+                                            PaymentMethod payment,
+                                            LocalDateTime from,
+                                            LocalDateTime to) {
+
+        List<StoreOrderItem> items =
+                storeOrderItemRepository.findItemsForOverview(storeId, true, payment, false, from, to);
+
+        return mapToGroup(items);
+    }
+
+    // ============================================================
+    //     PLATFORM FEE
+    // ============================================================
+    private PayoutGroup buildPlatformFee(UUID storeId, LocalDateTime from, LocalDateTime to) {
+
+        List<StoreOrderItem> items =
+                storeOrderItemRepository.findPlatformFeeItems(storeId, from, to);
+
+        return mapToGroup(items);
+    }
+
+    // ============================================================
+    //     TOTAL PAID TO STORE
+    // ============================================================
+    private PayoutGroup buildTotalPaid(UUID storeId, LocalDateTime from, LocalDateTime to) {
+
+        List<StoreOrderItem> items =
+                storeOrderItemRepository.findPaidItems(storeId, from, to);
+
+        return mapToGroup(items);
+    }
+
+    // ============================================================
+    //     MAPPING ITEM → GROUP RESPONSE
+    // ============================================================
+    private PayoutGroup mapToGroup(List<StoreOrderItem> items) {
+
+        BigDecimal total = BigDecimal.ZERO;
+
+        List<PayoutItemDetail> list = new ArrayList<>();
+
+        for (StoreOrderItem i : items) {
+
+            BigDecimal shipEst = i.getShippingFeeEstimated() == null ? BigDecimal.ZERO : i.getShippingFeeEstimated();
+            BigDecimal shipActual = i.getShippingFeeActual() == null ? BigDecimal.ZERO : i.getShippingFeeActual();
+            BigDecimal returnFee = i.getShippingExtraForStore() == null ? BigDecimal.ZERO : i.getShippingExtraForStore();
+
+            BigDecimal baseAmount = i.getFinalLineTotal().subtract(shipEst);
+            BigDecimal fee = baseAmount
+                    .multiply(i.getPlatformFeePercentage())
+                    .divide(BigDecimal.valueOf(100));
+
+            BigDecimal net = i.getFinalLineTotal()
+                    .subtract(shipActual)
+                    .subtract(returnFee)
+                    .subtract(fee);
+
+            total = total.add(net);
+
+            list.add(PayoutItemDetail.builder()
+                    .itemId(i.getId())
+                    .productName(i.getName())
+                    .quantity(i.getQuantity())
+                    .finalLineTotal(i.getFinalLineTotal())
+                    .shippingFeeEstimated(shipEst)
+                    .shippingFeeActual(shipActual)
+                    .returnShippingFee(returnFee)
+                    .platformFeePercentage(i.getPlatformFeePercentage())
+                    .platformFeeAmount(fee)
+                    .netAmount(net)
+                    .deliveredAt(i.getDeliveredAt())
+                    .build());
+        }
+
+        return PayoutGroup.builder()
+                .countItems(items.size())
+                .totalAmount(total)
+                .items(list)
+                .build();
+    }
 }

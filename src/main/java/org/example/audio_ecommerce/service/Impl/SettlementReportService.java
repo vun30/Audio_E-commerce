@@ -28,54 +28,36 @@ public class SettlementReportService {
     // Helper: compute item-level platform fee and net payout (per your rule)
     // platform fee per item = (item.lineTotal - itemShippingShare) * pct/100
     // We'll apportion customer shipping fee to items proportionally by lineTotal/totalProducts
-    private ItemContribution buildItemContribution(StoreOrder so, StoreOrderItem item) {
-        BigDecimal lineTotal = Optional.ofNullable(item.getLineTotal()).orElse(BigDecimal.ZERO);
+   private ItemContribution buildItemContribution(StoreOrder so, StoreOrderItem item) {
 
-        // Use storeOrder.totalAmount as productsTotal if present, else sum items' lineTotal
-        BigDecimal productsTotal = Optional.ofNullable(so.getTotalAmount())
-                .orElseGet(() -> Optional.ofNullable(so.getItems())
-                        .orElse(List.of()).stream()
-                        .map(i -> Optional.ofNullable(i.getLineTotal()).orElse(BigDecimal.ZERO))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+    BigDecimal lineTotal = Optional.ofNullable(item.getLineTotal()).orElse(BigDecimal.ZERO);
+    BigDecimal platformPct = Optional.ofNullable(so.getPlatformFeePercentage()).orElse(BigDecimal.ZERO);
+    BigDecimal shippingExtraForStore = Optional.ofNullable(item.getShippingExtraForStore()).orElse(BigDecimal.ZERO);
 
-        BigDecimal customerShipForStore = Optional.ofNullable(so.getShippingFee()).orElse(BigDecimal.ZERO);
-        BigDecimal platformPct = Optional.ofNullable(so.getPlatformFeePercentage()).orElse(BigDecimal.ZERO);
+    // PLATFORM FEE = lineTotal * pct / 100
+    BigDecimal platformFeeAmount = lineTotal
+            .multiply(platformPct)
+            .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
-        // apportion customer shipping to this item proportional to lineTotal
-        BigDecimal itemShipShare = BigDecimal.ZERO;
-        if (productsTotal.compareTo(BigDecimal.ZERO) > 0) {
-            itemShipShare = lineTotal
-                    .multiply(customerShipForStore)
-                    .divide(productsTotal, 6, RoundingMode.HALF_UP)
-                    .setScale(0, RoundingMode.DOWN);
-        }
+    // NET = lineTotal - platformFee - shippingExtra
+    BigDecimal netPayoutItem = lineTotal
+            .subtract(platformFeeAmount)
+            .subtract(shippingExtraForStore);
 
-        // base for fee = lineTotal - itemShipShare  (as you described)
-        BigDecimal baseForFee = lineTotal.subtract(itemShipShare);
-        if (baseForFee.compareTo(BigDecimal.ZERO) < 0) baseForFee = BigDecimal.ZERO;
-
-        BigDecimal platformFeeAmount = baseForFee
-                .multiply(platformPct)
-                .divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)
-                .setScale(0, RoundingMode.DOWN);
-
-        BigDecimal shippingExtraForStore = Optional.ofNullable(item.getShippingExtraForStore()).orElse(BigDecimal.ZERO);
-        BigDecimal netPayoutItem = lineTotal.subtract(platformFeeAmount).subtract(shippingExtraForStore);
-
-        return ItemContribution.builder()
-                .itemId(item.getId())
-                .storeOrderId(so.getId())
-                .productName(item.getName())
-                .quantity(item.getQuantity())
-                .lineTotal(lineTotal)
-                .shippingFeeEstimated(item.getShippingFeeEstimated())
-                .shippingFeeActual(item.getShippingFeeActual())
-                .shippingExtraForStore(shippingExtraForStore)
-                .platformFeePercentage(platformPct)
-                .platformFeeAmount(platformFeeAmount)
-                .netPayoutItem(netPayoutItem)
-                .build();
-    }
+    return ItemContribution.builder()
+            .itemId(item.getId())
+            .storeOrderId(so.getId())
+            .productName(item.getName())
+            .quantity(item.getQuantity())
+            .lineTotal(lineTotal)
+            .shippingFeeEstimated(item.getShippingFeeEstimated())
+            .shippingFeeActual(item.getShippingFeeActual())
+            .shippingExtraForStore(shippingExtraForStore)
+            .platformFeePercentage(platformPct)
+            .platformFeeAmount(platformFeeAmount)
+            .netPayoutItem(netPayoutItem)
+            .build();
+}
 
     public SettlementReportResponse getReport(SettlementReportType type, LocalDate date, UUID storeId) {
         List<StoreOrder> storeOrders = new ArrayList<>();

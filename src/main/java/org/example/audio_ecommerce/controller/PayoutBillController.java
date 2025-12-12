@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.response.PayoutBillResponse;
+import org.example.audio_ecommerce.dto.response.PayoutOverviewResponse;
 import org.example.audio_ecommerce.entity.Enum.PayoutBillStatus;
 import org.example.audio_ecommerce.entity.PayoutBill;
 import org.example.audio_ecommerce.service.PayoutBillService;
@@ -26,6 +27,7 @@ import java.util.UUID;
 public class PayoutBillController {
 
     private final PayoutBillService payoutBillService;
+
 
     // =====================================================================
     // 1. Admin tạo bill cho 1 shop
@@ -220,4 +222,40 @@ public ResponseEntity<List<PayoutBill>> getBills(
     return ResponseEntity.ok(list);
 }
 
+  @GetMapping("/overview/{storeId}")
+    public ResponseEntity<PayoutOverviewResponse> getOverview(
+            @PathVariable UUID storeId,
+
+            @RequestParam("from")
+            @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+            LocalDateTime fromDate,
+
+            @RequestParam("to")
+            @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+            LocalDateTime toDate
+    ) {
+
+        PayoutOverviewResponse response =
+                payoutBillService.getOverview(storeId, fromDate, toDate);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/overview")
+public ResponseEntity<PayoutOverviewResponse> getOverviewAllStores(
+
+        @RequestParam("from")
+        @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime fromDate,
+
+        @RequestParam("to")
+        @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime toDate
+) {
+
+    PayoutOverviewResponse response =
+            payoutBillService.getOverview(null, fromDate, toDate); // ⬅ null = ALL STORES
+
+    return ResponseEntity.ok(response);
+}
 }
