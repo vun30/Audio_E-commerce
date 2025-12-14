@@ -8,5 +8,6 @@ import java.util.List;
 @Repository
 public interface AiChatHistoryRepository extends JpaRepository<AiChatHistory, Long> {
 
-    List<AiChatHistory> findTop20ByUserIdOrderByCreatedAtDesc(String userId);
+    List<AiChatHistory> findTop3ByUserIdOrderByCreatedAtDesc(String userId);
+
 }

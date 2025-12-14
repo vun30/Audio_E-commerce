@@ -44,7 +44,7 @@ public class AiChatMemoryService {
     public List<ChatMessage> loadMemory(String userId) {
 
         List<AiChatHistory> records =
-                repo.findTop20ByUserIdOrderByCreatedAtDesc(userId);
+                repo.findTop3ByUserIdOrderByCreatedAtDesc(userId);
 
         // Đảo thứ tự từ CŨ -> MỚI
         Collections.reverse(records);
