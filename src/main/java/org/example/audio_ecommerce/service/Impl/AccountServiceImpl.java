@@ -462,6 +462,156 @@ public class AccountServiceImpl implements AccountService {
         return phone; // nếu đã là 0xxx thì giữ nguyên
     }
 
+    //firebase register
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> verifyPhoneForRegister(VerifyPhoneForRegisterRequest request) {
+        try {
+            var firebaseToken = firebaseAuthService.verifyIdToken(request.getFirebaseIdToken());
+
+            Object phoneObj = firebaseToken.getClaims().get("phone_number");
+            String phoneE164 = phoneObj != null ? phoneObj.toString() : null;
+
+            if (phoneE164 == null || phoneE164.isBlank()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new BaseResponse<>(400, "Firebase token không chứa số điện thoại", null));
+            }
+
+            // Nếu DB đang lưu 0xxx thì convert sang 0xxx để check duplicate theo DB hiện tại
+            String phoneForDb = normalizePhoneForCompare(phoneE164);
+
+            // Check đã tồn tại account theo phone chưa
+            if (repository.existsByPhone(phoneForDb)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(new BaseResponse<>(409, "Phone number already used", null));
+            }
+
+            // Tạo ticket sống 10 phút
+            String ticket = jwtTokenProvider.generateRegisterTicket(phoneForDb, request.getRole().name(), 10);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "Phone verified", new RegisterPhoneVerifiedResponse(ticket))
+            );
+
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new BaseResponse<>(400, ex.getMessage(), null));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new BaseResponse<>(500, "Verify phone failed: " + ex.getMessage(), null));
+        }
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> completeRegister(CompleteRegisterRequest request, String registerTicket) {
+        try {
+            var claims = jwtTokenProvider.parseRegisterTicket(registerTicket);
+
+            String phone = claims.get("phone", String.class);
+            String roleStr = claims.get("role", String.class);
+
+            if (phone == null || roleStr == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new BaseResponse<>(400, "Register ticket thiếu thông tin", null));
+            }
+
+            RoleEnum role = RoleEnum.valueOf(roleStr);
+
+            // Check email + role
+            if (repository.existsByEmailAndRole(request.getEmail(), role)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(new BaseResponse<>(409, "Email already used with role " + role, null));
+            }
+
+            // Check phone
+            if (repository.existsByPhone(phone)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(new BaseResponse<>(409, "Phone number already used", null));
+            }
+
+            Account entity = Account.builder()
+                    .name(request.getName())
+                    .email(request.getEmail())
+                    .phone(phone) // phone đã verify
+                    .password(passwordEncoder.encode(request.getPassword()))
+                    .role(role)
+                    .build();
+
+            repository.save(entity);
+
+            // tạo customer default + store wallet như bạn đang làm
+            createDefaultCustomerForAccount(entity);
+            if (role == RoleEnum.STOREOWNER) createDefaultStoreWithWallet(entity);
+
+            RegisterResponse response =
+                    new RegisterResponse(entity.getEmail(), entity.getName(), entity.getPhone());
+
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(new BaseResponse<>(201, "Register success", response));
+
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new BaseResponse<>(400, ex.getMessage(), null));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new BaseResponse<>(500, "Register failed: " + ex.getMessage(), null));
+        }
+    }
+
+    //login sdt firebase
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<BaseResponse> loginByPhoneFirebase(LoginByPhoneFirebaseRequest request) {
+        try {
+            // 1) Verify Firebase token
+            var firebaseToken = firebaseAuthService.verifyIdToken(request.getFirebaseIdToken());
+
+            // 2) Lấy phone từ claims
+            Object phoneObj = firebaseToken.getClaims().get("phone_number");
+            String phoneFromFirebase = phoneObj != null ? phoneObj.toString() : null;
+
+            if (phoneFromFirebase == null || phoneFromFirebase.isBlank()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new BaseResponse<>(400, "Firebase token không chứa số điện thoại", null));
+            }
+
+            // 3) Chuẩn hoá để match DB (vì DB bạn đang lưu 0xxx)
+            String phoneForDb = normalizePhoneForCompare(phoneFromFirebase);
+
+            // 4) Tìm account theo phone
+            Account user = repository.findByPhone(phoneForDb)
+                    .orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy account với SĐT này"));
+
+            // 5) Tạo JWT của hệ thống bạn
+            // customerId có nếu role CUSTOMER
+            var customerOpt = customerRepository.findByAccount_Id(user.getId());
+            UUID customerId = customerOpt.map(Customer::getId).orElse(null);
+
+            String accessToken = jwtTokenProvider.generateToken(
+                    user.getId(), customerId, user.getEmail(), user.getRole().name()
+            );
+
+            String refreshToken = jwtTokenProvider.generateRefreshToken(
+                    user.getId(), customerId, user.getEmail(), user.getRole().name()
+            );
+
+            AccountResponse userResponse =
+                    new AccountResponse(user.getEmail(), user.getName(), user.getRole().toString());
+
+            LoginResponse loginResponse = new LoginResponse(accessToken, refreshToken, userResponse);
+
+            return ResponseEntity.ok(new BaseResponse<>(200, "Login by phone success", loginResponse));
+
+        } catch (UsernameNotFoundException ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new BaseResponse<>(404, ex.getMessage(), null));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new BaseResponse<>(401, "Firebase token invalid: " + ex.getMessage(), null));
+        }
+    }
+
 
 
 

@@ -87,12 +87,35 @@ public class AccountController {
     public ResponseEntity<BaseResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         return accountService.resetPassword(request);
     }
-
+    //firebase
     @PostMapping("/reset-password/firebase")
     public ResponseEntity<BaseResponse> resetPasswordByFirebase(
             @RequestBody ResetPasswordByFirebaseRequest request) {
 
         return accountService.resetPasswordByFirebase(request);
     }
+
+    //firebase register
+    @PostMapping("/register/phone/verify")
+    public ResponseEntity<BaseResponse> verifyPhoneForRegister(
+            @RequestBody VerifyPhoneForRegisterRequest request) {
+        return accountService.verifyPhoneForRegister(request);
+    }
+
+    @PostMapping("/register/complete")
+    public ResponseEntity<BaseResponse> completeRegister(
+            @RequestHeader("X-Register-Ticket") String ticket,
+            @RequestBody CompleteRegisterRequest request) {
+
+        return accountService.completeRegister(request, ticket);
+    }
+
+    //firebase login
+    @PostMapping("/login/phone")
+    public ResponseEntity<BaseResponse> loginByPhoneFirebase(
+            @RequestBody LoginByPhoneFirebaseRequest request) {
+        return accountService.loginByPhoneFirebase(request);
+    }
+
 
 }

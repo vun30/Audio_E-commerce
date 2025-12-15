@@ -40,6 +40,12 @@ public interface AccountService {
     //firebase otp
     ResponseEntity<BaseResponse> resetPasswordByFirebase(
             ResetPasswordByFirebaseRequest request);
+    //firebase register
+    ResponseEntity<BaseResponse> verifyPhoneForRegister(VerifyPhoneForRegisterRequest request);
 
+    ResponseEntity<BaseResponse> completeRegister(CompleteRegisterRequest request, String registerTicket);
+
+    //firebase login
+    ResponseEntity<BaseResponse> loginByPhoneFirebase(LoginByPhoneFirebaseRequest request);
 
 }
