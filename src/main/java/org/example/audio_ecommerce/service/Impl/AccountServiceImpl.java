@@ -1,11 +1,7 @@
 package org.example.audio_ecommerce.service.Impl;
 
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.request.ForgotPasswordRequest;
-import org.example.audio_ecommerce.dto.request.LoginRequest;
-import org.example.audio_ecommerce.dto.request.RefreshTokenRequest;
-import org.example.audio_ecommerce.dto.request.RegisterRequest;
-import org.example.audio_ecommerce.dto.request.ResetPasswordRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.email.AccountData;
 import org.example.audio_ecommerce.entity.*;
@@ -15,6 +11,7 @@ import org.example.audio_ecommerce.security.JwtTokenProvider;
 import org.example.audio_ecommerce.service.AccountService;
 import org.example.audio_ecommerce.email.EmailService;
 import org.example.audio_ecommerce.email.EmailTemplateType;
+import org.example.audio_ecommerce.service.FirebaseAuthService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -44,6 +41,7 @@ public class AccountServiceImpl implements AccountService {
     private final StoreWalletRepository storeWalletRepository;
     private final StoreWalletTransactionRepository storeWalletTransactionRepository;
     private final StaffRepository staffRepository;
+    private final FirebaseAuthService firebaseAuthService;
 
     // 👇 thêm dependency EmailService
     private final EmailService emailService;
@@ -410,4 +408,62 @@ public class AccountServiceImpl implements AccountService {
                     .body(new BaseResponse<>(500, "Có lỗi xảy ra khi đặt lại mật khẩu: " + ex.getMessage(), null));
         }
     }
+
+    //firebase otp
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> resetPasswordByFirebase(ResetPasswordByFirebaseRequest request) {
+        try {
+            // 1) Verify Firebase ID token
+            var firebaseToken = firebaseAuthService.verifyIdToken(request.getFirebaseIdToken());
+
+            // 2) Lấy phone từ claims
+            Object phoneObj = firebaseToken.getClaims().get("phone_number");
+            String phoneFromFirebase = phoneObj != null ? phoneObj.toString() : null;
+
+            if (phoneFromFirebase == null || phoneFromFirebase.isBlank()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new BaseResponse<>(400, "Firebase token không chứa số điện thoại", null));
+            }
+
+            // 3) Chuẩn hoá để match DB (0xxx)
+            String phoneForDb = normalizePhoneForCompare(phoneFromFirebase);
+
+            // 4) Tìm account theo phone
+            Account account = repository.findByPhone(phoneForDb)
+                    .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy account với SĐT này"));
+
+            // 5) Cập nhật password mới
+            account.setPassword(passwordEncoder.encode(request.getNewPassword()));
+
+            // 6) Lưu vào database
+            repository.save(account);
+
+            return ResponseEntity.ok(
+                    new BaseResponse<>(200, "Mật khẩu đã được đặt lại thành công. Bạn có thể đăng nhập với mật khẩu mới.", null)
+            );
+
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new BaseResponse<>(400, ex.getMessage(), null));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new BaseResponse<>(500, "Có lỗi xảy ra khi đặt lại mật khẩu: " + ex.getMessage(), null));
+        }
+    }
+
+
+    private String normalizePhoneForCompare(String phone) {
+        if (phone == null) return null;
+        phone = phone.trim().replaceAll("\\s+", "");
+
+        if (phone.startsWith("+84")) return "0" + phone.substring(3);
+        if (phone.startsWith("84"))  return "0" + phone.substring(2);
+        return phone; // nếu đã là 0xxx thì giữ nguyên
+    }
+
+
+
+
+
 }

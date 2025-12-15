@@ -1,10 +1,6 @@
 package org.example.audio_ecommerce.service;
 
-import org.example.audio_ecommerce.dto.request.ForgotPasswordRequest;
-import org.example.audio_ecommerce.dto.request.LoginRequest;
-import org.example.audio_ecommerce.dto.request.RefreshTokenRequest;
-import org.example.audio_ecommerce.dto.request.RegisterRequest;
-import org.example.audio_ecommerce.dto.request.ResetPasswordRequest;
+import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.springframework.http.ResponseEntity;
 
@@ -40,5 +36,10 @@ public interface AccountService {
     ResponseEntity<BaseResponse> forgotPassword(ForgotPasswordRequest request);
 
     ResponseEntity<BaseResponse> resetPassword(ResetPasswordRequest request);
+
+    //firebase otp
+    ResponseEntity<BaseResponse> resetPasswordByFirebase(
+            ResetPasswordByFirebaseRequest request);
+
 
 }

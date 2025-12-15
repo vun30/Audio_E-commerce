@@ -87,4 +87,12 @@ public class AccountController {
     public ResponseEntity<BaseResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         return accountService.resetPassword(request);
     }
+
+    @PostMapping("/reset-password/firebase")
+    public ResponseEntity<BaseResponse> resetPasswordByFirebase(
+            @RequestBody ResetPasswordByFirebaseRequest request) {
+
+        return accountService.resetPasswordByFirebase(request);
+    }
+
 }
