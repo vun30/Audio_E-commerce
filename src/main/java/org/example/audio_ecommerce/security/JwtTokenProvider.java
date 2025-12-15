@@ -152,4 +152,32 @@ public class JwtTokenProvider {
         return subject.split(":")[1];
     }
 
+    //firebase
+    public String generateRegisterTicket(String phone, String role, int minutes) {
+        Date now = new Date();
+        Date exp = new Date(now.getTime() + minutes * 60 * 1000L);
+
+        return Jwts.builder()
+                .setSubject("REGISTER_PHONE")
+                .claim("phone", phone)
+                .claim("role", role)
+                .setIssuedAt(now)
+                .setExpiration(exp)
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public Claims parseRegisterTicket(String ticket) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(key)
+                .build()
+                .parseClaimsJws(ticket)
+                .getBody();
+
+        if (!"REGISTER_PHONE".equals(claims.getSubject())) {
+            throw new IllegalArgumentException("Invalid register ticket");
+        }
+        return claims;
+    }
+
 }
