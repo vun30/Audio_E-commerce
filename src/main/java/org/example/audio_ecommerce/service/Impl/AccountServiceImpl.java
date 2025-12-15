@@ -487,7 +487,7 @@ public class AccountServiceImpl implements AccountService {
             }
 
             // Tạo ticket sống 10 phút
-            String ticket = jwtTokenProvider.generateRegisterTicket(phoneForDb, request.getRole().name(), 10);
+            String ticket = jwtTokenProvider.generateRegisterTicket(phoneForDb, request.getRole().name(), 2);
 
             return ResponseEntity.ok(
                     new BaseResponse<>(200, "Phone verified", new RegisterPhoneVerifiedResponse(ticket))
