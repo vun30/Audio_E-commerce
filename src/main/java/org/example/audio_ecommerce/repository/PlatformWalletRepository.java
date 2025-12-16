@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.repository;
 import org.example.audio_ecommerce.entity.PlatformWallet;
 import org.example.audio_ecommerce.entity.Enum.WalletOwnerType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,8 +17,12 @@ public interface PlatformWalletRepository extends JpaRepository<PlatformWallet, 
 
     Optional<PlatformWallet> findFirstByOwnerType(WalletOwnerType ownerType);
 
+    @Query("""
+        select w from PlatformWallet w
+        where w.ownerType = org.example.audio_ecommerce.entity.Enum.WalletOwnerType.PLATFORM
+          and w.ownerId is null
+    """)
     Optional<PlatformWallet> findMainPlatformWallet();
-
 
 
 }

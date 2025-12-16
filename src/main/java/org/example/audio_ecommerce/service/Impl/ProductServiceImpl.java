@@ -110,8 +110,6 @@ public class ProductServiceImpl implements ProductService {
             p.setLastUpdateIntervalDays(0L);
             p.setCreatedBy(store.getAccount().getId());
             p.setUpdatedBy(store.getAccount().getId());
-            // FORCE PRODUCT TO BACK TO DRAFT WHEN UPDATE
-
 
             // BASIC FIELDS
             p.setShortDescription(req.getShortDescription());
@@ -134,13 +132,23 @@ public class ProductServiceImpl implements ProductService {
             boolean hasVariants = req.getVariants() != null && !req.getVariants().isEmpty();
 
             if (!hasVariants) {
+                // ✅ NO VARIANTS -> price + stock lấy từ request
                 if (req.getPrice() == null)
                     throw new RuntimeException("❌ price must not be null when product has NO variants");
+
+                if (req.getStockQuantity() == null)
+                    throw new RuntimeException("❌ stockQuantity must not be null when product has NO variants");
+                if (req.getStockQuantity() < 0)
+                    throw new RuntimeException("❌ stockQuantity must be >= 0");
+
                 p.setPrice(req.getPrice());
                 p.setFinalPrice(req.getPrice());
+                p.setStockQuantity(req.getStockQuantity());
             } else {
+                // ✅ HAS VARIANTS -> product price/stock sẽ tính từ variants
                 p.setPrice(null);
                 p.setFinalPrice(null);
+                p.setStockQuantity(0); // optional: tránh null trước khi sum
             }
 
             productRepository.save(p);
@@ -162,6 +170,11 @@ public class ProductServiceImpl implements ProductService {
             // VARIANTS
             if (hasVariants) {
                 for (VariantRequest v : req.getVariants()) {
+                    if (v.getVariantStock() == null)
+                        throw new RuntimeException("❌ variantStock must not be null");
+                    if (v.getVariantStock() < 0)
+                        throw new RuntimeException("❌ variantStock must be >= 0");
+
                     ProductVariantEntity variant = new ProductVariantEntity();
                     variant.setProduct(p);
                     variant.setOptionName(v.getOptionName());
@@ -173,6 +186,7 @@ public class ProductServiceImpl implements ProductService {
                     productVariantRepository.save(variant);
                 }
 
+                // ✅ sum stock variants
                 p.setStockQuantity(calculateVariantStockTotal(p.getProductId()));
                 productRepository.save(p);
             }
@@ -186,6 +200,7 @@ public class ProductServiceImpl implements ProductService {
                     .body(BaseResponse.error("❌ Create product failed: " + e.getMessage()));
         }
     }
+
 
     // ================================================
     // UPDATE PRODUCT
