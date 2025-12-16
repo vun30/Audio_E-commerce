@@ -13,7 +13,7 @@ public class StoreRiskWarningScheduler {
 
     private final StoreRiskWarningService storeRiskWarningService;
 
-    @Scheduled(cron = "0 */10 * * * *") // mỗi 10 phút
+    @Scheduled(cron = "*/30 * * * * *")
     public void earlyWarningScan() {
         int count = storeRiskWarningService.runEarlyWarningScan();
         log.info("[RiskWarningScheduler] updatedWarnings={}", count);

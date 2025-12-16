@@ -3,6 +3,8 @@ package org.example.audio_ecommerce.repository;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
+import org.example.audio_ecommerce.entity.Enum.StoreStatus;
+import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -130,6 +132,15 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
      and (o.deliveredAt is not null or o.returnChargeApplied = true)
 """)
     List<StoreOrder> findUnpaidFinalOrdersOfStore(@Param("storeId") UUID storeId);
+
+
+    @Query("""
+    select distinct s
+    from Store s
+    join fetch s.wallet w
+    where s.status in :statuses
+""")
+    List<Store> findStoresWithWalletByStatuses(@Param("statuses") List<StoreStatus> statuses);
 
 
 }

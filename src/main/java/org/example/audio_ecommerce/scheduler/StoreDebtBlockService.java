@@ -14,6 +14,7 @@ import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.repository.ProductRepository;
 import org.example.audio_ecommerce.repository.StoreRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,100 +32,130 @@ public class StoreDebtBlockService {
     private final ProductRepository productRepository;
     private final EmailService emailService;
 
-    // 1 legalPoint = +100,000 tín dụng
     private static final BigDecimal LEGAL_BONUS_UNIT = new BigDecimal("100000");
-
-    // Ngưỡng block = 100%
-    private static final BigDecimal BLOCK_RATIO = BigDecimal.ONE;
+    private static final BigDecimal BLOCK_RATIO = BigDecimal.ONE; // 100%
 
     @Value("${app.site-url:}")
     private String siteUrl;
 
+    @Scheduled(cron = "*/30 * * * * *") // mỗi 30 giây
     @Transactional
-    public int scanAndBlockStoresByDebt() {
+    public void scanAndBlockStoresByDebt() {
 
-        List<Store> stores = storeRepository.findAllActiveWithWallet(StoreStatus.ACTIVE);
-
-        int blockedCount = 0;
         LocalDateTime now = LocalDateTime.now();
+        log.info("[DEBT-BLOCK] tick at {}", now);
 
-        for (Store store : stores) {
+        List<Store> stores = storeRepository.findStoresWithWalletByStatuses(
+                List.of(StoreStatus.ACTIVE, StoreStatus.PAUSED)
+        );
 
-            StoreWallet wallet = store.getWallet();
-            if (wallet == null) continue;
-
-            BigDecimal debt = nz(wallet.getDebtBalance());
-            if (debt.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-            BigDecimal deposit = nz(wallet.getDepositBalance());
-            BigDecimal legalPoint = nz(store.getLegalPoint());
-
-            BigDecimal creditBonus = legalPoint.multiply(LEGAL_BONUS_UNIT);
-            BigDecimal adjustedLimit = deposit.add(creditBonus); // hạn mức = cọc + tín dụng
-
-            boolean shouldBlock;
-            BigDecimal ratio = BigDecimal.ZERO;
-
-            if (adjustedLimit.compareTo(BigDecimal.ZERO) <= 0) {
-                shouldBlock = true;
-                ratio = BigDecimal.ONE; // coi như >=100%
-            } else {
-                ratio = debt.divide(adjustedLimit, 4, RoundingMode.HALF_UP);
-                shouldBlock = ratio.compareTo(BLOCK_RATIO) >= 0; // >= 100%
-            }
-
-            if (!shouldBlock) continue;
-
-            // Nếu store đã bị khóa vì nợ trước đó thì bỏ qua (tránh gửi mail spam)
-            if (store.getStatus() == StoreStatus.SUSPENDED_DEBT) continue;
-
-            // ====== 1) BLOCK STORE ======
-            store.setStatus(StoreStatus.SUSPENDED_DEBT);
-            store.setLastRiskWarningAt(now);
-
-            // ====== 2) UPDATE PRODUCTS ======
-            int movedActive = productRepository.bulkUpdateStatusByStoreAndStatus(
-                    store.getStoreId(),
-                    ProductStatus.ACTIVE,
-                    ProductStatus.SUSPENDED_DEBT
-            );
-
-            int movedUnlisted = productRepository.bulkUpdateStatusByStoreAndStatus(
-                    store.getStoreId(),
-                    ProductStatus.UNLISTED,
-                    ProductStatus.UNLISTED_BEFORE_SUSPENDED_DEBT
-            );
-
-            // ====== 3) SEND EMAIL TO STORE OWNER ======
-            Account acc = store.getAccount(); // store có account @OneToOne
-            if (acc != null && acc.getEmail() != null && !acc.getEmail().isBlank()) {
-                String reason = buildDebtReason(debt, deposit, legalPoint, creditBonus, adjustedLimit, ratio);
-
-                StoreStatusChangedData mailData = StoreStatusChangedData.builder()
-                        .email(acc.getEmail())
-                        .ownerName(acc.getName() != null ? acc.getName() : store.getStoreName())
-                        .storeName(store.getStoreName())
-                        .newStatus(StoreStatus.SUSPENDED_DEBT.name())
-                        .reason(reason)
-                        .siteUrl(siteUrl)
-                        .build();
-
-                try {
-                    // @Async trong EmailService => không chặn luồng xử lý
-                    emailService.sendEmail(EmailTemplateType.STORE_STATUS_UPDATED, mailData);
-                } catch (MessagingException e) {
-                    log.error("[DEBT-BLOCK][EMAIL-FAIL] storeId={} email={} err={}",
-                            store.getStoreId(), acc.getEmail(), e.getMessage(), e);
-                }
-            }
-
-            log.warn("[DEBT-BLOCK] storeId={} debt={} deposit={} legalPoint={} limit={} ratio={} movedActive={} movedUnlisted={}",
-                    store.getStoreId(), debt, deposit, legalPoint, adjustedLimit, ratio, movedActive, movedUnlisted);
-
-            blockedCount++;
+        if (stores == null || stores.isEmpty()) {
+            log.info("[DEBT-BLOCK] no ACTIVE/PAUSED store to scan");
+            return;
         }
 
-        return blockedCount;
+        int blockedCount = 0;
+
+        for (Store store : stores) {
+            try {
+                StoreWallet wallet = store.getWallet();
+                if (wallet == null) {
+                    log.warn("[DEBT-BLOCK] skip storeId={} reason=wallet_null", store.getStoreId());
+                    continue;
+                }
+
+                BigDecimal debt = nz(wallet.getDebtBalance());
+                if (debt.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                BigDecimal deposit = nz(wallet.getDepositBalance());
+                BigDecimal legalPoint = nz(store.getLegalPoint());
+
+                BigDecimal creditBonus = legalPoint.multiply(LEGAL_BONUS_UNIT);
+                BigDecimal creditLimit = deposit.add(creditBonus);
+
+                BigDecimal ratio;
+                boolean shouldBlock;
+
+                if (creditLimit.compareTo(BigDecimal.ZERO) <= 0) {
+                    shouldBlock = true;
+                    ratio = BigDecimal.ONE;
+                } else {
+                    ratio = debt.divide(creditLimit, 4, RoundingMode.HALF_UP);
+                    shouldBlock = ratio.compareTo(BLOCK_RATIO) >= 0;
+                }
+
+                if (!shouldBlock) continue;
+
+                // idempotent
+                if (store.getStatus() == StoreStatus.SUSPENDED_DEBT) continue;
+
+                // lưu oldStatus cho log
+                StoreStatus oldStatus = store.getStatus();
+
+                // ====== 1) LOCK SHOP ======
+                store.setStatus(StoreStatus.SUSPENDED_DEBT);
+                store.setLastRiskWarningAt(now);
+                storeRepository.save(store);
+
+                // ====== 2) UPDATE PRODUCTS (FAIL KHÔNG CHẶN EMAIL) ======
+                int movedActive = 0;
+                int movedUnlisted = 0;
+                try {
+                    movedActive = productRepository.bulkUpdateStatusByStoreAndStatus(
+                            store.getStoreId(),
+                            ProductStatus.ACTIVE,
+                            ProductStatus.SUSPENDED_DEBT
+                    );
+
+                    movedUnlisted = productRepository.bulkUpdateStatusByStoreAndStatus(
+                            store.getStoreId(),
+                            ProductStatus.UNLISTED,
+                            ProductStatus.UNLISTED_BEFORE_SUSPENDED_DEBT
+                    );
+                } catch (Exception e) {
+                    // ✅ vẫn tiếp tục gửi mail dù update product lỗi
+                    log.error("[DEBT-BLOCK][PRODUCT-UPDATE-FAIL] storeId={} err={}",
+                            store.getStoreId(), e.getMessage(), e);
+                }
+
+                // ====== 3) SEND EMAIL (LUÔN CHẠY) ======
+                Account acc = store.getAccount();
+                if (acc != null && acc.getEmail() != null && !acc.getEmail().isBlank()) {
+                    String reason = buildDebtReason(debt, deposit, legalPoint, creditBonus, creditLimit, ratio);
+
+                    StoreStatusChangedData mailData = StoreStatusChangedData.builder()
+                            .email(acc.getEmail())
+                            .ownerName(acc.getName() != null ? acc.getName() : store.getStoreName())
+                            .storeName(store.getStoreName())
+                            .newStatus(StoreStatus.SUSPENDED_DEBT.name())
+                            .reason(reason)
+                            .siteUrl(siteUrl)
+                            .build();
+
+                    try {
+                        emailService.sendEmail(EmailTemplateType.STORE_STATUS_UPDATED, mailData);
+                        log.info("[DEBT-BLOCK][EMAIL-SENT] storeId={} email={}", store.getStoreId(), acc.getEmail());
+                    } catch (MessagingException e) {
+                        log.error("[DEBT-BLOCK][EMAIL-FAIL] storeId={} email={} err={}",
+                                store.getStoreId(), acc.getEmail(), e.getMessage(), e);
+                    }
+                } else {
+                    log.warn("[DEBT-BLOCK] storeId={} no email to notify", store.getStoreId());
+                }
+
+                log.warn("[DEBT-BLOCK][BLOCKED] storeId={} oldStatus={} newStatus={} debt={} deposit={} legalPoint={} limit={} ratio={} movedActive={} movedUnlisted={}",
+                        store.getStoreId(), oldStatus, store.getStatus(), debt, deposit, legalPoint, creditLimit, ratio, movedActive, movedUnlisted);
+
+                blockedCount++;
+
+            } catch (Exception ex) {
+                log.error("[DEBT-BLOCK][ERROR] storeId={} err={}", store.getStoreId(), ex.getMessage(), ex);
+            }
+        }
+
+        if (blockedCount > 0) {
+            log.warn("[DEBT-BLOCK] DONE blockedCount={}", blockedCount);
+        }
     }
 
     private String buildDebtReason(BigDecimal debt,
@@ -134,7 +165,6 @@ public class StoreDebtBlockService {
                                    BigDecimal limit,
                                    BigDecimal ratio) {
 
-        // Bạn có thể format tiền VNĐ ở FE; ở đây mình ghi rõ số để audit.
         return "Cửa hàng bị tạm khóa do vượt ngưỡng nợ cho phép (100%). "
                 + "Nợ hiện tại: " + debt + ". "
                 + "Tiền cọc: " + deposit + ". "
