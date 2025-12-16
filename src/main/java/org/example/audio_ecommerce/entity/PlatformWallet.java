@@ -45,6 +45,10 @@ public class PlatformWallet {
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal refundedTotal = BigDecimal.ZERO;    // Tổng tiền đã hoàn trả (refund)
 
+    // ✅ NEW: PHÍ NỀN TẢNG (COMMISSION)
+    @Column(nullable = false, precision = 18, scale = 2)
+    private BigDecimal commissionBalance = BigDecimal.ZERO;
+
     @Column(nullable = false, length = 10)
     private String currency = "VND";
 

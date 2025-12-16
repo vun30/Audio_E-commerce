@@ -5,7 +5,9 @@ import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
 import org.example.audio_ecommerce.entity.Enum.TransactionType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -52,5 +54,18 @@ public interface PlatformTransactionRepository extends JpaRepository<PlatformTra
             "WHERE t.status = org.example.audio_ecommerce.entity.Enum.TransactionStatus.PENDING " +
             "AND t.createdAt < :threshold")
     List<PlatformTransaction> findExpiredHoldings(LocalDateTime threshold);
+
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0)
+        FROM PlatformTransaction t
+        WHERE (:type IS NULL OR t.type = :type)
+          AND (:status IS NULL OR t.status = :status)
+          AND (:from IS NULL OR t.createdAt >= :from)
+          AND (:to   IS NULL OR t.createdAt <  :to)
+    """)
+    BigDecimal sumAmountByTypeAndFilter(@Param("type") TransactionType type,
+                                        @Param("status") TransactionStatus status,
+                                        @Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to);
 
 }

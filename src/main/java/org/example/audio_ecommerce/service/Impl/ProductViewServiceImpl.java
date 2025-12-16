@@ -294,32 +294,63 @@ public ResponseEntity<BaseResponse> getThumbnailView(
 
     // =========================================================
     // 2) PDP – ACTIVE VOUCHERS
-    // =========================================================
     @Override
     public ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType) {
 
-        LocalDateTime now = LocalDateTime.now();
+        final LocalDateTime now = LocalDateTime.now();
 
-        Product p = productRepo.findById(productId)
+        // ✅ type là BẮT BUỘC
+        if (type == null || type.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(BaseResponse.error("❌ type is required (ALL | SHOP | PLATFORM)"));
+        }
+        final String safeType = type.trim().toUpperCase();
+
+        // ✅ validate type
+        if (!Set.of("ALL", "SHOP", "PLATFORM").contains(safeType)) {
+            return ResponseEntity.badRequest()
+                    .body(BaseResponse.error("❌ Invalid type: " + type + " (must be ALL | SHOP | PLATFORM)"));
+        }
+
+        // ✅ campaignType OPTIONAL
+        final CampaignType campaignTypeEnum;
+        if (campaignType != null && !campaignType.isBlank()) {
+            try {
+                campaignTypeEnum = CampaignType.valueOf(campaignType.trim().toUpperCase());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest()
+                        .body(BaseResponse.error("❌ Invalid campaignType: " + campaignType));
+            }
+        } else {
+            campaignTypeEnum = null;
+        }
+
+        // ✅ Find product
+        final Product product = productRepo.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-        if (p.getStatus() != ProductStatus.ACTIVE) {
+        // ✅ Only ACTIVE product
+        if (product.getStatus() != ProductStatus.ACTIVE) {
             return ResponseEntity.badRequest()
                     .body(BaseResponse.error("❌ Product is not active"));
         }
 
-        Map<String, Object> productMap = new LinkedHashMap<>();
-        productMap.put("productId", p.getProductId());
-        productMap.put("name", p.getName());
-        productMap.put("price", p.getPrice());
-        productMap.put("discountPrice", p.getDiscountPrice());
-        productMap.put("finalPrice", p.getFinalPrice());
-        productMap.put("brandName", p.getBrandName());
+        // ======================================================
+        // BUILD PRODUCT JSON
+        // ======================================================
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("productId", product.getProductId());
+        p.put("name", product.getName());
+        p.put("brandName", product.getBrandName());
+        p.put("price", product.getPrice());
+        p.put("discountPrice", product.getDiscountPrice());
+        p.put("finalPrice", product.getFinalPrice());
+        p.put("ratingAverage", product.getRatingAverage());
+        p.put("reviewCount", product.getReviewCount());
 
-        // ⭐ FIX lại MULTI CATEGORY
-        productMap.put("categories",
-                p.getCategories() == null ? List.of() :
-                        p.getCategories().stream()
+        p.put("categories",
+                product.getCategories() == null ? List.of() :
+                        product.getCategories().stream()
                                 .map(c -> Map.of(
                                         "categoryId", c.getCategoryId(),
                                         "categoryName", c.getName()
@@ -327,85 +358,127 @@ public ResponseEntity<BaseResponse> getThumbnailView(
                                 .toList()
         );
 
-        productMap.put("thumbnailUrl",
-                p.getImages() != null && !p.getImages().isEmpty()
-                        ? p.getImages().get(0)
+        p.put("thumbnailUrl",
+                (product.getImages() != null && !product.getImages().isEmpty())
+                        ? product.getImages().get(0)
                         : null
         );
 
-        productMap.put("variants", buildVariantList(p));
+        p.put("variants", buildVariantList(product));
 
-        Map<String, Object> vouchers = new LinkedHashMap<>();
+        Map<String, Object> storeMap = new LinkedHashMap<>();
+        storeMap.put("id", product.getStore().getStoreId());
+        storeMap.put("name", product.getStore().getStoreName());
+        storeMap.put("status", product.getStore().getStatus());
 
-        // SHOP VOUCHER
-        if ("ALL".equalsIgnoreCase(type) || "SHOP".equalsIgnoreCase(type)) {
-            shopVoucherProductRepo.findActiveShopVoucherProduct(productId, now)
+        if (product.getStore().getStoreAddresses() != null &&
+                !product.getStore().getStoreAddresses().isEmpty()) {
+            var addr = product.getStore().getStoreAddresses().get(0);
+            storeMap.put("provinceCode", addr.getProvinceCode());
+            storeMap.put("districtCode", addr.getDistrictCode());
+            storeMap.put("wardCode", addr.getWardCode());
+        } else {
+            storeMap.put("provinceCode", null);
+            storeMap.put("districtCode", null);
+            storeMap.put("wardCode", null);
+        }
+        p.put("store", storeMap);
+
+        // ======================================================
+        // BUILD VOUCHERS JSON
+        // ======================================================
+        Map<String, Object> voucherMap = new LinkedHashMap<>();
+
+        // ---------- SHOP ----------
+        if ("ALL".equals(safeType) || "SHOP".equals(safeType)) {
+            shopVoucherProductRepo.findActiveShopVoucherProduct(product.getProductId(), now)
                     .ifPresent(svp -> {
                         var v = svp.getVoucher();
                         if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
-                            vouchers.put("shop", List.of(Map.of(
-                                    "source", "SHOP",
-                                    "shopVoucherId", v.getId(),
-                                    "shopVoucherProductId", svp.getId(),
-                                    "code", v.getCode(),
-                                    "title", v.getTitle(),
-                                    "discountValue", v.getDiscountValue(),
-                                    "discountPercent", v.getDiscountPercent()
-                            )));
+                            Map<String, Object> shopVoucher = new LinkedHashMap<>();
+                            shopVoucher.put("source", "SHOP");
+                            shopVoucher.put("shopVoucherId", v.getId());
+                            shopVoucher.put("shopVoucherProductId", svp.getId());
+                            shopVoucher.put("code", v.getCode());
+                            shopVoucher.put("title", v.getTitle());
+                            shopVoucher.put("discountValue", v.getDiscountValue());
+                            shopVoucher.put("discountPercent", v.getDiscountPercent());
+                            shopVoucher.put("maxDiscountValue", v.getMaxDiscountValue());
+                            shopVoucher.put("minOrderValue", v.getMinOrderValue());
+                            shopVoucher.put("startTime", v.getStartTime());
+                            shopVoucher.put("endTime", v.getEndTime());
+
+                            voucherMap.put("shopVoucher", shopVoucher);
                         }
                     });
         }
 
-        // PLATFORM VOUCHER
-        if ("ALL".equalsIgnoreCase(type) || "PLATFORM".equalsIgnoreCase(type)) {
+        // ---------- PLATFORM (GIỐNG GET ALL: chỉ lấy status ACTIVE) ----------
+        if ("ALL".equals(safeType) || "PLATFORM".equals(safeType)) {
 
-            List<PlatformCampaignProduct> mappings =
-                    platformCampaignProductRepo.findAllByProduct_ProductIdAndStatus(productId, VoucherStatus.ACTIVE);
+            // ✅ đổi từ findAllActiveByProduct(...) -> findAllActiveOnlyStatus(...)
+            final List<PlatformCampaignProduct> activeMappings =
+                    platformCampaignProductRepo.findAllActiveOnlyStatus(product.getProductId());
 
-            if (campaignType != null && !campaignType.isBlank()) {
-                mappings = mappings.stream()
-                        .filter(cp -> cp.getCampaign() != null &&
-                                cp.getCampaign().getCampaignType().name().equalsIgnoreCase(campaignType))
-                        .toList();
+            final List<PlatformCampaignProduct> filteredMappings =
+                    (campaignTypeEnum == null)
+                            ? activeMappings
+                            : activeMappings.stream()
+                            .filter(cp -> cp.getCampaign() != null
+                                    && cp.getCampaign().getCampaignType() == campaignTypeEnum)
+                            .toList();
+
+            if (!filteredMappings.isEmpty()) {
+                Map<UUID, List<PlatformCampaignProduct>> grouped =
+                        filteredMappings.stream()
+                                .filter(cp -> cp.getCampaign() != null)
+                                .collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
+
+                List<Map<String, Object>> campaigns = new ArrayList<>();
+
+                for (var entry : grouped.entrySet()) {
+                    List<PlatformCampaignProduct> cps = entry.getValue();
+                    PlatformCampaign c = cps.get(0).getCampaign();
+
+                    Map<String, Object> cMap = new LinkedHashMap<>();
+                    cMap.put("campaignId", c.getId());
+                    cMap.put("code", c.getCode());
+                    cMap.put("name", c.getName());
+                    cMap.put("description", c.getDescription());
+                    cMap.put("campaignType", c.getCampaignType());
+
+                    List<Map<String, Object>> voucherList = cps.stream().map(cp -> {
+                        Map<String, Object> m = new LinkedHashMap<>();
+                        m.put("platformVoucherId", cp.getId());
+                        m.put("campaignId", c.getId());
+                        m.put("type", cp.getType() != null ? cp.getType().name() : null);
+                        m.put("discountValue", cp.getDiscountValue());
+                        m.put("discountPercent", cp.getDiscountPercent());
+                        m.put("maxDiscountValue", cp.getMaxDiscountValue());
+                        m.put("minOrderValue", cp.getMinOrderValue());
+                        m.put("usagePerUser", cp.getUsagePerUser());
+                        m.put("status", cp.getStatus());
+                        return m;
+                    }).toList();
+
+                    cMap.put("vouchers", voucherList);
+                    campaigns.add(cMap);
+                }
+
+                voucherMap.put("platformVouchers", campaigns);
             }
-
-            Map<UUID, List<PlatformCampaignProduct>> grouped =
-                    mappings.stream()
-                            .collect(Collectors.groupingBy(cp -> cp.getCampaign().getId()));
-
-            List<Map<String, Object>> platform = new ArrayList<>();
-
-            for (var entry : grouped.entrySet()) {
-                List<PlatformCampaignProduct> cps = entry.getValue();
-                PlatformCampaign c = cps.get(0).getCampaign();
-
-                Map<String, Object> cMap = new LinkedHashMap<>();
-                cMap.put("campaignId", c.getId());
-                cMap.put("campaignType", c.getCampaignType());
-                cMap.put("name", c.getName());
-
-                List<Map<String, Object>> voucherList = cps.stream()
-                        .map(cp -> Map.<String, Object>of(
-                                "platformVoucherId", cp.getId(),
-                                "discountValue", cp.getDiscountValue(),
-                                "discountPercent", cp.getDiscountPercent(),
-                                "maxDiscountValue", cp.getMaxDiscountValue()
-                        ))
-                        .toList();
-
-                cMap.put("vouchers", voucherList);
-                platform.add(cMap);
-            }
-
-            if (!platform.isEmpty()) vouchers.put("platform", platform);
         }
 
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("product", productMap);
-        result.put("vouchers", vouchers);
+        // ✅ chọn 1 trong 2 cách:
+        // C1: luôn trả vouchers (kể cả rỗng)  -> giống response bạn đang thấy "vouchers": {}
+        p.put("vouchers", voucherMap);
 
-        return ResponseEntity.ok(BaseResponse.success("✅ Active vouchers fetched (FULL)", result));
+        // (C2: nếu muốn giống GET ALL hơn: chỉ trả khi có voucher, thì dùng dòng dưới và XÓA dòng C1)
+        // if (!voucherMap.isEmpty()) p.put("vouchers", voucherMap);
+
+        return ResponseEntity.ok(BaseResponse.success("✅ Product fetched with active vouchers", p));
     }
+
 
     // =========================================================
     // BUILD VARIANTS

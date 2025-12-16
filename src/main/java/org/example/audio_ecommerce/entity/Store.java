@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.StoreRiskWarningLevel;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.hibernate.annotations.GenericGenerator;
 
@@ -47,10 +48,10 @@ public class Store {
     private String description;
 
     @Column(name = "logo_url", columnDefinition = "LONGTEXT")
-private String logoUrl;
+    private String logoUrl;
 
-@Column(name = "cover_image_url", columnDefinition = "LONGTEXT")
-private String coverImageUrl;
+    @Column(name = "cover_image_url", columnDefinition = "LONGTEXT")
+    private String coverImageUrl;
 
     @Column(length = 500)
     private String address;
@@ -63,6 +64,16 @@ private String coverImageUrl;
 
     @Column(precision = 3, scale = 2)
     private BigDecimal rating;
+
+    @Column(length = 20)
+    private BigDecimal legalPoint; // điểm uy tín shop
+
+    @Column(name = "last_risk_warning_at")
+    private LocalDateTime lastRiskWarningAt;
+
+    @Column(name = "risk_warning_level", length = 20)
+    @Enumerated(EnumType.STRING)
+    private StoreRiskWarningLevel riskWarningLevel;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
