@@ -37,7 +37,7 @@ public class StoreDebtBlockService {
     // Ngưỡng block = 100%
     private static final BigDecimal BLOCK_RATIO = BigDecimal.ONE;
 
-    @Value("${app.site-url}")
+    @Value("${app.site-url:}")
     private String siteUrl;
 
     @Transactional

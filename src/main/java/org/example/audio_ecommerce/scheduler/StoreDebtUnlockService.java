@@ -36,7 +36,7 @@ public class StoreDebtUnlockService {
     private static final BigDecimal LEGAL_BONUS_UNIT = new BigDecimal("100000");
     private static final BigDecimal SAFE_DEPOSIT_RATIO = new BigDecimal("0.10"); // 10%
 
-    @Value("${app.site-url}")
+    @Value("${app.site-url:}")
     private String siteUrl;
 
     /**
