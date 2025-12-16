@@ -34,7 +34,7 @@ public class WalletTransaction extends BaseEntity {
     private BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "transaction_type", length = 32, nullable = false)
+    @Column(name = "transaction_type", length = 12, nullable = false)
     private WalletTransactionType transactionType;
 
     @Enumerated(EnumType.STRING)
