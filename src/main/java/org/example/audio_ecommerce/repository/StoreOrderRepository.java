@@ -101,6 +101,7 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     @Query("select distinct so from StoreOrder so left join fetch so.items")
     List<StoreOrder> findAllWithItemsFetch();
 
+    List<StoreOrder> findByStatusAndStoreScoredFalse(OrderStatus status);
     @Query("""
     select o from StoreOrder o
     where o.paidByShop = false

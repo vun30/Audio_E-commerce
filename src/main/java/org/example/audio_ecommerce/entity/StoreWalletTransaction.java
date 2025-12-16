@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionStatus;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
 import org.hibernate.annotations.GenericGenerator;
 
@@ -51,6 +52,20 @@ public class StoreWalletTransaction {
     // 📦 ID đơn hàng liên quan (nếu có)
     @Column(name = "order_id", columnDefinition = "CHAR(36)")
     private UUID orderId;
+
+    //new field for external reference
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20, nullable = false)
+    @Builder.Default
+    private StoreWalletTransactionStatus status = StoreWalletTransactionStatus.PENDING;
+
+    @Column(precision = 18, scale = 2, nullable = false)
+    @Builder.Default
+    private BigDecimal balanceBefore = BigDecimal.ZERO;
+
+    @Column(name = "external_ref", length = 64, unique = true)
+    private String externalRef;
+
 
     private LocalDateTime createdAt;
 }

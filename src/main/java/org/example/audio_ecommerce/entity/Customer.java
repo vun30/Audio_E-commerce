@@ -11,6 +11,7 @@ import org.example.audio_ecommerce.entity.Enum.Gender;
 import org.example.audio_ecommerce.entity.Enum.KycStatus;
 import org.example.audio_ecommerce.entity.Enum.LoyaltyLevel;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -141,6 +142,11 @@ public class Customer extends BaseEntity {
     @OneToOne(mappedBy = "customer", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     private Wallet wallet;
+
+    @Builder.Default
+    @Column(name = "legal_point", precision = 18, scale = 2, nullable = false)
+    private BigDecimal legalPoint = BigDecimal.ZERO;
+
 
     // ===== Helpers =====
     public void addAddress(CustomerAddress addr, boolean makeDefault) {
