@@ -35,4 +35,8 @@ public class Wallet extends BaseEntity {
 
     @Column(name = "last_transaction_at")
     private LocalDateTime lastTransactionAt;
+
+    @Column(name = "pending_balance", nullable = false)
+    @Builder.Default
+    private BigDecimal pendingBalance = BigDecimal.ZERO;
 }
