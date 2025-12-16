@@ -100,4 +100,6 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     // fallback: fetch all storeOrders with items (careful perf)
     @Query("select distinct so from StoreOrder so left join fetch so.items")
     List<StoreOrder> findAllWithItemsFetch();
+
+    List<StoreOrder> findByStatusAndStoreScoredFalse(OrderStatus status);
 }

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,5 +21,10 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
     Page<CustomerOrder> findByCustomer_IdAndStatus(UUID customerId,
                                                    OrderStatus status,
                                                    Pageable pageable);
+    List<CustomerOrder> findByStatusAndCustomerPenalizedFalse(OrderStatus status);
+    List<CustomerOrder> findByStatusAndCustomerRewardedFalse(
+            OrderStatus status
+    );
+
 }
 

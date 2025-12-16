@@ -111,6 +111,14 @@ public class CustomerOrder {
     @Column(name = "ship_note", length = 512)
     private String shipNote;
 
+    @Builder.Default
+    @Column(name = "customer_penalized", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean customerPenalized = false;
+
+    @Builder.Default
+    @Column(name = "customer_rewarded", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean customerRewarded = false;
+
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {
