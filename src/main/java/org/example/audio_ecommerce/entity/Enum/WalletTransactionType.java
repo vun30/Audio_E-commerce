@@ -1,7 +1,17 @@
 package org.example.audio_ecommerce.entity.Enum;
 
 public enum WalletTransactionType {
-    DEPOSIT, WITHDRAW, PAYMENT, REFUND, SYSTEM_FEE, QR, WALLET, TOPUP, RETURN_REFUND_SHOP_DEBIT, FORCE_RETURN_REFUND_SHOP, RETURN_REFUND_CUSTOMER_CREDIT,
+    DEPOSIT,
+    WITHDRAW,
+    PAYMENT,
+    REFUND,
+    SYSTEM_FEE,
+    QR,
+    WALLET,
+    TOPUP,
+    RETURN_REFUND_SHOP_DEBIT,
+    FORCE_RETURN_REFUND_SHOP,
+    RETURN_REFUND_CUSTOMER_CREDIT,
     FORCE_RETURN_REFUND_CUSTOMER,
     WITHDRAW_REQUEST,   // customer tạo yêu cầu rút -> PENDING
     WITHDRAW_RELEASE,   // reject/cancel -> trả tiền về balance

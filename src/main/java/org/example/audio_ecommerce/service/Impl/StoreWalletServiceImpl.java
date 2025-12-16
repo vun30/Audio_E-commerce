@@ -185,6 +185,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
             case ADJUSTMENT -> "Điều chỉnh thủ công";
             case REFUND_RETURN -> "Hoàn trả hàng";
             case REFUND_FORCE -> "Hoàn tiền (bắt buộc)";
+            case TOPUP -> "Nạp tiền vào ví";
         };
     }
 

@@ -49,6 +49,10 @@ public class StoreWallet {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    @Builder.Default
+    @Column(precision = 18, scale = 2, nullable = false)
+    private BigDecimal defaultBalance= BigDecimal.ZERO; // số dư khi store nạp
+
     @OneToMany(mappedBy = "wallet", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<StoreWalletTransaction> transactions;
 }

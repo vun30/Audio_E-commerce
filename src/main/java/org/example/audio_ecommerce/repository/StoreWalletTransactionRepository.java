@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -30,10 +31,11 @@ public interface StoreWalletTransactionRepository extends JpaRepository<StoreWal
 
     Page<StoreWalletTransaction> findByWallet_WalletIdAndTypeOrderByCreatedAtDesc(
             UUID walletId, StoreWalletTransactionType type, Pageable pageable);
+    Optional<StoreWalletTransaction> findByExternalRef(String externalRef);
 
     @Query("""
     SELECT t FROM StoreWalletTransaction t
-    WHERE t.wallet.id = :walletId
+    WHERE t.wallet.walletId = :walletId
       AND (:from IS NULL OR t.createdAt >= :from)
       AND (:to IS NULL OR t.createdAt <= :to)
       AND (:type IS NULL OR t.type = :type)
