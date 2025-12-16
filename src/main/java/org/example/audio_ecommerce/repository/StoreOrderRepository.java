@@ -102,4 +102,35 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     List<StoreOrder> findAllWithItemsFetch();
 
     List<StoreOrder> findByStatusAndStoreScoredFalse(OrderStatus status);
+    @Query("""
+    select o from StoreOrder o
+    where o.paidByShop = false
+      and o.shippingFeeReal is not null
+      and o.shippingFeeReal > 0
+""")
+    List<StoreOrder> findOrdersForDebtCron();
+
+    @Query("""
+    select o.store.storeId, coalesce(sum(o.totalDebtOrder), 0)
+    from StoreOrder o
+    where o.paidByShop = false
+      and o.totalDebtOrder > 0
+    group by o.store.storeId
+""")
+    List<Object[]> sumDebtFromOrdersByStore();
+
+    List<StoreOrder> findByStore_StoreIdAndPaidByShopFalse(UUID storeId);
+
+    List<StoreOrder> findByStore_StoreIdAndPaidByShopFalseAndCreatedAtBetween(
+            UUID storeId, LocalDateTime from, LocalDateTime to);
+
+    @Query("""
+   select o from StoreOrder o
+   where o.store.storeId = :storeId
+     and o.paidByShop = false
+     and (o.deliveredAt is not null or o.returnChargeApplied = true)
+""")
+    List<StoreOrder> findUnpaidFinalOrdersOfStore(@Param("storeId") UUID storeId);
+
+
 }

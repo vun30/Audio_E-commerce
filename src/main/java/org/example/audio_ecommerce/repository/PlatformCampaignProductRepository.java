@@ -94,6 +94,7 @@ public interface PlatformCampaignProductRepository extends JpaRepository<Platfor
                 FROM PlatformCampaignProduct cp
                 WHERE cp.product.productId = :productId
                   AND cp.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
+                  AND cp.approved = true
                   AND cp.campaign.status = org.example.audio_ecommerce.entity.Enum.VoucherStatus.ACTIVE
                   AND (cp.startTime IS NULL OR cp.startTime <= :now)
                   AND (cp.endTime IS NULL OR cp.endTime >= :now)

@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.experimental.SuperBuilder;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -32,9 +33,9 @@ public class ReturnShippingFee extends BaseEntity {
     private BigDecimal shippingFee;
 
     // ===== AI CHỊU PHÍ SHIP? =====
-    // "CUSTOMER" = khách chịu / "SHOP" = shop chịu
-    @Column(name = "payer", nullable = false, length = 20)
-    private String payer;
+    @Builder.Default
+    @Column(nullable = false, length = 20)
+    private String payer = "SHOP"; // hoặc CUSTOMER
 
     // ===== TÍNH TOÁN CHO SHOP =====
     // Số tiền thực tế sẽ trừ vào shop khi đối soát

@@ -1,7 +1,5 @@
 package org.example.audio_ecommerce.repository;
 
-import org.example.audio_ecommerce.dto.request.UpdateStoreRequest;
-import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.Account;
 import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
@@ -9,7 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.http.ResponseEntity;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -47,6 +45,15 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
 
     @Query("SELECT s.storeId FROM Store s")
     List<UUID> findAllStoreIds();
+
+    @Query("""
+        select s
+        from Store s
+        join fetch s.wallet w
+        where s.status = :status
+          and s.legalPoint is not null
+    """)
+    List<Store> findAllActiveWithWallet(@Param("status") StoreStatus status);
 
 
 }
