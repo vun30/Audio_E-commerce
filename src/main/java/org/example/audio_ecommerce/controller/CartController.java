@@ -4,10 +4,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.*;
-import org.example.audio_ecommerce.dto.response.BaseResponse;
-import org.example.audio_ecommerce.dto.response.CartResponse;
-import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
-import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
+import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.service.CartService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -129,29 +126,6 @@ public class CartController {
         return BaseResponse.success("✅ Checkout COD thành công", resp);
     }
 
-    @Operation(
-            summary = "Pre-check COD eligibility cho danh sách item sẽ checkout",
-            description = "Nhận danh sách CheckoutItemRequest[] và trả về `overallEligible` cùng chi tiết từng store."
-    )
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "OK",
-                    content = @Content(schema = @Schema(implementation = CodEligibilityResponse.class)))
-    })
-    @PostMapping("/cod-eligibility")
-    public ResponseEntity<CodEligibilityResponse> checkCodEligibility(
-            @Parameter(description = "ID khách hàng (UUID)", required = true)
-            @PathVariable UUID customerId,
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Array CheckoutItemRequest[]. Ví dụ: [{\"type\":\"PRODUCT\",\"id\":\"...\"}]",
-                    required = true,
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = CheckoutItemRequest.class)))
-            )
-            @RequestBody List<CheckoutItemRequest> items
-    ) {
-        CodEligibilityResponse res = cartService.checkCodEligibility(customerId, items);
-        return ResponseEntity.ok(res);
-    }
-
     @Operation(summary = "Cập nhật số lượng của một item trong giỏ hàng",
             description = "Chỉ cập nhật 1 item cụ thể theo type + id.")
     @ApiResponses({
@@ -203,16 +177,6 @@ public class CartController {
         return cartService.bulkUpdateQuantities(customerId, req);
     }
 
-    // ví dụ trong CartController (tùy bạn đặt)
-//    @PostMapping("/checkout/store-ship")
-//    public ResponseEntity<List<CustomerOrderResponse>> checkoutStoreShip(
-//            @RequestParam UUID customerId,
-//            @RequestBody CheckoutCODRequest request // tái dùng request hiện có: items, addressId, message, vouchers
-//    ) {
-//        List<CustomerOrderResponse> resp = cartService.checkoutStoreShip(customerId, request);
-//        return ResponseEntity.ok(resp);
-//    }
-
     @Operation(
             summary = "Cập nhật số lượng 1 item kèm tính lại voucher/platform campaign",
             description = """
@@ -239,4 +203,11 @@ public class CartController {
         return cartService.updateItemQuantityWithVouchers(customerId, request);
     }
 
+    @PostMapping("/checkout/preview")
+    public BaseResponse<CheckoutPreviewResponse> previewCheckout(
+            @RequestHeader("X-Customer-Id") UUID customerId,
+            @Valid @RequestBody CheckoutCODRequest request
+    ) {
+        return BaseResponse.success("Preview checkout successful",cartService.previewCheckout(customerId, request));
+    }
 }

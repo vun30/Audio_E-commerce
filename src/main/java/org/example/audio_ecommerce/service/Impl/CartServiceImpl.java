@@ -3,10 +3,7 @@ package org.example.audio_ecommerce.service.Impl;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.config.CodConfig;
 import org.example.audio_ecommerce.dto.request.*;
-import org.example.audio_ecommerce.dto.response.CodEligibilityResponse;
-import org.example.audio_ecommerce.dto.response.CartResponse;
-import org.example.audio_ecommerce.dto.response.CustomerOrderResponse;
-import org.example.audio_ecommerce.dto.response.PreviewCampaignPriceResponse;
+import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
@@ -239,81 +236,6 @@ public class CartServiceImpl implements CartService {
         if (cart.getItems() == null) cart.setItems(new ArrayList<>());
         System.out.println(" ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡getActiveCart: " + cart);
         return toResponse(cart);
-    }
-
-    // ===== NEW: API để FE kiểm tra và khóa nút COD nếu cần =====
-    @Override
-    @Transactional(readOnly = true)
-    public CodEligibilityResponse checkCodEligibility(UUID customerId, List<CheckoutItemRequest> reqItems) {
-        Customer customer = customerRepo.findById(customerId)
-                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
-        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
-                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
-
-        // 1) Map request -> CartItem trong cart
-        List<CartItem> itemsToCheckout = new ArrayList<>();
-        for (CheckoutItemRequest req : Optional.ofNullable(reqItems).orElse(List.of())) {
-            CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
-            cart.getItems().stream()
-                    .filter(it -> it.getType() == type && matchesCartItem(it, req))
-                    .findFirst()
-                    .ifPresent(itemsToCheckout::add);
-        }
-        if (itemsToCheckout.isEmpty()) {
-            throw new IllegalStateException("No matching items in cart for COD eligibility check");
-        }
-
-
-        // 2) Group theo store và tính subtotal từng store
-        Map<UUID, StoreSubtotal> subtotalByStore = new HashMap<>();
-        for (CartItem it : itemsToCheckout) {
-            UUID storeId = (it.getType() == CartItemType.PRODUCT && it.getProduct() != null)
-                    ? it.getProduct().getStore().getStoreId()
-                    : (it.getCombo() != null ? it.getCombo().getStore().getStoreId() : null);
-            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
-
-            subtotalByStore.computeIfAbsent(storeId, k -> new StoreSubtotal())
-                    .add(it.getLineTotal());
-
-            // lưu name store (để trả ra FE)
-            subtotalByStore.get(storeId).storeName =
-                    (it.getType() == CartItemType.PRODUCT && it.getProduct() != null)
-                            ? it.getProduct().getStore().getStoreName()
-                            : (it.getCombo() != null ? it.getCombo().getStore().getStoreName() : null);
-        }
-
-        // 3) Tính requiredDeposit = subtotal * ratio, lấy depositBalance từ StoreWallet
-        BigDecimal ratio = codConfig.getCodDepositRatio();
-        List<CodEligibilityResponse.PerStore> perStores = new ArrayList<>();
-
-        boolean overall = true;
-        for (Map.Entry<UUID, StoreSubtotal> e : subtotalByStore.entrySet()) {
-            UUID storeId = e.getKey();
-            StoreSubtotal ss = e.getValue();
-
-            BigDecimal required = ss.subtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
-            BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeId)
-                    .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
-                    .orElse(BigDecimal.ZERO);
-
-            boolean eligible = deposit.compareTo(required) >= 0;
-            if (!eligible) overall = false;
-
-            perStores.add(CodEligibilityResponse.PerStore.builder()
-                    .storeId(storeId)
-                    .storeName(ss.storeName)
-                    .storeSubtotal(ss.subtotal)
-                    .requiredDeposit(required)
-                    .depositBalance(deposit)
-                    .eligible(eligible)
-                    .reason(eligible ? null : "INSUFFICIENT_DEPOSIT")
-                    .build());
-        }
-
-        return CodEligibilityResponse.builder()
-                .overallEligible(overall)
-                .stores(perStores)
-                .build();
     }
 
     @Override
@@ -550,7 +472,16 @@ public class CartServiceImpl implements CartService {
         if (itemsToCheckout.isEmpty()) {
             throw new IllegalStateException("No matching items in cart for checkout");
         }
-
+        // ✅ snapshot quantity hiện tại trong cart (để trừ lại sau khi checkout)
+        Map<UUID, Integer> originalQtyById = itemsToCheckout.stream()
+                .filter(x -> x.getCartItemId() != null)
+                .collect(Collectors.toMap(
+                        CartItem::getCartItemId,
+                        x -> Optional.ofNullable(x.getQuantity()).orElse(1),
+                        (a, b) -> a
+                ));
+        applyRequestedQuantities(customer, itemsToCheckout, itemsReq);
+        validateStockForCartItems(itemsToCheckout);
         // Trừ tồn kho theo items chuẩn bị checkout
         deductStockForCartItems(itemsToCheckout);
 
@@ -876,6 +807,82 @@ public class CartServiceImpl implements CartService {
                 so.setPlatformVoucherDetailJson(platJson);
 
                 // Allocate shop-order voucher to items proportionally
+                // ===== Allocate PLATFORM campaign voucher (pv) down to items (product-level only) =====
+                if (pv != null && pv.compareTo(BigDecimal.ZERO) > 0) {
+
+                    // 1) Load campaignProducts từ request.platformVouchers (campaignProductId)
+                    Set<UUID> cpIds = Optional.ofNullable(platformVouchers).orElse(List.of()).stream()
+                            .map(PlatformVoucherUse::getCampaignProductId)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toSet());
+
+                    Map<UUID, PlatformCampaignProduct> cps = cpIds.isEmpty()
+                            ? Collections.emptyMap()
+                            : platformCampaignProductRepository.findAllById(cpIds).stream()
+                            .collect(Collectors.toMap(PlatformCampaignProduct::getId, x -> x));
+
+                    List<StoreOrderItem> items = Optional.ofNullable(so.getItems()).orElse(List.of());
+
+                    // 2) Eligible items = PRODUCT items có refId = productId nằm trong campaign
+                    Set<UUID> eligibleProductIds = cps.values().stream()
+                            .map(PlatformCampaignProduct::getProduct)
+                            .filter(Objects::nonNull)
+                            .map(Product::getProductId)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toSet());
+
+                    List<StoreOrderItem> eligibleItems = items.stream()
+                            .filter(it -> "PRODUCT".equalsIgnoreCase(it.getType()))
+                            .filter(it -> it.getRefId() != null)
+                            .filter(it -> eligibleProductIds.contains(it.getRefId()))
+                            .toList();
+
+                    BigDecimal baseTotal = eligibleItems.stream()
+                            .map(x -> Optional.ofNullable(x.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO))
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    if (baseTotal.compareTo(BigDecimal.ZERO) > 0 && !eligibleItems.isEmpty()) {
+                        BigDecimal allocated = BigDecimal.ZERO;
+
+                        for (int i = 0; i < eligibleItems.size(); i++) {
+                            StoreOrderItem it = eligibleItems.get(i);
+
+                            BigDecimal base = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal share = base.multiply(pv).divide(baseTotal, 0, RoundingMode.DOWN);
+
+                            if (i == eligibleItems.size() - 1) {
+                                share = pv.subtract(allocated); // dồn lẻ
+                            }
+
+                            // ✅ cộng thêm platform campaign discount vào platformVoucherDiscount
+                            BigDecimal oldPv = Optional.ofNullable(it.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+                            it.setPlatformVoucherDiscount(oldPv.add(share));
+
+                            // 3) Recompute totals per item
+                            BigDecimal platformD = Optional.ofNullable(it.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal shopItemD  = Optional.ofNullable(it.getShopItemDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal shopOrderD = Optional.ofNullable(it.getShopOrderVoucherDiscount()).orElse(BigDecimal.ZERO);
+
+                            BigDecimal totalD = platformD.add(shopItemD).add(shopOrderD);
+                            it.setTotalItemDiscount(totalD);
+
+                            BigDecimal lineBefore = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                            BigDecimal finalLine = lineBefore.subtract(totalD);
+                            if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+
+                            it.setFinalLineTotal(finalLine);
+
+                            int qty = Math.max(Optional.ofNullable(it.getQuantity()).orElse(1), 1);
+                            it.setFinalUnitPrice(finalLine.divide(BigDecimal.valueOf(qty), 0, RoundingMode.DOWN));
+
+                            it.setAmountCharged(finalLine);
+
+                            allocated = allocated.add(share);
+                        }
+                    }
+                }
+
+
                 if (sv != null && sv.compareTo(BigDecimal.ZERO) > 0) {
                     List<StoreOrderItem> items = Optional.ofNullable(so.getItems()).orElse(List.of());
                     BigDecimal subtotalBefore = items.stream()
@@ -993,10 +1000,54 @@ public class CartServiceImpl implements CartService {
             }
         }
 
-        // 7) Xoá item khỏi cart
-        cart.getItems().removeAll(itemsToCheckout);
+        // 7) Trừ quantity trong cart theo quantity đã checkout
+        List<CartItem> toDelete = new ArrayList<>();
+
+        for (CartItem ci : itemsToCheckout) {
+            if (ci.getCartItemId() == null) {
+                // fallback: nếu không có id thì xoá luôn để tránh bug dữ liệu
+                toDelete.add(ci);
+                continue;
+            }
+
+            int originalQty = originalQtyById.getOrDefault(ci.getCartItemId(),
+                    Optional.ofNullable(ci.getQuantity()).orElse(1));
+
+            int checkoutQty = Optional.ofNullable(ci.getQuantity()).orElse(1); // lúc này đã là qty theo request
+
+            if (checkoutQty > originalQty) {
+                throw new IllegalStateException("Checkout quantity vượt quá quantity trong cart");
+            }
+
+            int remaining = originalQty - checkoutQty;
+
+            if (remaining > 0) {
+                ci.setQuantity(remaining);
+
+                // recompute lineTotal theo remaining (để cart còn lại đúng giá/bulk/campaign)
+                if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                    Product p = ci.getProduct();
+                    ProductVariantEntity v = ci.getVariant();
+
+                    BigDecimal unit = resolveUnitPriceForCustomer(p, v, remaining, customer);
+                    ci.setUnitPrice(unit);
+                    ci.setLineTotal(unit.multiply(BigDecimal.valueOf(remaining)));
+                } else if (ci.getType() == CartItemType.COMBO) {
+                    BigDecimal unit = ci.getUnitPrice() != null ? ci.getUnitPrice() : BigDecimal.ZERO;
+                    ci.setLineTotal(unit.multiply(BigDecimal.valueOf(remaining)));
+                }
+
+                cartItemRepo.save(ci); // cập nhật lại cart item
+            } else {
+                toDelete.add(ci); // remaining == 0 => xoá khỏi cart
+            }
+        }
+
+// xoá các item remaining=0
+        cart.getItems().removeAll(toDelete);
         cartRepo.save(cart);
-        cartItemRepo.deleteAll(itemsToCheckout);
+        cartItemRepo.deleteAll(toDelete);
+
 
         return createdOrders;
     }
@@ -1173,29 +1224,6 @@ public class CartServiceImpl implements CartService {
         return toResponse(cart);
     }
 
-    @Override
-    @Transactional
-    public List<CustomerOrderResponse> checkoutStoreShip(UUID customerId, CheckoutCODRequest request) {
-        // Giống online/COD nhưng:
-        // - KHÔNG gọi GHN
-        // - phí ship = 0 cho từng store
-        // - shippingServiceTypeId = null
-        // - có thể đặt PaymentMethod tùy: COD hay ONLINE (ở đây mình để theo request.paymentMethod nếu bạn có,
-        //   còn nếu chưa có trong request thì mặc định COD cho store-ship)
-        List<CustomerOrder> orders = createOrdersSplitByStore_StoreShipNoFee(
-                customerId,
-                request.getItems(),
-                request.getAddressId(),
-                request.getMessage(),
-                // store-ship không check deposit COD (thường không cần),
-                // nếu bạn muốn vẫn check thì set true
-                false,
-                request.getStoreVouchers(),
-                request.getPlatformVouchers()
-        );
-        return orders.stream().map(this::toOrderResponse).toList();
-    }
-
 
     // Tối giản: trích "data.total" từ JSON GHN
     private static BigDecimal extractTotalFee(String feeJson) {
@@ -1312,318 +1340,6 @@ public class CartServiceImpl implements CartService {
         resp.setNote(order.getShipNote());
 
         return resp;
-    }
-
-
-    @Transactional
-    protected List<CustomerOrder> createOrdersSplitByStore_StoreShipNoFee(
-            UUID customerId,
-            List<CheckoutItemRequest> itemsReq,
-            UUID addressId,
-            String message,
-            boolean enforceCodDeposit,
-            List<StoreVoucherUse> storeVouchers,
-            List<PlatformVoucherUse> platformVouchers
-    ) {
-        Customer customer = customerRepo.findById(customerId)
-                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
-        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
-                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
-        if (cart.getItems() == null || cart.getItems().isEmpty()) {
-            throw new IllegalStateException("Cart is empty");
-        }
-
-        // 1) Map request -> CartItem
-        List<CartItem> itemsToCheckout = new ArrayList<>();
-        for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
-            CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
-            cart.getItems().stream()
-                    .filter(it -> it.getType() == type && matchesCartItem(it, req))
-                    .findFirst()
-                    .ifPresent(itemsToCheckout::add);
-        }
-        if (itemsToCheckout.isEmpty()) {
-            throw new IllegalStateException("No matching items in cart for checkout");
-        }
-        deductStockForCartItems(itemsToCheckout);
-
-        // 2) Group theo store
-        Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
-        for (CartItem item : itemsToCheckout) {
-            UUID storeId = (item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
-                    ? item.getProduct().getStore().getStoreId()
-                    : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null);
-            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
-            itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
-        }
-
-        // 2b) (tùy chọn) enforce COD deposit theo shop
-        if (enforceCodDeposit) {
-            BigDecimal ratio = codConfig.getCodDepositRatio();
-            for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-                UUID storeIdKey = entry.getKey();
-                BigDecimal storeSubtotal = entry.getValue().stream()
-                        .map(CartItem::getLineTotal)
-                        .filter(Objects::nonNull)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                BigDecimal required = storeSubtotal.multiply(ratio).setScale(0, java.math.RoundingMode.DOWN);
-                BigDecimal deposit = storeWalletRepository.findByStore_StoreId(storeIdKey)
-                        .map(w -> w.getDepositBalance() == null ? BigDecimal.ZERO : w.getDepositBalance())
-                        .orElse(BigDecimal.ZERO);
-
-                if (deposit.compareTo(required) < 0) {
-                    throw new IllegalStateException(
-                            "COD_DISABLED_DEPOSIT_INSUFFICIENT for store=" + storeIdKey
-                                    + " required=" + required + " deposit=" + deposit);
-                }
-            }
-        }
-
-        // 3) Lấy địa chỉ
-        CustomerAddress addr;
-        if (addressId != null) {
-            addr = customer.getAddresses().stream()
-                    .filter(a -> a.getId().equals(addressId))
-                    .findFirst()
-                    .orElseThrow(() -> new NoSuchElementException("Address not found"));
-        } else {
-            addr = customer.getAddresses().stream()
-                    .filter(CustomerAddress::isDefault)
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("No default address found for checkout"));
-        }
-
-        // Dùng cho voucher services
-        Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
-
-        // Lấy platform fee percentage hiện tại để snapshot vào StoreOrder
-        BigDecimal platformFeePercentage = platformFeeRepository
-                .findFirstByIsActiveTrueOrderByEffectiveDateDesc()
-                .map(PlatformFee::getPercentage)
-                .orElse(BigDecimal.ZERO);
-
-        // Kết quả
-        List<CustomerOrder> createdOrders = new ArrayList<>();
-
-        // 4) Loop từng shop → tạo 1 CustomerOrder riêng
-        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
-            UUID storeIdKey = entry.getKey();
-            Store store = storeRepo.findById(storeIdKey)
-                    .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
-
-            // === KHÁC BIỆT: phí ship = 0, không gọi GHN
-            BigDecimal shippingFee = BigDecimal.ZERO;
-            Integer serviceTypeIdForStore = null; // không dùng
-
-            String orderCode = orderCodeGeneratorService.nextOrderCode();
-
-            CustomerOrder co = CustomerOrder.builder()
-                    .customer(customer)
-                    .createdAt(java.time.LocalDateTime.now())
-                    .message(message)
-                    .status(OrderStatus.PENDING)
-                    .orderCode(orderCode)
-                    // snapshot địa chỉ
-                    .shipReceiverName(addr.getReceiverName())
-                    .shipPhoneNumber(addr.getPhoneNumber())
-                    .shipCountry(addr.getCountry())
-                    .shipProvince(addr.getProvince())
-                    .shipDistrict(addr.getDistrict())
-                    .shipWard(addr.getWard())
-                    .shipStreet(addr.getStreet())
-                    .shipAddressLine(addr.getAddressLine())
-                    .shipPostalCode(addr.getPostalCode())
-                    .shipNote(addr.getNote())
-                    .build();
-
-            // Bạn muốn mặc định COD cho store-ship? (đổi nếu cần)
-            co.setPaymentMethod(PaymentMethod.STORE);
-
-            // Items
-            List<CustomerOrderItem> coItems = new ArrayList<>();
-            for (CartItem ci : entry.getValue()) {
-                coItems.add(CustomerOrderItem.builder()
-                        .customerOrder(co)
-                        .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
-                        .name(ci.getNameSnapshot())
-                        .quantity(ci.getQuantity())
-                        .variantId(ci.getVariantIdOrNull())
-                        .variantOptionName(ci.getVariantOptionNameSnapshot())
-                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
-                        .unitPrice(ci.getUnitPrice())
-                        .lineTotal(ci.getLineTotal())
-                        .storeId(storeIdKey)
-                        .build());
-            }
-            co.setItems(coItems);
-
-            BigDecimal subtotal = coItems.stream()
-                    .map(CustomerOrderItem::getLineTotal)
-                    .filter(Objects::nonNull)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            co.setTotalAmount(subtotal);
-            co.setShippingFeeTotal(shippingFee);
-
-            co = customerOrderRepository.save(co);
-
-            // StoreOrder
-            StoreOrder so = StoreOrder.builder()
-                    .store(store)
-                    .createdAt(java.time.LocalDateTime.now())
-                    .status(OrderStatus.PENDING)
-                    .customerOrder(co)
-                    .orderCode(orderCode)
-                    .shipReceiverName(co.getShipReceiverName())
-                    .shipPhoneNumber(co.getShipPhoneNumber())
-                    .shipCountry(co.getShipCountry())
-                    .shipProvince(co.getShipProvince())
-                    .shipDistrict(co.getShipDistrict())
-                    .shipWard(co.getShipWard())
-                    .shipStreet(co.getShipStreet())
-                    .shipAddressLine(co.getShipAddressLine())
-                    .shipPostalCode(co.getShipPostalCode())
-                    // ghi chú rõ để FE phân biệt
-                    .shipNote((co.getShipNote() == null ? "" : co.getShipNote() + " | ") + "[STORE_SHIP - FREE]")
-                    .shippingFee(shippingFee)
-                    .shippingServiceTypeId(serviceTypeIdForStore) // null
-                    // snapshot platform fee percentage (actual shipping = 0 cho store-ship)
-                    .platformFeePercentage(platformFeePercentage)
-                    .actualShippingFee(BigDecimal.ZERO)  // store-ship không có phí GHN
-                    .build();
-            so.setPaymentMethod(co.getPaymentMethod());
-
-            List<StoreOrderItem> soItems = new ArrayList<>();
-            for (CartItem ci : entry.getValue()) {
-                BigDecimal baseListUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
-                        ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
-                        : (ci.getVariant() != null
-                        ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
-                        : getBaseUnitPrice(ci.getProduct()));
-                BigDecimal bulkUnit = ci.getType() == org.example.audio_ecommerce.entity.Enum.CartItemType.COMBO
-                        ? baseListUnit
-                        : (ci.getVariant() != null
-                        ? baseListUnit
-                        : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
-                BigDecimal lineBefore = baseListUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
-
-                BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
-                if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
-                BigDecimal platformDiscount = platformPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
-
-                BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
-                if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
-                BigDecimal shopItemDiscount = shopItemPerUnit.multiply(BigDecimal.valueOf(ci.getQuantity())).setScale(0, RoundingMode.DOWN);
-
-                BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
-                BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
-                if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
-                BigDecimal finalUnit = finalLine.divide(BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN);
-
-                soItems.add(StoreOrderItem.builder()
-                        .storeOrder(so)
-                        .type(ci.getType().name())
-                        .refId(ci.getReferenceId())
-                        .name(ci.getNameSnapshot())
-                        .quantity(ci.getQuantity())
-                        .variantId(ci.getVariantIdOrNull())
-                        .variantOptionName(ci.getVariantOptionNameSnapshot())
-                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
-                        // legacy fields
-                        .unitPrice(ci.getUnitPrice())
-                        .lineTotal(ci.getLineTotal())
-                        // snapshot fields
-                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
-                        .linePriceBeforeDiscount(lineBefore)
-                        .platformVoucherDiscount(platformDiscount)
-                        .shopItemDiscount(shopItemDiscount)
-                        .shopOrderVoucherDiscount(java.math.BigDecimal.ZERO)
-                        .totalItemDiscount(totalItemDiscount)
-                        .finalUnitPrice(finalUnit)
-                        .finalLineTotal(finalLine)
-                        .amountCharged(finalLine)
-                        .platformFeePercentage(platformFeePercentage)
-                        .build());
-            }
-            so.setItems(soItems);
-            storeOrderRepository.save(so);
-
-            storeItemsMap.put(storeIdKey, soItems);
-            createdOrders.add(co);
-        }
-
-        // 5) Áp voucher như bình thường (không ảnh hưởng phí ship vì = 0)
-        // 5) TÍNH voucher NỀN TẢNG TRƯỚC
-        var platformResult = voucherService.computePlatformDiscounts(
-                customerId,
-                platformVouchers,
-                storeItemsMap
-        );
-
-// 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
-        var storeResult = voucherService.computeDiscountByStoreWithDetail(
-                customerId,
-                storeVouchers,
-                storeItemsMap,
-                platformResult.discountByStore   // map<storeId, platformDiscount>
-        );
-
-        Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
-        Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
-
-        // 6) Cập nhật discount + grand
-        for (CustomerOrder co : createdOrders) {
-            UUID storeIdOfOrder = co.getItems().stream()
-                    .map(CustomerOrderItem::getStoreId)
-                    .findFirst().orElse(null);
-
-            BigDecimal storeDiscount = storeResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
-            BigDecimal platformDiscount = platformResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
-            BigDecimal discountTotal = storeDiscount.add(platformDiscount);
-
-            BigDecimal grand = co.getTotalAmount()
-                    .add(co.getShippingFeeTotal()) // = 0
-                    .subtract(discountTotal);
-
-            co.setStoreDiscountTotal(storeDiscount);
-            co.setPlatformDiscountTotal(platformDiscount);
-            co.setDiscountTotal(discountTotal);
-            co.setGrandTotal(grand);
-            co.setPlatformVoucherDetailJson(platformResult.toPlatformVoucherJson());
-
-            customerOrderRepository.save(co);
-        }
-
-        // === NEW: đổ voucher xuống từng StoreOrder (Store-Ship) ===
-        for (CustomerOrder co : createdOrders) {
-            List<StoreOrder> sos = storeOrderRepository.findAllByCustomerOrder_Id(co.getId());
-            if (sos == null || sos.isEmpty()) continue;
-
-            for (StoreOrder so : sos) {
-                UUID sid = so.getStore().getStoreId();
-                BigDecimal sv = storeResult.discountByStore.getOrDefault(sid, BigDecimal.ZERO);
-                BigDecimal pv = platformResult.discountByStore.getOrDefault(sid, BigDecimal.ZERO);
-
-                so.setStoreVoucherDiscount(sv);
-                so.setPlatformVoucherDiscount(pv);
-
-                String storeJson = storeDetailJsonByStore.getOrDefault(sid, "{}");
-                String platJson = platformDetailJsonByStore.getOrDefault(sid, "{}");
-                so.setStoreVoucherDetailJson(storeJson);
-                so.setPlatformVoucherDetailJson(platJson);
-
-                storeOrderRepository.save(so);
-            }
-        }
-
-        // 7) Xóa items khỏi cart
-        cart.getItems().removeAll(itemsToCheckout);
-        cartRepo.save(cart);
-        cartItemRepo.deleteAll(itemsToCheckout);
-
-        return createdOrders;
     }
 
     // ================= BULK DISCOUNT HELPERS =================
@@ -2333,5 +2049,427 @@ public class CartServiceImpl implements CartService {
                 .build();
     }
 
+    //preview for checkout
+    @Override
+    @Transactional(readOnly = true)
+    public CheckoutPreviewResponse previewCheckout(UUID customerId, CheckoutCODRequest request) {
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Customer not found"));
+
+        Cart cart = cartRepo.findByCustomerAndStatus(customer, CartStatus.ACTIVE)
+                .orElseThrow(() -> new NoSuchElementException("No active cart found"));
+
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            throw new IllegalStateException("Cart is empty");
+        }
+
+        // 1) Map request.items -> CartItem (giống checkout thật)
+        List<CheckoutItemRequest> itemsReq = request != null ? request.getItems() : null;
+
+        List<CartItem> itemsToCheckout = new ArrayList<>();
+        for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {
+            CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
+            cart.getItems().stream()
+                    .filter(it -> it.getType() == type && matchesCartItem(it, req))
+                    .findFirst()
+                    .ifPresent(itemsToCheckout::add);
+        }
+        applyRequestedQuantities(customer, itemsToCheckout, itemsReq);
+
+        if (itemsToCheckout.isEmpty()) {
+            throw new IllegalStateException("No matching items in cart for preview");
+        }
+
+        // 2) Validate sellable + stock (KHÔNG TRỪ KHO)
+        validateStockForCartItems(itemsToCheckout);
+
+        // 3) Group theo store
+        Map<UUID, List<CartItem>> itemsByStore = new HashMap<>();
+        for (CartItem item : itemsToCheckout) {
+            UUID storeId = (item.getType() == CartItemType.PRODUCT && item.getProduct() != null)
+                    ? item.getProduct().getStore().getStoreId()
+                    : (item.getCombo() != null ? item.getCombo().getStore().getStoreId() : null);
+            if (storeId == null) throw new IllegalStateException("Không xác định được store cho item");
+            itemsByStore.computeIfAbsent(storeId, k -> new ArrayList<>()).add(item);
+        }
+
+        // 4) Lấy địa chỉ (giống checkout thật)
+        CustomerAddress addr;
+        UUID addressId = request != null ? request.getAddressId() : null;
+
+        if (addressId != null) {
+            addr = customer.getAddresses().stream()
+                    .filter(a -> a.getId().equals(addressId))
+                    .findFirst()
+                    .orElseThrow(() -> new NoSuchElementException("Address not found"));
+        } else {
+            addr = customer.getAddresses().stream()
+                    .filter(CustomerAddress::isDefault)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("No default address found for preview"));
+        }
+
+        Integer toDistrictId = addr.getDistrictId();
+        String toWardCode = addr.getWardCode();
+
+        if (toDistrictId == null || toDistrictId <= 0 || toWardCode == null || toWardCode.isBlank()) {
+            throw new IllegalStateException(
+                    "Preview checkout address missing districtId/wardCode for GHN fee (addressId=" + addr.getId() + ")"
+            );
+        }
+
+        // 5) lấy platform fee % (để snapshot vào StoreOrderItem ảo giống checkout)
+        BigDecimal platformFeePercentage = platformFeeRepository
+                .findFirstByIsActiveTrueOrderByEffectiveDateDesc()
+                .map(PlatformFee::getPercentage)
+                .orElse(BigDecimal.ZERO);
+
+        // 6) Build storeItemsMap (StoreOrderItem ảo) + per-store shipping + per-store subtotal
+        Map<UUID, List<StoreOrderItem>> storeItemsMap = new HashMap<>();
+        Map<UUID, BigDecimal> shippingByStore = new HashMap<>();
+        Map<UUID, Integer> shippingServiceTypeByStore = new HashMap<>();
+
+        Map<UUID, String> storeNameByStore = new HashMap<>();
+
+        Map<UUID, List<CheckoutPreviewResponse.Item>> previewItemsByStore = new HashMap<>();
+
+        Map<UUID, Integer> serviceTypeIds = request != null ? request.getServiceTypeIds() : null;
+
+        for (Map.Entry<UUID, List<CartItem>> entry : itemsByStore.entrySet()) {
+            UUID storeIdKey = entry.getKey();
+
+            Store store = storeRepo.findById(storeIdKey)
+                    .orElseThrow(() -> new NoSuchElementException("Store not found: " + storeIdKey));
+            storeNameByStore.put(storeIdKey, store.getStoreName());
+
+            // origin address shop
+            StoreAddressEntity originAddr = resolveStoreOriginAddress(store);
+            String fromDistrictCode = originAddr != null ? originAddr.getDistrictCode() : null;
+            String fromWardCode = originAddr != null ? originAddr.getWardCode() : null;
+
+            // serviceTypeId
+            Integer serviceTypeIdForStore = Optional.ofNullable(serviceTypeIds)
+                    .map(m -> m.get(storeIdKey))
+                    .orElse(5);
+            shippingServiceTypeByStore.put(storeIdKey, serviceTypeIdForStore);
+
+            // GHN fee
+            var reqGHN = buildForStoreShipment(
+                    entry.getValue(),
+                    toDistrictId,
+                    toWardCode,
+                    fromDistrictCode,
+                    fromWardCode,
+                    serviceTypeIdForStore
+            );
+
+            String feeRaw = ghnFeeService.calculateFeeRaw(reqGHN);
+            BigDecimal shippingFee = extractTotalFee(feeRaw);
+            shippingByStore.put(storeIdKey, shippingFee);
+
+            // Build StoreOrderItem ảo (để voucherService tính đúng)
+            List<StoreOrderItem> soItems = new ArrayList<>();
+            List<CheckoutPreviewResponse.Item> previewItems = new ArrayList<>();
+
+            for (CartItem ci : entry.getValue()) {
+
+                UUID refIdForVoucher;
+                if (ci.getType() == CartItemType.PRODUCT && ci.getProduct() != null) {
+                    refIdForVoucher = ci.getProduct().getProductId();
+                } else if (ci.getType() == CartItemType.COMBO && ci.getCombo() != null) {
+                    refIdForVoucher = ci.getCombo().getComboId();
+                } else {
+                    refIdForVoucher = ci.getReferenceId();
+                }
+
+                BigDecimal baseListUnit = ci.getType() == CartItemType.COMBO
+                        ? Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO)
+                        : (ci.getVariant() != null
+                        ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
+                        : getBaseUnitPrice(ci.getProduct()));
+
+                BigDecimal bulkUnit = ci.getType() == CartItemType.COMBO
+                        ? baseListUnit
+                        : (ci.getVariant() != null
+                        ? baseListUnit
+                        : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+
+                BigDecimal lineBefore = baseListUnit
+                        .multiply(BigDecimal.valueOf(ci.getQuantity()))
+                        .setScale(0, RoundingMode.DOWN);
+
+                BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
+                if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
+
+                BigDecimal platformDiscount = platformPerUnit
+                        .multiply(BigDecimal.valueOf(ci.getQuantity()))
+                        .setScale(0, RoundingMode.DOWN);
+
+                BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
+                if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
+
+                BigDecimal shopItemDiscount = shopItemPerUnit
+                        .multiply(BigDecimal.valueOf(ci.getQuantity()))
+                        .setScale(0, RoundingMode.DOWN);
+
+                BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
+
+                BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
+                if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+
+                BigDecimal finalUnit = finalLine.divide(
+                        BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN
+                );
+
+                StoreOrderItem soi = StoreOrderItem.builder()
+                        .storeOrder(null)
+                        .type(ci.getType().name())
+                        .refId(refIdForVoucher)
+                        .name(ci.getNameSnapshot())
+                        .quantity(ci.getQuantity())
+                        .variantId(ci.getVariantIdOrNull())
+                        .variantOptionName(ci.getVariantOptionNameSnapshot())
+                        .variantOptionValue(ci.getVariantOptionValueSnapshot())
+
+                        .unitPrice(ci.getUnitPrice())
+                        .lineTotal(ci.getLineTotal())
+
+                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
+                        .linePriceBeforeDiscount(lineBefore)
+                        .platformVoucherDiscount(platformDiscount)
+                        .shopItemDiscount(shopItemDiscount)
+                        .shopOrderVoucherDiscount(BigDecimal.ZERO)
+                        .totalItemDiscount(totalItemDiscount)
+                        .finalUnitPrice(finalUnit)
+                        .finalLineTotal(finalLine)
+                        .amountCharged(finalLine)
+                        .platformFeePercentage(platformFeePercentage)
+                        .build();
+
+                soItems.add(soi);
+
+                previewItems.add(CheckoutPreviewResponse.Item.builder()
+                        .type(ci.getType().name())
+                        .refId(refIdForVoucher)
+                        .variantId(ci.getVariantIdOrNull())
+                        .name(ci.getNameSnapshot())
+                        .image(ci.getImageSnapshot())
+                        .quantity(ci.getQuantity())
+                        .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
+                        .linePriceBeforeDiscount(lineBefore)
+                        .finalUnitPrice(finalUnit)
+                        .finalLineTotal(finalLine)
+                        .build());
+            }
+
+            storeItemsMap.put(storeIdKey, soItems);
+            previewItemsByStore.put(storeIdKey, previewItems);
+        }
+
+        // 7) Tính voucher (platform trước, rồi store) giống checkout thật
+        var platformResult = voucherService.computePlatformDiscounts(
+                customerId,
+                request != null ? request.getPlatformVouchers() : null,
+                storeItemsMap
+        );
+
+        var storeResult = voucherService.computeDiscountByStoreWithDetail(
+                customerId,
+                request != null ? request.getStoreVouchers() : null,
+                storeItemsMap,
+                platformResult.discountByStore
+        );
+
+        Map<UUID, String> storeDetailJsonByStore = storeResult.toDetailJsonByStore();
+        Map<UUID, String> platformDetailJsonByStore = platformResult.toPerStoreJson();
+
+        // 8) Build response
+        List<CheckoutPreviewResponse.PerStore> perStores = new ArrayList<>();
+
+        BigDecimal overallSubtotal = BigDecimal.ZERO;
+        BigDecimal overallShipping = BigDecimal.ZERO;
+        BigDecimal overallDiscount = BigDecimal.ZERO;
+
+        for (UUID storeId : itemsByStore.keySet()) {
+
+            List<StoreOrderItem> soItems = storeItemsMap.getOrDefault(storeId, List.of());
+
+            BigDecimal subtotal = soItems.stream()
+                    .map(StoreOrderItem::getLinePriceBeforeDiscount)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal shippingFee = shippingByStore.getOrDefault(storeId, BigDecimal.ZERO);
+
+            BigDecimal platformDiscount = platformResult.discountByStore.getOrDefault(storeId, BigDecimal.ZERO);
+            BigDecimal storeDiscount = storeResult.discountByStore.getOrDefault(storeId, BigDecimal.ZERO);
+            BigDecimal discountTotal = platformDiscount.add(storeDiscount);
+
+            BigDecimal grand = subtotal.add(shippingFee).subtract(discountTotal);
+
+            perStores.add(CheckoutPreviewResponse.PerStore.builder()
+                    .storeId(storeId)
+                    .storeName(storeNameByStore.get(storeId))
+                    .subtotal(subtotal)
+                    .shippingFee(shippingFee)
+                    .platformDiscount(platformDiscount)
+                    .storeDiscount(storeDiscount)
+                    .discountTotal(discountTotal)
+                    .grandTotal(grand)
+                    .storeVoucherDetailJson(storeDetailJsonByStore.getOrDefault(storeId, "{}"))
+                    .platformVoucherDetailJson(platformDetailJsonByStore.getOrDefault(storeId, "{}"))
+                    .items(previewItemsByStore.getOrDefault(storeId, List.of()))
+                    .shippingServiceTypeId(shippingServiceTypeByStore.get(storeId))
+                    .build());
+
+            overallSubtotal = overallSubtotal.add(subtotal);
+            overallShipping = overallShipping.add(shippingFee);
+            overallDiscount = overallDiscount.add(discountTotal);
+        }
+
+        BigDecimal overallGrand = overallSubtotal.add(overallShipping).subtract(overallDiscount);
+
+        return CheckoutPreviewResponse.builder()
+                .overallSubtotal(overallSubtotal)
+                .overallShipping(overallShipping)
+                .overallDiscount(overallDiscount)
+                .overallGrandTotal(overallGrand)
+                .stores(perStores)
+                .build();
+    }
+
+    /**
+     * Validate tồn kho nhưng KHÔNG trừ stock.
+     * (Copy từ deductStockForCartItems nhưng bỏ phần setStock)
+     */
+    private void validateStockForCartItems(List<CartItem> items) {
+        if (items == null || items.isEmpty()) return;
+
+        // check sellable trước (giống deductStockForCartItems)
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) continue;
+            Product p = item.getProduct();
+            if (!isProductSellable(p)) {
+                throw new IllegalStateException(
+                        "Product is not available for checkout: " + p.getName()
+                                + " (status=" + p.getStatus() + ")"
+                );
+            }
+        }
+
+        Map<UUID, Integer> productQtyMap = new HashMap<>();
+        Map<UUID, Integer> variantQtyMap = new HashMap<>();
+
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) continue;
+
+            int qty = item.getQuantity();
+            if (qty <= 0) continue;
+
+            Product p = item.getProduct();
+            productQtyMap.merge(p.getProductId(), qty, Integer::sum);
+
+            ProductVariantEntity v = item.getVariant();
+            if (v != null) {
+                variantQtyMap.merge(v.getId(), qty, Integer::sum);
+            }
+        }
+
+        // 1) Check variant.stock
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT) continue;
+            ProductVariantEntity v = item.getVariant();
+            if (v == null) continue;
+
+            int totalQty = variantQtyMap.getOrDefault(v.getId(), 0);
+            if (totalQty <= 0) continue;
+
+            Integer stock = v.getVariantStock();
+            if (stock == null) stock = 0;
+
+            if (stock < totalQty) {
+                throw new IllegalStateException(
+                        "Variant out of stock when preview checkout: "
+                                + v.getOptionName() + " " + v.getOptionValue()
+                );
+            }
+        }
+
+        // 2) Check product.stockQuantity
+        for (CartItem item : items) {
+            if (item.getType() != CartItemType.PRODUCT || item.getProduct() == null) continue;
+
+            Product p = item.getProduct();
+            int totalQty = productQtyMap.getOrDefault(p.getProductId(), 0);
+            if (totalQty <= 0) continue;
+
+            Integer stock = p.getStockQuantity();
+            if (stock == null) stock = 0;
+
+            if (stock < totalQty) {
+                throw new IllegalStateException(
+                        "Product out of stock when preview checkout: " + p.getName()
+                );
+            }
+        }
+    }
+
+    //helper quantity
+    private static String reqKey(CheckoutItemRequest req) {
+        CartItemType type = CartItemType.valueOf(req.getType().toUpperCase(Locale.ROOT));
+        if (type == CartItemType.COMBO) {
+            return "COMBO:" + (req.getComboId() != null ? req.getComboId() : "_");
+        }
+        // PRODUCT: ưu tiên variantId, fallback productId
+        if (req.getVariantId() != null) return "PRODUCT:VARIANT:" + req.getVariantId();
+        return "PRODUCT:PRODUCT:" + (req.getProductId() != null ? req.getProductId() : "_");
+    }
+
+    private static String itemKey(CartItem it) {
+        if (it.getType() == CartItemType.COMBO) {
+            return "COMBO:" + (it.getCombo() != null ? it.getCombo().getComboId() : "_");
+        }
+        // PRODUCT: ưu tiên variantId, fallback productId
+        UUID v = it.getVariantIdOrNull();
+        if (v != null) return "PRODUCT:VARIANT:" + v;
+        UUID p = it.getProductIdOrNull();
+        return "PRODUCT:PRODUCT:" + (p != null ? p : "_");
+    }
+
+    /**
+     * Apply quantity từ request vào CartItem (in-memory) + recompute unitPrice/lineTotal.
+     * Quan trọng: làm trước khi validateStock / tính voucher / tạo orderItem snapshot.
+     */
+    private void applyRequestedQuantities(
+            Customer customer,
+            List<CartItem> itemsToCheckout,
+            List<CheckoutItemRequest> itemsReq
+    ) {
+        Map<String, Integer> qtyByKey = new HashMap<>();
+        for (CheckoutItemRequest r : Optional.ofNullable(itemsReq).orElse(List.of())) {
+            int q = (r.getQuantity() == null ? 1 : Math.max(1, r.getQuantity()));
+            qtyByKey.merge(reqKey(r), q, Integer::sum); // nếu FE gửi trùng dòng, cộng dồn
+        }
+
+        for (CartItem it : Optional.ofNullable(itemsToCheckout).orElse(List.of())) {
+            Integer reqQty = qtyByKey.get(itemKey(it));
+            if (reqQty == null) continue;
+
+            it.setQuantity(reqQty);
+
+            if (it.getType() == CartItemType.PRODUCT && it.getProduct() != null) {
+                Product p = it.getProduct();
+                ProductVariantEntity v = it.getVariant();
+
+                BigDecimal unit = resolveUnitPriceForCustomer(p, v, reqQty, customer);
+                it.setUnitPrice(unit);
+                it.setLineTotal(unit.multiply(BigDecimal.valueOf(reqQty)));
+            } else if (it.getType() == CartItemType.COMBO) {
+                BigDecimal unit = it.getUnitPrice() != null ? it.getUnitPrice() : BigDecimal.ZERO;
+                it.setLineTotal(unit.multiply(BigDecimal.valueOf(reqQty)));
+            }
+        }
+    }
 
 }
