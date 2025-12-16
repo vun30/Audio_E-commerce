@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.*;
+import org.example.audio_ecommerce.entity.Enum.DebtComponentType;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletBucket;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
 import org.example.audio_ecommerce.service.StoreWalletQueryService;
@@ -19,6 +20,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 

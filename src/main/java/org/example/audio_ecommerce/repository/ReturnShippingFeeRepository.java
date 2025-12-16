@@ -49,5 +49,8 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
 """)
     List<ReturnShippingFee> findUnpaidShopReturnFees(@Param("storeId") UUID storeId);
 
+    List<ReturnShippingFee> findByStoreIdAndPayerIgnoreCaseAndPaidByShopFalse(UUID storeId, String payer);
+
+
 
 }

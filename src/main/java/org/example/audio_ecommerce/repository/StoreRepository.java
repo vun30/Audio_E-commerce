@@ -56,4 +56,13 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
     List<Store> findAllActiveWithWallet(@Param("status") StoreStatus status);
 
 
+    @Query("""
+    select distinct s
+    from Store s
+    join fetch s.wallet w
+    left join fetch s.account a
+    where s.status in :statuses
+""")
+    List<Store> findStoresWithWalletByStatuses(@Param("statuses") List<StoreStatus> statuses);
+
 }
