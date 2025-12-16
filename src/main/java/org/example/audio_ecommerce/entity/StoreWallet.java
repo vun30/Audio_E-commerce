@@ -33,6 +33,7 @@ public class StoreWallet {
     @JsonBackReference("store-wallet")
     private Store store;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal availableBalance = BigDecimal.ZERO;  // tiền khả dụng rút về
 
@@ -40,11 +41,17 @@ public class StoreWallet {
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal depositBalance = BigDecimal.ZERO; // tiền cọc / ký quỹ
 
+    @Builder.Default
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal pendingBalance = BigDecimal.ZERO;    // tiên đang chờ xử lý (chưa rút được)
 
+    @Builder.Default
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal totalRevenue = BigDecimal.ZERO; // tổng pending  + availableBalance
+
+    @Builder.Default
+    @Column(precision = 18, scale = 2, nullable = false)
+    private BigDecimal defaultBalance= BigDecimal.ZERO; // số dư khi store nạp
 
     // ✅ NEW: số nợ
     @Column(name = "debt_balance", precision = 18, scale = 2, nullable = false)

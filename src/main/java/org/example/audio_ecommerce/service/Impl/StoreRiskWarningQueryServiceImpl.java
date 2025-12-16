@@ -8,68 +8,92 @@ import org.example.audio_ecommerce.entity.Enum.StoreRiskWarningLevel;
 import org.example.audio_ecommerce.repository.StoreRepository;
 import org.example.audio_ecommerce.repository.StoreWalletRepository;
 import org.example.audio_ecommerce.service.StoreRiskWarningQueryService;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class StoreRiskWarningQueryServiceImpl implements StoreRiskWarningQueryService {
 
-    private static final BigDecimal ONE_MILLION = new BigDecimal("1000000");
-    private static final BigDecimal WARNING_RATIO  = new BigDecimal("0.80");
-    private static final BigDecimal CRITICAL_RATIO = new BigDecimal("0.90");
+    private static final BigDecimal R20 = new BigDecimal("0.20");
+    private static final BigDecimal R50 = new BigDecimal("0.50");
+    private static final BigDecimal R80 = new BigDecimal("0.80");
+
+    // ✅ 1 legalPoint = +100,000 nới ngưỡng nợ
+    private static final BigDecimal LEGAL_BONUS_UNIT = new BigDecimal("100000");
 
     private final StoreRepository storeRepository;
     private final StoreWalletRepository storeWalletRepository;
 
     @Override
     @Transactional(readOnly = true)
-    public StoreRiskWarningResponse getMyRiskWarning() {
-        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
-        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+    public StoreRiskWarningResponse getRiskWarningByStoreId(UUID storeId) {
 
-        Store store = storeRepository.findByAccount_Email(email)
-                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store cho tài khoản: " + email));
+        Store store = storeRepository.findById(storeId)
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store"));
 
-        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(store.getStoreId())
-                .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
-
-        BigDecimal legalPoint = nz(store.getLegalPoint());
-        BigDecimal creditLimit = legalPoint.multiply(ONE_MILLION);
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
+                .orElseThrow(() -> new RuntimeException("❌ Store chưa có ví"));
 
         BigDecimal debt = nz(wallet.getDebtBalance());
         BigDecimal deposit = nz(wallet.getDepositBalance());
 
-        BigDecimal effectiveDebt = debt.subtract(deposit);
-        if (effectiveDebt.compareTo(BigDecimal.ZERO) < 0) effectiveDebt = BigDecimal.ZERO;
+        // ✅ legalPoint dùng để nới hạn mức nợ
+        BigDecimal legalPoint = nz(store.getLegalPoint());
+        BigDecimal bonus = legalPoint.multiply(LEGAL_BONUS_UNIT);
 
-        BigDecimal warningLine = creditLimit.multiply(WARNING_RATIO);
-        BigDecimal criticalLine = creditLimit.multiply(CRITICAL_RATIO);
+        // ✅ Ngưỡng so sánh thực tế = deposit + bonus
+        BigDecimal adjustedDeposit = deposit.add(bonus);
 
-        StoreRiskWarningLevel level = StoreRiskWarningLevel.NONE;
-        if (creditLimit.compareTo(BigDecimal.ZERO) > 0) {
-            if (effectiveDebt.compareTo(criticalLine) >= 0) level = StoreRiskWarningLevel.CRITICAL_90;
-            else if (effectiveDebt.compareTo(warningLine) >= 0) level = StoreRiskWarningLevel.WARNING_80;
-        }
+        // effectiveDebt = debt (theo logic mới)
+        BigDecimal effectiveDebt = debt;
+
+        StoreRiskWarningLevel level = calcLevel(debt, adjustedDeposit);
 
         return StoreRiskWarningResponse.builder()
                 .storeId(store.getStoreId())
                 .storeName(store.getStoreName())
                 .storeStatus(store.getStatus())
+
                 .warningLevel(level)
-                .legalPoint(legalPoint)
-                .creditLimit(creditLimit)
+
+                // ✅ giữ DTO cũ nhưng map đúng nghĩa
+                .legalPoint(legalPoint)            // điểm legal thật
+                .creditLimit(adjustedDeposit)      // "hạn mức" mới = deposit + bonus
+
                 .debtBalance(debt)
                 .depositBalance(deposit)
                 .effectiveDebt(effectiveDebt)
-                .warningLine(warningLine)
-                .criticalLine(criticalLine)
+
+                // ✅ ngưỡng theo adjustedDeposit
+                .warningLine(adjustedDeposit.multiply(R20))   // 20%
+                .criticalLine(adjustedDeposit.multiply(R80))  // 80%
+
                 .evaluatedAt(LocalDateTime.now())
                 .build();
+    }
+
+    // ✅ calc theo debt / adjustedDeposit
+    private StoreRiskWarningLevel calcLevel(BigDecimal debt, BigDecimal adjustedDeposit) {
+        debt = nz(debt);
+        adjustedDeposit = nz(adjustedDeposit);
+
+        if (debt.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.NONE;
+
+        // không có cọc + không có bonus mà có nợ => nguy hiểm
+        if (adjustedDeposit.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.CRITICAL_90;
+
+        BigDecimal ratio = debt.divide(adjustedDeposit, 4, RoundingMode.HALF_UP);
+
+        if (ratio.compareTo(R80) >= 0) return StoreRiskWarningLevel.CRITICAL_90;
+        if (ratio.compareTo(R50) >= 0) return StoreRiskWarningLevel.WARNING_80;
+        if (ratio.compareTo(R20) >= 0) return StoreRiskWarningLevel.WARNING_80; // NOTICE map chung
+        return StoreRiskWarningLevel.NONE;
     }
 
     private BigDecimal nz(BigDecimal v) {

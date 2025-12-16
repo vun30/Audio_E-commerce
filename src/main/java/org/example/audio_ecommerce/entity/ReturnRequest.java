@@ -35,8 +35,9 @@ public class ReturnRequest extends BaseEntity {
     @Column(name = "product_name", nullable = false, length = 255)
     private String productName;
 
+    @Builder.Default
     @Column(name = "item_price", nullable = false, precision = 18, scale = 2)
-    private BigDecimal itemPrice;
+    private BigDecimal itemPrice = BigDecimal.ZERO;
 
     // ====== LÝ DO & MEDIA PHÍA KHÁCH ======
     @Enumerated(EnumType.STRING)
@@ -62,9 +63,10 @@ public class ReturnRequest extends BaseEntity {
     @Column(name = "status", nullable = false, length = 20)
     private ReturnStatus status;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "fault_type", length = 20)
-    private ReturnFaultType faultType;
+    private ReturnFaultType faultType = ReturnFaultType.UNKNOWN;
 
     // ====== GÓI HÀNG ======
     @Column(name = "package_weight", precision = 18, scale = 2)
@@ -79,8 +81,9 @@ public class ReturnRequest extends BaseEntity {
     @Column(name = "package_height", precision = 18, scale = 2)
     private BigDecimal packageHeight;
 
+    @Builder.Default
     @Column(name = "shipping_fee", precision = 18, scale = 2)
-    private BigDecimal shippingFee;
+    private BigDecimal shippingFee = BigDecimal.ZERO;
 
     // ====== ĐỊA CHỈ PICKUP CUSTOMER ======
     @Column(name = "pickup_ward_code", length = 20)

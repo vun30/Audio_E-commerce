@@ -11,4 +11,5 @@ public enum StoreStatus {
     SUSPENDED_POLICY,  // store bị khóa do vi phạm chính sách
     ABANDONED, // store bị khóa do chủ store không hoạt động trong thời gian dài
     CLOSED // store đóng cửa vĩnh viễn
+
 }

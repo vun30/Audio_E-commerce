@@ -11,5 +11,8 @@ public enum ProductStatus {
     DELETED,        // Xóa khỏi hệ thống
     BANNED,         // Bị cấm (nếu cần phân biệt với suspended)
     REJECT,      // Bị từ chối (ví dụ khi duyệt sản phẩm không đạt)
-    PENDING_APPROVAL // Chờ duyệt (ví dụ khi sản phẩm mới tạo cần admin duyệt)
+    PENDING_APPROVAL, // Chờ duyệt (ví dụ khi sản phẩm mới tạo cần admin duyệt)
+    UNLISTED_BEFORE_SUSPENDED_DEBT,
+    SUSPENDED_DEBT
+
 }
