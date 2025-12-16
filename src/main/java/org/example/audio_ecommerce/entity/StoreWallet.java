@@ -46,6 +46,11 @@ public class StoreWallet {
     @Column(precision = 18, scale = 2, nullable = false)
     private BigDecimal totalRevenue = BigDecimal.ZERO; // tổng pending  + availableBalance
 
+    // ✅ NEW: số nợ
+    @Column(name = "debt_balance", precision = 18, scale = 2, nullable = false)
+    @Builder.Default
+    private BigDecimal debtBalance = BigDecimal.ZERO;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

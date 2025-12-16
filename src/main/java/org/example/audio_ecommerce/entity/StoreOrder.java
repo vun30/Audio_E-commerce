@@ -72,6 +72,14 @@ public class StoreOrder {
     @Column(name = "shipping_fee_for_store")
     private BigDecimal shippingFeeForStore; // phí ship chên lêch đơn thật GHN - Phí dự kiến khách trả
 
+    @Builder.Default
+    @Column(name = "cod_collected", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean codCollected = false;  // shipper đã thu được tiền từ KH chưa
+
+    @Column(name = "cod_collected_amount", precision = 18, scale = 2)
+    private BigDecimal codCollectedAmount = BigDecimal.ZERO;
+
+
     //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
     //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
