@@ -8,5 +8,6 @@ public enum StoreWalletTransactionType {
     REFUND,                 // 🔄 Hoàn tiền cho khách
     ADJUSTMENT,              // ⚙️ Điều chỉnh thủ công (admin)
     REFUND_RETURN,       // hoàn trả hàng
-    REFUND_FORCE         // ép hoàn
+    REFUND_FORCE ,        // ép hoàn
+    DEBT_PAYMENT
 }

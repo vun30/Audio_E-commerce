@@ -136,4 +136,17 @@ Page<Product> findAllWithAdvancedFilters(
     // CATEGORY ATTRIBUTES (không dùng nữa)
     // =============================
     // REMOVE: List<CategoryAttribute> findAllByCategory_CategoryId(UUID categoryId);
+
+    @Modifying
+    @Query("""
+        update Product p
+           set p.status = :toStatus
+         where p.store.storeId = :storeId
+           and p.status = :fromStatus
+    """)
+    int bulkUpdateStatusByStoreAndStatus(
+            @Param("storeId") UUID storeId,
+            @Param("fromStatus") ProductStatus fromStatus,
+            @Param("toStatus") ProductStatus toStatus
+    );
 }

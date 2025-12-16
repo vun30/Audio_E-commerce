@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -20,68 +21,68 @@ import java.util.List;
 @RequiredArgsConstructor
 public class StoreRiskWarningServiceImpl implements StoreRiskWarningService {
 
-    private static final BigDecimal ONE_MILLION = new BigDecimal("1000000");
+    private static final BigDecimal R20 = new BigDecimal("0.20");
+    private static final BigDecimal R50 = new BigDecimal("0.50");
+    private static final BigDecimal R80 = new BigDecimal("0.80");
 
-    // ngưỡng cảnh báo (bạn có thể chuyển sang config)
-    private static final BigDecimal WARNING_RATIO = new BigDecimal("0.80");
-    private static final BigDecimal CRITICAL_RATIO = new BigDecimal("0.90");
+    // ✅ 1 legalPoint = +100,000 nới ngưỡng nợ
+    private static final BigDecimal LEGAL_BONUS_UNIT = new BigDecimal("100000");
 
     private final StoreRepository storeRepository;
 
     @Override
     @Transactional
     public int runEarlyWarningScan() {
-        List<Store> stores = storeRepository.findAllActiveWithWallet(StoreStatus.ACTIVE);
 
-        int warnedCount = 0;
+        List<Store> stores = storeRepository.findAllActiveWithWallet(StoreStatus.ACTIVE);
+        int updated = 0;
         LocalDateTime now = LocalDateTime.now();
 
         for (Store s : stores) {
             StoreWallet w = s.getWallet();
             if (w == null) continue;
 
-            BigDecimal legalPoint = nz(s.getLegalPoint());
-            BigDecimal creditLimit = legalPoint.multiply(ONE_MILLION);
-
-            if (creditLimit.compareTo(BigDecimal.ZERO) <= 0) {
-                // legalPoint=0 => limit=0, tuỳ bạn: bỏ qua hoặc cảnh báo luôn
-                continue;
-            }
-
             BigDecimal debt = nz(w.getDebtBalance());
             BigDecimal deposit = nz(w.getDepositBalance());
 
-            // effectiveDebt = max(0, debt - deposit)
-            BigDecimal effectiveDebt = debt.subtract(deposit);
-            if (effectiveDebt.compareTo(BigDecimal.ZERO) < 0) effectiveDebt = BigDecimal.ZERO;
+            BigDecimal legalPoint = nz(s.getLegalPoint());
+            BigDecimal bonus = legalPoint.multiply(LEGAL_BONUS_UNIT);
+            BigDecimal adjustedDeposit = deposit.add(bonus);
 
-            BigDecimal warningLine = creditLimit.multiply(WARNING_RATIO);
-            BigDecimal criticalLine = creditLimit.multiply(CRITICAL_RATIO);
+            StoreRiskWarningLevel newLevel = calcLevel(debt, adjustedDeposit);
 
-            StoreRiskWarningLevel level = StoreRiskWarningLevel.NONE;
+            StoreRiskWarningLevel oldLevel =
+                    s.getRiskWarningLevel() == null ? StoreRiskWarningLevel.NONE : s.getRiskWarningLevel();
 
-            if (effectiveDebt.compareTo(criticalLine) >= 0) {
-                level = StoreRiskWarningLevel.CRITICAL_90;
-            } else if (effectiveDebt.compareTo(warningLine) >= 0) {
-                level = StoreRiskWarningLevel.WARNING_80;
-            }
-
-            // Nếu muốn chống spam: chỉ update khi level thay đổi hoặc sau X giờ
-            StoreRiskWarningLevel old = s.getRiskWarningLevel() == null ? StoreRiskWarningLevel.NONE : s.getRiskWarningLevel();
-
-            if (level != old) {
-                s.setRiskWarningLevel(level);
+            if (newLevel != oldLevel) {
+                s.setRiskWarningLevel(newLevel);
                 s.setLastRiskWarningAt(now);
 
-                // TODO: gọi NotificationService (email/in-app) nếu bạn có
-                log.warn("[RISK-WARN] storeId={} level={} effectiveDebt={} limit={} (debt={}, deposit={})",
-                        s.getStoreId(), level, effectiveDebt, creditLimit, debt, deposit);
+                log.warn("[RISK] storeId={} level={} debt={} deposit={} legalPoint={} adjustedDeposit={}",
+                        s.getStoreId(), newLevel, debt, deposit, legalPoint, adjustedDeposit);
 
-                warnedCount++;
+                updated++;
             }
         }
+        return updated;
+    }
 
-        return warnedCount;
+    // ✅ calc theo debt / adjustedDeposit
+    private StoreRiskWarningLevel calcLevel(BigDecimal debt, BigDecimal adjustedDeposit) {
+        debt = nz(debt);
+        adjustedDeposit = nz(adjustedDeposit);
+
+        if (debt.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.NONE;
+
+        // không có cọc + không có bonus mà có nợ => nguy hiểm
+        if (adjustedDeposit.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.CRITICAL_90;
+
+        BigDecimal ratio = debt.divide(adjustedDeposit, 4, RoundingMode.HALF_UP);
+
+        if (ratio.compareTo(R80) >= 0) return StoreRiskWarningLevel.CRITICAL_90;
+        if (ratio.compareTo(R50) >= 0) return StoreRiskWarningLevel.WARNING_80;
+        if (ratio.compareTo(R20) >= 0) return StoreRiskWarningLevel.WARNING_80; // NOTICE map chung
+        return StoreRiskWarningLevel.NONE;
     }
 
     private BigDecimal nz(BigDecimal v) {

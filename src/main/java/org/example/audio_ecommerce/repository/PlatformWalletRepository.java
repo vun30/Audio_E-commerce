@@ -16,5 +16,8 @@ public interface PlatformWalletRepository extends JpaRepository<PlatformWallet, 
 
     Optional<PlatformWallet> findFirstByOwnerType(WalletOwnerType ownerType);
 
+    Optional<PlatformWallet> findMainPlatformWallet();
+
+
 
 }
