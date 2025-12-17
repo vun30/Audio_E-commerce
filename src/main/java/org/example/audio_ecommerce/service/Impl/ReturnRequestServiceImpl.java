@@ -342,6 +342,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+        fillFeeWhenCustomerHasPackage(r, fee);
 
         return ReturnPackageFeeResponse.builder()
                 .shippingFee(fee)
@@ -351,6 +352,38 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     // =========================================================
     // ======================== SHOP ===========================
     // =========================================================
+    @Override
+    @Transactional
+    public ReturnRequestResponse disputeToAdmin(UUID returnRequestId, ReturnDisputeRequest req) {
+
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new RuntimeException("ReturnRequest not found: " + returnRequestId));
+
+        // ✅ LẤY STORE HIỆN TẠI (GIỐNG CÁC API KHÁC)
+        UUID currentShopId = securityUtils.getCurrentStoreId();
+
+        if (!r.getShopId().equals(currentShopId)) {
+            throw new AccessDeniedException("Not your return request");
+        }
+
+        // ✅ Chỉ dispute khi đang APPROVED hoặc SHIPPING (tuỳ rule bạn muốn)
+//        if (r.getStatus() != ReturnStatus.APPROVED && r.getStatus() != ReturnStatus.SHIPPING) {
+//            throw new IllegalStateException("Cannot dispute in status: " + r.getStatus());
+//        }
+
+        // ✅ Set dispute info
+        r.setStatus(ReturnStatus.DISPUTE);
+        r.setShopDisputeReason(req.getReason());
+        r.setShopVideoUrl(req.getVideoUrl());
+        r.setShopImageUrls(req.getImageUrls());
+
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+
+        return toResponse(r);
+    }
+
+
 
     @Override
     @Transactional(readOnly = true)
@@ -472,9 +505,12 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         body.setContent("Return hàng đơn: " + r.getId());
 
         // Ai trả phí: CUSTOMER_FAULT → customer trả; ngược lại shop trả
-        int paymentTypeId =
-                (r.getReasonType() == ReturnReasonType.CUSTOMER_FAULT) ? 2 : 1;
+        String payer = payerFromReasonType(r.getReasonType());
+
+        // GHN payment_type_id: 2 = người gửi trả (CUSTOMER), 1 = shop trả
+        int paymentTypeId = "CUSTOMER".equals(payer) ? 2 : 1;
         body.setPayment_type_id(paymentTypeId);
+
 
         // Service & kích thước
         body.setService_type_id(2);
@@ -571,20 +607,35 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     returnRequestId, ex.getMessage(), ex);
         }
 
-        // 6️⃣ Log phí ship
-        ReturnShippingFee feeLog = ReturnShippingFee.builder()
-                .returnRequestId(r.getId())
-                .storeId(r.getShopId())  // ✅ TỰ ĐỘNG LẤY TỪ ReturnRequest.shopId
-                .ghnOrderCode(orderCode)
-                .shippingFee(r.getShippingFee() != null ? r.getShippingFee() : totalFee)
-                .payer(r.getReasonType() == ReturnReasonType.CUSTOMER_FAULT ? "CUSTOMER" : "SHOP")
-                .shopFault(r.getReasonType() == ReturnReasonType.SHOP_FAULT)
-                .chargedToShop(r.getReasonType() == ReturnReasonType.SHOP_FAULT
-                        ? (r.getShippingFee() != null ? r.getShippingFee() : totalFee)
-                        : BigDecimal.ZERO)
-                .picked(false)
-                .build();
+        // 6️⃣ Update ReturnShippingFee (không tạo mới)
+        BigDecimal feeValue = (r.getShippingFee() != null) ? r.getShippingFee() : totalFee;
+
+        ReturnShippingFee feeLog = ensureReturnShippingFeeRow(r); // ✅ lấy placeholder nếu có, không thì tạo
+        feeLog.setGhnOrderCode(orderCode);
+        feeLog.setShippingFee(feeValue);
+
+        // payer theo reasonType (tạm) — nếu admin đã phán trước đó thì bạn có thể chọn GIỮ payer admin.
+        // Nếu muốn giữ payer admin: chỉ set payer nếu payer hiện tại null.
+        String payerFromReason = payerFromReasonType(r.getReasonType());
+        if (feeLog.getPayer() == null) {
+            feeLog.setPayer(payerFromReason);
+        }
+        String payerFinal = feeLog.getPayer();
+
+        if ("SHOP".equalsIgnoreCase(payerFinal)) {
+            feeLog.setChargedToShop(feeValue);
+            feeLog.setPaidByShop(true);
+            feeLog.setShopFault(true);
+        } else {
+            feeLog.setChargedToShop(BigDecimal.ZERO);
+            feeLog.setPaidByShop(false);
+            feeLog.setShopFault(false);
+        }
+
+
         shippingFeeRepo.save(feeLog);
+
+
 
         return toResponse(r);
     }
@@ -663,16 +714,21 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         r.setFaultType(req.getFaultType());
 
-        if (Boolean.TRUE.equals(req.getRefundCustomer())) {
-            r.setStatus(ReturnStatus.REFUNDED);
+        if (req.getFaultType() == ReturnFaultType.SHOP) {
+            // Shop sai => customer thắng
+            r.setStatus(ReturnStatus.DISPUTE_RESOLVED_CUSTOMER);
             refundAndDeductLegalPointIfNeeded(r);
-
+        } else if (req.getFaultType() == ReturnFaultType.CUSTOMER) {
+            // Customer sai => shop thắng
+            r.setStatus(ReturnStatus.DISPUTE_RESOLVED_SHOP);
         } else {
-            r.setStatus(ReturnStatus.REJECTED);
+            throw new IllegalStateException("Invalid faultType for dispute resolve: " + req.getFaultType());
         }
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+//        finalizeReturnShippingPayer(r);
+        applyAdminPayerToReturnShippingFee(r);
         return toResponse(r);
     }
 
@@ -986,5 +1042,109 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRepo.save(r);
     }
 
+    @Transactional
+    public void finalizeReturnShippingPayer(ReturnRequest r) {
+
+        if (r.getFaultType() == null || r.getFaultType() == ReturnFaultType.UNKNOWN) return;
+
+        ReturnShippingFee feeLog = shippingFeeRepo.findByReturnRequestId(r.getId()).orElse(null);
+        if (feeLog == null) return;
+
+        String finalPayer = payerFromFaultType(r.getFaultType());
+        if (finalPayer == null) return;
+
+        if (finalPayer.equalsIgnoreCase(feeLog.getPayer())) return;
+
+        BigDecimal fee = feeLog.getShippingFee() == null ? BigDecimal.ZERO : feeLog.getShippingFee();
+
+        feeLog.setPayer(finalPayer);
+
+        if ("SHOP".equalsIgnoreCase(finalPayer)) {
+            feeLog.setChargedToShop(fee);
+            feeLog.setPaidByShop(true);
+            feeLog.setShopFault(true);
+        } else { // CUSTOMER
+            feeLog.setChargedToShop(BigDecimal.ZERO);
+            feeLog.setPaidByShop(false);
+            feeLog.setShopFault(false);
+        }
+
+        shippingFeeRepo.save(feeLog);
+    }
+
+
+
+    //hepler
+    private String payerFromReasonType(ReturnReasonType reasonType) {
+        // CUSTOMER_FAULT => CUSTOMER chịu phí
+        // SHOP_FAULT     => SHOP chịu phí
+        return (reasonType == ReturnReasonType.CUSTOMER_FAULT) ? "CUSTOMER" : "SHOP";
+    }
+
+    private String payerFromFaultType(ReturnFaultType faultType) {
+        // faultType = CUSTOMER => CUSTOMER chịu phí
+        // faultType = SHOP     => SHOP chịu phí
+        if (faultType == ReturnFaultType.SHOP) return "SHOP";
+        if (faultType == ReturnFaultType.CUSTOMER) return "CUSTOMER";
+        return null;
+    }
+
+    //helper admin tạo payer
+    private ReturnShippingFee ensureReturnShippingFeeRow(ReturnRequest r) {
+        return shippingFeeRepo.findByReturnRequestId(r.getId())
+                .orElseGet(() -> shippingFeeRepo.save(
+                        ReturnShippingFee.builder()
+                                .returnRequestId(r.getId())
+                                .storeId(r.getShopId())
+                                .ghnOrderCode(null)              // chưa có
+                                .shippingFee(BigDecimal.ZERO)    // ✅ vì chưa có phí
+                                .payer("UNKNOWN")                   // sẽ set lại ngay dưới
+                                .chargedToShop(BigDecimal.ZERO)
+                                .shopFault(null)
+                                .paidByShop(false)
+                                .picked(false)
+                                .build()
+                ));
+    }
+    private void applyAdminPayerToReturnShippingFee(ReturnRequest r) {
+        if (r.getFaultType() == null || r.getFaultType() == ReturnFaultType.UNKNOWN) return;
+
+        ReturnShippingFee feeLog = ensureReturnShippingFeeRow(r);
+
+        String payer = (r.getFaultType() == ReturnFaultType.SHOP) ? "SHOP" : "CUSTOMER";
+        feeLog.setPayer(payer);
+
+        BigDecimal fee = feeLog.getShippingFee() == null ? BigDecimal.ZERO : feeLog.getShippingFee();
+
+        if ("SHOP".equalsIgnoreCase(payer)) {
+            feeLog.setChargedToShop(fee);
+            feeLog.setPaidByShop(true);
+            feeLog.setShopFault(true);
+        } else {
+            feeLog.setChargedToShop(BigDecimal.ZERO);
+            feeLog.setPaidByShop(false);
+            feeLog.setShopFault(false);
+        }
+
+        shippingFeeRepo.save(feeLog);
+    }
+    //helper cus tạo package
+    private void fillFeeWhenCustomerHasPackage(ReturnRequest r, BigDecimal fee) {
+        ReturnShippingFee feeLog = ensureReturnShippingFeeRow(r);
+
+        feeLog.setShippingFee(fee);
+
+        // giữ payer hiện tại (nếu admin đã phán thì dùng payer đó)
+        String payer = feeLog.getPayer();
+        if ("SHOP".equalsIgnoreCase(payer)) {
+            feeLog.setChargedToShop(fee);
+            feeLog.setPaidByShop(true);
+        } else {
+            feeLog.setChargedToShop(BigDecimal.ZERO);
+            feeLog.setPaidByShop(false);
+        }
+
+        shippingFeeRepo.save(feeLog);
+    }
 
 }
