@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -50,5 +51,17 @@ public interface StoreWalletTransactionRepository extends JpaRepository<StoreWal
             @Param("transactionId") UUID transactionId,
             Pageable pageable
     );
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0)
+        FROM StoreWalletTransaction t
+        WHERE (:storeId IS NULL OR t.wallet.store.storeId = :storeId)
+          AND (:type IS NULL OR t.type = :type)
+          AND (:from IS NULL OR t.createdAt >= :from)
+          AND (:to   IS NULL OR t.createdAt <  :to)
+    """)
+    BigDecimal sumAmountByTypeAndFilter(@Param("storeId") UUID storeId,
+                                        @Param("type") StoreWalletTransactionType type,
+                                        @Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to);
 
 }

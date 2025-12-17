@@ -9,6 +9,6 @@ public enum StoreWalletTransactionType {
     ADJUSTMENT,              // ⚙️ Điều chỉnh thủ công (admin)
     REFUND_RETURN,       // hoàn trả hàng
     REFUND_FORCE,         // ép hoàn
-    TOPUP
-
+    TOPUP,// ép hoàn
+    DEBT_PAYMENT
 }

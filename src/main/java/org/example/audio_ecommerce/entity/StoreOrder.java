@@ -60,42 +60,75 @@ public class StoreOrder {
     @Column(name = "total_amount", precision = 18, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
-    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    // =========================
+    // Shipping
+    // =========================
 
     @Column(name = "shipping_fee")
-    private BigDecimal shippingFee; // phí ship GHN  dự kến cho đơn của từng store
+    private BigDecimal shippingFee; // phí ship dự kiến (khách trả / ước tính)
 
     @Column(name = "shipping_fee_real")
-    private BigDecimal shippingFeeReal; // phí ship GHN thực tế cho đơn của từng store
+    private BigDecimal shippingFeeReal; // phí ship GHN thực tế
 
     @Column(name = "shipping_fee_for_store")
-    private BigDecimal shippingFeeForStore; // phí ship chên lêch đơn thật GHN - Phí dự kiến khách trả
+    private BigDecimal shippingFeeForStore; // chênh GHN thực tế - phí dự kiến
 
-    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-    //aAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+    @Builder.Default
+    @Column(name = "cod_collected", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean codCollected = false;  // khác COD đã thu hộ chưa
 
+//     // ✅ Số tiền COD đã thu hộ từ khách hàng
+//    @Column(name = "cod_collected_amount", precision = 18, scale = 2)
+//    private BigDecimal codCollectedAmount = BigDecimal.ZERO;
+
+    // ✅ Phí ship bị tính cho shop khi đơn KHÔNG NHẬN / quay đầu (50% phí GHN thực tế)
+    @Column(name = "return_shipping_charge", precision = 18, scale = 2, nullable = false)
+    @Builder.Default
+    private BigDecimal returnShippingCharge = BigDecimal.ZERO;
+
+    @Column(name = "return_shipping_charge_rate", precision = 5, scale = 2, nullable = false)
+    @Builder.Default
+    private BigDecimal returnShippingChargeRate = new BigDecimal("50.00"); // %
+
+    // ✅ NEW: chống cộng lặp (idempotent) cho phí quay đầu
+    @Column(name = "return_charge_applied", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    @Builder.Default
+    private Boolean returnChargeApplied = false;
+
+    // ✅ Tổng nợ đơn hàng (phí quay đầu + tiền hàng ship đi chưa thu được hoặc phí chênh lệch nếu cus nhận hàng va thanh toán)
+    @Column(name = "total_debt_for_order", precision = 18, scale = 2, nullable = false)
+    @Builder.Default
+    private BigDecimal totalDebtOrder = BigDecimal.ZERO;
+
+
+    @Column(name = "return_charge_applied_at")
+    private LocalDateTime returnChargeAppliedAt;
+
+    // =========================
+    // Voucher
+    // =========================
 
     @Column(name = "store_voucher_discount", precision = 18, scale = 2)
-    private BigDecimal storeVoucherDiscount = BigDecimal.ZERO; // giảm do voucher shop của chính store này
+    private BigDecimal storeVoucherDiscount = BigDecimal.ZERO;
 
     @Column(name = "platform_voucher_discount", precision = 18, scale = 2)
-    private BigDecimal platformVoucherDiscount = BigDecimal.ZERO; // phần giảm platform phân bổ vào store này
+    private BigDecimal platformVoucherDiscount = BigDecimal.ZERO;
 
     @Column(name = "shipping_service_type_id")
     private Integer shippingServiceTypeId;
 
-
     @Lob
     @Column(name = "store_voucher_detail_json")
-    private String storeVoucherDetailJson; // {"CODE1":10000,"CODE2":15000}
+    private String storeVoucherDetailJson;
 
     @Lob
     @Column(name = "platform_voucher_detail_json")
-    private String platformVoucherDetailJson; // {"PLAT_CODE_1":20000}
+    private String platformVoucherDetailJson;
+
     // =========================
-    // 🏠 Shipping snapshot từ Customer
+    // Shipping snapshot từ Customer
     // =========================
+
     @Column(name = "ship_receiver_name", length = 255)
     private String shipReceiverName;
 
@@ -131,35 +164,25 @@ public class StoreOrder {
     private PaymentMethod paymentMethod = PaymentMethod.COD;
 
     @Builder.Default
-    @Column(
-            name = "paid_by_shop",
-            nullable = false,
-            columnDefinition = "TINYINT(1) DEFAULT 0"
-    )
+    @Column(name = "paid_by_shop", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean paidByShop = false;
-
-
-//    @Column(name = "paid_ship_price",nullable = true)
-//    private double paidShipPriceByShop;
 
     // ====== Settlement breakdown cho shop ======
 
     @Column(name = "platform_fee_amount", precision = 18, scale = 2)
-    private BigDecimal platformFeeAmount = BigDecimal.ZERO;   // phí nền tảng (theo % product)
+    private BigDecimal platformFeeAmount = BigDecimal.ZERO;
 
-    // phí ship thực tế GHN báo về
     @Column(name = "platform_fee_percentage", precision = 5, scale = 2)
-    private BigDecimal platformFeePercentage;   // % phí nền tảng tại thời điểm checkout (snapshot từ PlatformFee)
+    private BigDecimal platformFeePercentage;
 
     @Column(name = "actual_shipping_fee", precision = 18, scale = 2)
-    private BigDecimal actualShippingFee = BigDecimal.ZERO;   // GHN báo về (GhnOrder.totalFee)
+    private BigDecimal actualShippingFee = BigDecimal.ZERO;
 
     @Column(name = "shipping_extra_for_store", precision = 18, scale = 2)
-    private BigDecimal shippingExtraForStore = BigDecimal.ZERO; // phần chênh GHN - shippingFee khách trả
-
+    private BigDecimal shippingExtraForStore = BigDecimal.ZERO;
 
     @Column(name = "net_payout_to_store", precision = 18, scale = 2)
-    private BigDecimal netPayoutToStore = BigDecimal.ZERO;    // tiền cuối cùng chuyển vào ví shop
+    private BigDecimal netPayoutToStore = BigDecimal.ZERO;
 
     @Lob
     @Column(name = "settlement_detail_json",columnDefinition = "TEXT")
@@ -185,7 +208,6 @@ public class StoreOrder {
         if (platformVoucherDiscount == null) platformVoucherDiscount = BigDecimal.ZERO;
         if (shippingFee == null) shippingFee = BigDecimal.ZERO;
 
-        // đảm bảo discountTotal = store + platform
         discountTotal = storeVoucherDiscount.add(platformVoucherDiscount);
 
         grandTotal = totalAmount
