@@ -68,4 +68,7 @@ public interface PlatformTransactionRepository extends JpaRepository<PlatformTra
                                         @Param("from") LocalDateTime from,
                                         @Param("to") LocalDateTime to);
 
+    // ✅ Check trùng transaction theo idempotencyKey
+    boolean existsByIdempotencyKey(String idempotencyKey);
+
 }

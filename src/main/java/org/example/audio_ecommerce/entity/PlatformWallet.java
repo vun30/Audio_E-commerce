@@ -30,6 +30,11 @@ public class PlatformWallet {
     private UUID ownerId;                // ID của chủ thể (nếu là shopId hoặc customerId)
 
     // ====== SỐ DƯ VÍ ======
+
+    // 💰 Tiền thật platform đang giữ (bank / merchant)
+    @Column(nullable = false, precision = 18, scale = 2)
+    private BigDecimal cashBalance = BigDecimal.ZERO;
+
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal totalBalance = BigDecimal.ZERO;     // Tổng tiền hiện có trong ví
 

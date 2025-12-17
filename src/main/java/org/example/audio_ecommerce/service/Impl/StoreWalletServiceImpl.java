@@ -561,6 +561,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     @Override
     public ResponseEntity<BaseResponse> withdrawFromDefaultBalance(WithdrawRequest req) {
 
+        // 0) validate
         if (req == null || req.getAmount() == null) {
             throw new RuntimeException("❌ amount is required");
         }
@@ -575,77 +576,140 @@ public class StoreWalletServiceImpl implements StoreWalletService {
 
         Store store = storeRepository.findByAccount_Email(email)
                 .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store cho tài khoản: " + email));
-
         UUID storeId = store.getStoreId();
 
-        // 2) Load wallet
-        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
+        // 2) Load StoreWallet
+        StoreWallet storeWallet = storeWalletRepository.findByStore_StoreId(storeId)
                 .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
 
-        // 3) Check số dư defaultBalance
-        BigDecimal defaultBalance = nz(wallet.getDefaultBalance());
-        BigDecimal balanceAfter = defaultBalance.subtract(amount);
+        // 3) Check số dư defaultBalance (shop có quyền rút)
+        BigDecimal storeBefore = nz(storeWallet.getDefaultBalance());
+        BigDecimal storeAfter = storeBefore.subtract(amount);
+        if (storeAfter.compareTo(BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("❌ Số dư defaultBalance không đủ để rút. Cần=" + amount + ", hiện có=" + storeBefore);
+        }
 
-        if (balanceAfter.compareTo(BigDecimal.ZERO) < 0) {
-            // ❌ không đủ tiền -> không tạo transaction
-            throw new RuntimeException("❌ Số dư defaultBalance không đủ để rút. " +
-                    "Cần=" + amount + ", hiện có=" + defaultBalance);
+        // 4) Load PlatformWallet chính + check cashBalance (platform có tiền thật để chi)
+        PlatformWallet platformWallet = platformWalletRepository.findMainPlatformWallet()
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy PlatformWallet chính"));
+
+        BigDecimal cashBefore = nz(platformWallet.getCashBalance());
+        BigDecimal cashAfter = cashBefore.subtract(amount);
+        if (cashAfter.compareTo(BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("❌ Platform cashBalance không đủ để chi trả withdraw. Cần=" + amount + ", hiện có=" + cashBefore);
         }
 
         LocalDateTime now = LocalDateTime.now();
 
-        // 4) Trừ tiền
-        wallet.setDefaultBalance(balanceAfter);
-        wallet.setUpdatedAt(now);
-        storeWalletRepository.save(wallet);
+        // 5) Update balances (cùng 1 DB transaction)
+        storeWallet.setDefaultBalance(storeAfter);
+        storeWallet.setUpdatedAt(now);
+        storeWalletRepository.save(storeWallet);
 
-        // 5) Lưu StoreWalletTransaction
-        String desc = "Rút tiền từ ví defaultBalance";
+        platformWallet.setCashBalance(cashAfter);
+        platformWallet.setUpdatedAt(now);
+        platformWalletRepository.save(platformWallet);
+
+        // 6) Lưu StoreWalletTransaction (audit cho shop)
+        String desc = "Rút tiền từ defaultBalance";
         if (req.getBankName() != null && !req.getBankName().isBlank()) desc += " | bank=" + req.getBankName();
-        if (req.getBankAccountNo() != null && !req.getBankAccountNo().isBlank())
-            desc += " | accNo=" + req.getBankAccountNo();
+        if (req.getBankAccountNo() != null && !req.getBankAccountNo().isBlank()) desc += " | accNo=" + req.getBankAccountNo();
         if (req.getNote() != null && !req.getNote().isBlank()) desc += " | note=" + req.getNote();
 
-        StoreWalletTransaction tx = StoreWalletTransaction.builder()
-                .wallet(wallet)
+        // externalRef unique (nếu FE có requestId thì dùng requestId sẽ chuẩn hơn)
+        // tạm thời tạo ref dựa trên time + storeId + amount để dễ truy vết
+        String storeExternalRef = "WITHDRAW:" + storeId + ":" + now.toString();
+
+        StoreWalletTransaction stx = StoreWalletTransaction.builder()
+                .wallet(storeWallet)
                 .type(StoreWalletTransactionType.WITHDRAW)
+                .status(StoreWalletTransactionStatus.SUCCESS)
                 .amount(amount)
-                .balanceAfter(balanceAfter)
+                .balanceBefore(storeBefore)
+                .balanceAfter(storeAfter)
+                .externalRef(storeExternalRef)
                 .description(desc)
                 .orderId(null)
                 .createdAt(now)
                 .build();
-        storeWalletTransactionRepository.save(tx);
 
-        // 6) Lưu PlatformTransaction để truy soát
-        PlatformWallet platformWallet = platformWalletRepository.findMainPlatformWallet()
-                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy PlatformWallet chính"));
+        stx = storeWalletTransactionRepository.save(stx);
 
-        PlatformTransaction flat = PlatformTransaction.builder()
+        // 7) Lưu PlatformTransaction (ledger cho platform) - BUCKET CASH, OUT
+        UUID stxId = stx.getTransactionId();               // ✅ đúng field @Id
+        String idem = "STORE_WITHDRAW:" + stxId;           // ✅ idempotency
+
+        if (platformTransactionRepository.existsByIdempotencyKey(idem)) {
+            return ResponseEntity.ok(new BaseResponse<>(200, "✅ Rút tiền thành công (idempotent)",
+                    WithdrawResult.builder()
+                            .storeId(storeId)
+                            .withdrawAmount(amount)
+                            .balanceAfter(storeAfter)
+                            .withdrawAt(now)
+                            .transactionId(stxId)
+                            .build()
+            ));
+        }
+
+        String flatDesc = "Store withdraw | storeId=" + storeId + " | storeTx=" + stxId
+                + (req.getBankName() != null ? " | bank=" + req.getBankName() : "")
+                + (req.getBankAccountNo() != null ? " | accNo=" + req.getBankAccountNo() : "");
+
+        // metadataJson nhẹ (không bắt buộc)
+        String metadataJson = "{"
+                + "\"bankName\":\"" + safe(req.getBankName()) + "\","
+                + "\"bankAccountNo\":\"" + safe(req.getBankAccountNo()) + "\","
+                + "\"note\":\"" + safe(req.getNote()) + "\","
+                + "\"storeWalletTxId\":\"" + stxId + "\""
+                + "}";
+
+        PlatformTransaction ptx = PlatformTransaction.builder()
                 .wallet(platformWallet)
                 .orderId(null)
                 .storeId(storeId)
                 .customerId(null)
-                .amount(amount)
-                .type(TransactionType.WITHDRAW) // ✅ đảm bảo enum TransactionType có WITHDRAW
+
+                .type(TransactionType.WITHDRAW)
                 .status(TransactionStatus.SUCCESS)
-                .description("Store withdraw from defaultBalance | tx=" + tx.getTransactionId())
+
+                .channel(PaymentChannel.BANK_TRANSFER)
+                .bucket(WalletBucket.CASH)
+                .direction(TxDirection.OUT)
+
+                .amount(amount)
+                .balanceBefore(cashBefore)
+                .balanceAfter(cashAfter)
+
+                .externalRefId(stxId.toString())            // ✅ PlatformTransaction field là String
+                .externalRefCode(null)
+                .idempotencyKey(idem)
+
+                .description(flatDesc)
+                .metadataJson(metadataJson)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        platformTransactionRepository.save(flat);
 
-        // 7) Response
+        platformTransactionRepository.save(ptx);
+
+        // 8) Response
         return ResponseEntity.ok(new BaseResponse<>(200, "✅ Rút tiền thành công",
                 WithdrawResult.builder()
                         .storeId(storeId)
                         .withdrawAmount(amount)
-                        .balanceAfter(balanceAfter)
+                        .balanceAfter(storeAfter)
                         .withdrawAt(now)
-                        .transactionId(tx.getTransactionId())
+                        .transactionId(stxId)
                         .build()
         ));
     }
+
+    private static String safe(String s) {
+        if (s == null) return "";
+        return s.replace("\"", "\\\"");
+    }
+
+
 
 
     @Transactional
