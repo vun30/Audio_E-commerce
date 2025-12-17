@@ -13,5 +13,5 @@ public class CheckoutItemRequest {
     // COMBO: dùng comboId
     private UUID comboId;
     private String type; // "PRODUCT" or "COMBO"
-    private int quantity;
+    private Integer quantity;
 }

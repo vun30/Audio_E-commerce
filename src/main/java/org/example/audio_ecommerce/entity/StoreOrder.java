@@ -185,8 +185,12 @@ public class StoreOrder {
     private BigDecimal netPayoutToStore = BigDecimal.ZERO;
 
     @Lob
-    @Column(name = "settlement_detail_json", columnDefinition = "TEXT")
-    private String settlementDetailJson;
+    @Column(name = "settlement_detail_json",columnDefinition = "TEXT")
+    private String settlementDetailJson; // JSON chi tiết breakdown
+
+    @Builder.Default
+    @Column(name = "store_scored", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean storeScored = false;
 
     @PrePersist
     @PreUpdate

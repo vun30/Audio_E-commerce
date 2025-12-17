@@ -2,6 +2,7 @@
 package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
+import org.example.audio_ecommerce.dto.response.StoreTopupResponse;
 import org.example.audio_ecommerce.dto.response.WalletTopupResponse;
 import vn.payos.model.webhooks.WebhookData;
 import java.math.BigDecimal;
@@ -24,5 +25,13 @@ public interface PayOSEcomService {
             String returnUrl,
             String cancelUrl
     );
+    StoreTopupResponse createStoreWalletTopupPayment(
+            UUID storeId,
+            BigDecimal amount,
+            String description,
+            String returnUrl,
+            String cancelUrl
+    );
+
     void confirmWebhook(WebhookData webhookData);
 }
