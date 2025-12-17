@@ -177,20 +177,9 @@ public class GhnStatusSyncService {
             ghnOrder.setExpectedDeliveryTime(expectedDelivery);
         }
 
-        // 🆕 Cập nhật totalFee từ GHN API (phí thực tế)
-        if (detail.getTotal_fee() != null) {
-            BigDecimal oldFee = ghnOrder.getTotalFee();
-            ghnOrder.setTotalFee(detail.getTotal_fee());
-
-            if (oldFee != null && !oldFee.equals(detail.getTotal_fee())) {
-                log.info("💰 [GHN Sync] GhnOrder {} fee thay đổi: {} → {}",
-                        ghnOrder.getOrderGhn(), oldFee, detail.getTotal_fee());
-            }
-        }
-
         ghnOrderRepo.save(ghnOrder);
-        log.info("✅ [GHN Sync] Cập nhật GhnOrder id={} code={} status={} totalFee={}",
-                ghnOrder.getId(), ghnOrder.getOrderGhn(), newStatus, ghnOrder.getTotalFee());
+        log.info("✅ [GHN Sync] Cập nhật GhnOrder id={} code={} status={}",
+                ghnOrder.getId(), ghnOrder.getOrderGhn(), newStatus);
     }
 
     private LocalDateTime parseOffsetDateTime(String iso) {
