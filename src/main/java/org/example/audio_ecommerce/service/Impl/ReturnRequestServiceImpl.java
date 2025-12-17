@@ -13,10 +13,7 @@ import org.example.audio_ecommerce.entity.Enum.ReturnFaultType;
 import org.example.audio_ecommerce.entity.Enum.ReturnReasonType;
 import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
 import org.example.audio_ecommerce.repository.*;
-import org.example.audio_ecommerce.service.GhnFeeService;
-import org.example.audio_ecommerce.service.GhnOrderService;
-import org.example.audio_ecommerce.service.ReturnRequestService;
-import org.example.audio_ecommerce.service.WalletService;
+import org.example.audio_ecommerce.service.*;
 import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -49,6 +46,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final StoreOrderRepository storeOrderRepository;
     private final CustomerOrderRepository customerOrderRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final LegalPointService legalPointService;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -622,7 +620,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             returnRepo.save(r);
 
             // Hoàn tiền ví cho customer
-            walletService.refundForReturn(r);
+            refundAndDeductLegalPointIfNeeded(r);
         } else {
             // ✅ Shop khiếu nại: nói là hàng không đúng mô tả khách trả về
             r.setStatus(ReturnStatus.DISPUTE);
@@ -667,7 +665,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         if (Boolean.TRUE.equals(req.getRefundCustomer())) {
             r.setStatus(ReturnStatus.REFUNDED);
-            walletService.refundForReturn(r);
+            refundAndDeductLegalPointIfNeeded(r);
+
         } else {
             r.setStatus(ReturnStatus.REJECTED);
         }
@@ -741,7 +740,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
             // 💰 Hoàn tiền HÀNG cho customer, KHÔNG hoàn phí ship
             // refundForReturn chỉ dùng r.getItemPrice(), không dùng r.getShippingFee()
-            walletService.refundForReturn(r);
+            refundAndDeductLegalPointIfNeeded(r);
+
 
             log.info(
                     "[AUTO REFUND RETURN][CASE 3] returnRequest={} auto-refunded after 48h without shop dispute, " +
@@ -953,12 +953,38 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // 💰 Refund tiền hàng cho customer (itemPrice)
         // refundForReturn đã lo chuyện lấy từ platform pending → ví customer
-        walletService.refundForReturn(r);
+        refundAndDeductLegalPointIfNeeded(r);
+
 
         log.info("[REFUND ONLY][SHOP] returnRequest={} refunded without physical return by shopId={}",
                 r.getId(), shopId);
 
         return toResponse(r);
     }
+
+    private void refundAndDeductLegalPointIfNeeded(ReturnRequest r) {
+
+        // 1️⃣ Refund tiền – FAIL là throw → KHÔNG trừ điểm
+        walletService.refundForReturn(r);
+
+        // 2️⃣ Chỉ trừ điểm nếu lỗi SHOP
+        if (r.getFaultType() != ReturnFaultType.SHOP) {
+            return;
+        }
+
+        // 3️⃣ Chống trừ lặp
+        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) {
+            return;
+        }
+
+        // 4️⃣ Trừ 1 legal point
+        legalPointService.minusForStore(r.getShopId(), 1);
+
+        // 5️⃣ Đánh dấu đã trừ
+        r.setLegalPointDeducted(true);
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+    }
+
 
 }
