@@ -13,14 +13,17 @@ import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.repository.ProductRepository;
 import org.example.audio_ecommerce.repository.StoreRepository;
+import org.example.audio_ecommerce.repository.StoreWalletRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -29,74 +32,111 @@ import java.util.UUID;
 public class StoreDebtUnlockService {
 
     private final StoreRepository storeRepository;
+    private final StoreWalletRepository storeWalletRepository;
     private final ProductRepository productRepository;
     private final EmailService emailService;
-    private final TaskScheduler taskScheduler;
+    private final TaskScheduler taskScheduler; // giữ lại (để tương thích), nhưng không bắt buộc dùng nữa
 
     private static final BigDecimal LEGAL_BONUS_UNIT = new BigDecimal("100000");
-    private static final BigDecimal SAFE_DEPOSIT_RATIO = new BigDecimal("0.10"); // 10%
+    private static final BigDecimal SAFE_DEPOSIT_RATIO = new BigDecimal("0.10"); // 10%   cọc hơn nợ 10%
 
     @Value("${app.site-url:}")
     private String siteUrl;
 
     /**
-     * Được gọi từ API thanh toán nợ
-     * → delay 3 phút rồi mới check unlock
+     * ✅ AUTO: Tự quét các store đang SUSPENDED_DEBT và thử mở khóa.
+     * Chỉ mở khi đủ điều kiện. Không đổi trạng thái => không gửi mail.
      */
+    @Scheduled(cron = "0 */2 * * * *") // mỗi 2 phút
+    @Transactional
+    public void autoUnlockDebtStores() {
+
+        List<Store> lockedStores = storeRepository.findByStatus(StoreStatus.SUSPENDED_DEBT);
+        if (lockedStores == null || lockedStores.isEmpty()) return;
+
+        int scanned = 0;
+        int unlocked = 0;
+
+        for (Store s : lockedStores) {
+            if (s == null || s.getStoreId() == null) continue;
+            scanned++;
+
+            boolean ok = tryUnlockStoreInternal(s.getStoreId());
+            if (ok) unlocked++;
+        }
+
+        log.info("[AUTO-UNLOCK] scanned={} unlocked={}", scanned, unlocked);
+    }
+
+    /**
+     * ❌ (Không cần nữa nếu đã dùng auto cron)
+     * Giữ lại theo yêu cầu "comment không xóa"
+     */
+    /*
     public void scheduleUnlockCheck(UUID storeId) {
         taskScheduler.schedule(
                 () -> tryUnlockStore(storeId),
                 Instant.now().plusSeconds(180) // ⏱️ delay 3 phút
         );
     }
+    */
 
+    /**
+     * (Optional) Nếu chỗ khác vẫn muốn gọi manual, vẫn cho public method.
+     * Method này sẽ chạy trong transaction nếu được gọi từ bên ngoài bean.
+     */
     @Transactional
-    public void tryUnlockStore(UUID storeId) {
+    public boolean tryUnlockStore(UUID storeId) {
+        return tryUnlockStoreInternal(storeId);
+    }
+
+    /**
+     * Core logic - trả về true nếu có mở khóa thực sự.
+     */
+    private boolean tryUnlockStoreInternal(UUID storeId) {
 
         Store store = storeRepository.findById(storeId).orElse(null);
-        if (store == null) return;
+        if (store == null) return false;
 
-/**
- * ❌ BỎ QUA STORE BỊ SUSPEND VĨNH VIỄN / ADMIN
- */
-        if (store.getStatus() == StoreStatus.SUSPENDED
-                || store.getStatus() == StoreStatus.ABANDONED
-                || store.getStatus() == StoreStatus.REJECTED) {
+        // ❌ Bỏ qua store bị suspend vĩnh viễn / admin
+        StoreStatus currentStatus = store.getStatus();
+        if (currentStatus == StoreStatus.SUSPENDED
+                || currentStatus == StoreStatus.ABANDONED
+                || currentStatus == StoreStatus.REJECTED) {
 
-            log.info("[UNLOCK-SKIP][PERMANENT] storeId={} status={}",
-                    storeId, store.getStatus());
-            return;
+            log.info("[UNLOCK-SKIP][PERMANENT] storeId={} status={}", storeId, currentStatus);
+            return false;
         }
 
-/**
- * ✅ CHỈ MỞ KHÓA NẾU BỊ KHÓA DO NỢ
- */
-        if (store.getStatus() != StoreStatus.SUSPENDED_DEBT) return;
+        // ✅ Chỉ mở khóa nếu bị khóa do nợ
+        if (currentStatus != StoreStatus.SUSPENDED_DEBT) return false;
 
-        StoreWallet wallet = store.getWallet();
-        if (wallet == null) return;
+        // ✅ Load wallet bằng repository để tránh LazyInitialization
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId).orElse(null);
+        if (wallet == null) {
+            log.warn("[UNLOCK-SKIP] storeId={} wallet not found", storeId);
+            return false;
+        }
 
         BigDecimal debt = nz(wallet.getDebtBalance());
         BigDecimal deposit = nz(wallet.getDepositBalance());
         BigDecimal legalPoint = nz(store.getLegalPoint());
 
-        BigDecimal adjustedLimit =
-                deposit.add(legalPoint.multiply(LEGAL_BONUS_UNIT));
+        BigDecimal adjustedLimit = deposit.add(legalPoint.multiply(LEGAL_BONUS_UNIT));
 
-// ===== ĐIỀU KIỆN MỞ KHÓA =====
         boolean passDebtLimit = debt.compareTo(adjustedLimit) < 0;
-        boolean passDepositSafe =
-                deposit.compareTo(debt.multiply(SAFE_DEPOSIT_RATIO)) >= 0;
+        boolean passDepositSafe = deposit.compareTo(debt.multiply(SAFE_DEPOSIT_RATIO)) >= 0;
 
         if (!passDebtLimit || !passDepositSafe) {
             log.info("[UNLOCK-SKIP] storeId={} debt={} deposit={} limit={}",
                     storeId, debt, deposit, adjustedLimit);
-            return;
+            return false;
         }
 
         // ===== MỞ KHÓA STORE =====
         store.setStatus(StoreStatus.ACTIVE);
         store.setLastRiskWarningAt(LocalDateTime.now());
+        storeRepository.save(store);
 
         // ===== KHÔI PHỤC PRODUCT =====
         productRepository.bulkUpdateStatusByStoreAndStatus(
@@ -111,7 +151,7 @@ public class StoreDebtUnlockService {
                 ProductStatus.UNLISTED
         );
 
-        // ===== GỬI MAIL MỞ KHÓA =====
+        // ===== GỬI MAIL CHỈ KHI THỰC SỰ ĐỔI TRẠNG THÁI =====
         Account acc = store.getAccount();
         if (acc != null && acc.getEmail() != null) {
             StoreStatusChangedData mailData = StoreStatusChangedData.builder()
@@ -129,8 +169,10 @@ public class StoreDebtUnlockService {
             }
         }
 
-        log.warn("[UNLOCK-SUCCESS] storeId={} debt={} deposit={}",
-                storeId, debt, deposit);
+        log.warn("[UNLOCK-SUCCESS] storeId={} debt={} deposit={} limit={}",
+                storeId, debt, deposit, adjustedLimit);
+
+        return true;
     }
 
     private BigDecimal nz(BigDecimal v) {
