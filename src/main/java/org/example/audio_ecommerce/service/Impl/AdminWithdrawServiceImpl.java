@@ -32,7 +32,7 @@ public class AdminWithdrawServiceImpl implements AdminWithdrawService {
     private final CustomerWithdrawRequestRepository withdrawRepo;
     private final WithdrawProofRepository proofRepo;
     private final WalletRepository walletRepo;
-    private final WalletTransactionRepository txnRepo;
+    private final WalletTransactionRepository txnRepo; // transaction
 
     @Override
     @Transactional(readOnly = true)

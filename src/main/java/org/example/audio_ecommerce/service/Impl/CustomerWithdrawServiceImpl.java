@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CustomerWithdrawServiceImpl implements CustomerWithdrawService {
 
-    private final WalletRepository walletRepo;
+    private final WalletRepository walletRepo; // wallet
     private final CustomerWithdrawRequestRepository withdrawRepo;
     private final WalletTransactionRepository txnRepo;
     private final WithdrawProofRepository proofRepo;

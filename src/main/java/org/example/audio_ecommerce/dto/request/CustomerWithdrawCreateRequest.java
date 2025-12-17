@@ -11,6 +11,6 @@ public class CustomerWithdrawCreateRequest {
     private String bankName;
     private String accountNumber;
     private String accountName;
-    private String note; // optional
+    private String note; // optional nice
 }
 

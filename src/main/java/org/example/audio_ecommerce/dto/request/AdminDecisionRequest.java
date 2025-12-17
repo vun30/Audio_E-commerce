@@ -6,5 +6,5 @@ import lombok.Setter;
 @Getter
 @Setter
 public class AdminDecisionRequest {
-    private String note;
+    private String note; // adminNote
 }

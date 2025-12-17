@@ -18,5 +18,5 @@ public interface AdminWithdrawService {
 
     CustomerWithdrawResponse reject(UUID withdrawRequestId, AdminDecisionRequest req);
 
-    CustomerWithdrawResponse markPaid(UUID withdrawRequestId, AdminWithdrawMarkPaidRequest req);
+    CustomerWithdrawResponse markPaid(UUID withdrawRequestId, AdminWithdrawMarkPaidRequest req); // mark paid
 }

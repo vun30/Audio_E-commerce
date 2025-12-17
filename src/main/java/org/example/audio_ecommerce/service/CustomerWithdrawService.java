@@ -11,5 +11,5 @@ import java.util.UUID;
 public interface CustomerWithdrawService {
     CustomerWithdrawRequest create(UUID customerId, CustomerWithdrawCreateRequest req);
     Page<CustomerWithdrawResponse> customerList(UUID customerId, WithdrawRequestStatus status, int page, int size);
-    CustomerWithdrawResponse customerGet(UUID customerId, UUID withdrawRequestId);
+    CustomerWithdrawResponse customerGet(UUID customerId, UUID withdrawRequestId); // add proof urls
 }

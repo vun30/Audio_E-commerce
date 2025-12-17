@@ -24,7 +24,7 @@ public class CustomerWithdrawController {
     private final CustomerWithdrawService service;
 
     @Operation(
-            summary = "Customer tạo yêu cầu rút tiền",
+            summary = "Customer tạo yêu cầu rút tiền.",
             description = """
             API cho Customer tạo yêu cầu rút tiền từ ví khách hàng.
 

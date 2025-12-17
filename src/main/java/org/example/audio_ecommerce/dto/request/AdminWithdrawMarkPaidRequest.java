@@ -13,6 +13,6 @@ public class AdminWithdrawMarkPaidRequest {
     private String payoutRef;
     private String note;
     @NotEmpty
-    private List<@NotBlank String> proofUrls;
+    private List<@NotBlank String> proofUrls; // proofImageUrls
 }
 

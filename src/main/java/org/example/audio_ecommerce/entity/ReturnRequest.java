@@ -128,4 +128,7 @@ public class ReturnRequest extends BaseEntity {
 
     @Column(name = "shop_dispute_reason", length = 1000)
     private String shopDisputeReason;
+
+    @Column(name = "legal_point_deducted", nullable = false)
+    private Boolean legalPointDeducted = false;
 }

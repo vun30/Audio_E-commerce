@@ -18,5 +18,5 @@ public interface CustomerWithdrawRequestRepository extends JpaRepository<Custome
 
     Page<CustomerWithdrawRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);
     Page<CustomerWithdrawRequest> findByStatusOrderByCreatedAtDesc(WithdrawRequestStatus status, Pageable pageable);
-    boolean existsByIdAndCustomerId(UUID id, UUID customerId);
+    boolean existsByIdAndCustomerId(UUID id, UUID customerId); // check xem id có tồn tại trong customerId
 }

@@ -23,7 +23,7 @@ public class AdminCustomerWithdrawController {
     private final AdminWithdrawService service;
 
     @Operation(
-            summary = "Admin xem danh sách yêu cầu rút tiền của Customer",
+            summary = "Admin xem danh sách yêu cầu rút tiền của Customer.",
             description = """
             API cho Admin xem danh sách các yêu cầu rút tiền từ ví Customer.
 

@@ -10,6 +10,6 @@ public interface WithdrawProofRepository extends JpaRepository<WithdrawProof, UU
 
     long countByWithdrawRequestId(UUID withdrawRequestId);
     List<WithdrawProof> findByWithdrawRequestIdOrderByCreatedAtDesc(UUID withdrawRequestId);
-    List<WithdrawProof> findByWithdrawRequestId(UUID withdrawRequestId);
+    List<WithdrawProof> findByWithdrawRequestId(UUID withdrawRequestId); // for admin
 }
 

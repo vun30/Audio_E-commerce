@@ -34,5 +34,5 @@ public class WithdrawProof extends BaseEntity {
     private String fileName;
 
     @Column(length = 255)
-    private String note;
+    private String note;// admin
 }

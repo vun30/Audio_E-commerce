@@ -27,5 +27,5 @@ public class CustomerWithdrawResponse {
     private List<String> proofUrls;
 
     private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private LocalDateTime updatedAt; // lastUpdated
 }
