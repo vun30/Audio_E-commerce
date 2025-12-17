@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.service.Impl;
 import org.example.audio_ecommerce.dto.request.DepositTransferRequest;
 import org.example.audio_ecommerce.dto.request.WithdrawDepositToDefaultRequest;
 import org.example.audio_ecommerce.dto.request.WithdrawRequest;
+import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     private final ProductRepository productRepository;
     private final StoreWalletDebtCron storeWalletDebtCron;
     private final StoreDebtUnlockService storeDebtUnlockService;
+    private final SecurityUtils securityUtils;
 
 
     /**
@@ -807,5 +809,23 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     }
 
 
+    @Override
+    @Transactional(readOnly = true)
+    public StoreWalletOverviewResponse getMyWalletOverview() {
+        UUID storeId = securityUtils.getCurrentStoreId();
 
-}
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
+                .orElseThrow(() -> new RuntimeException("❌ Store chưa có ví"));
+
+        return StoreWalletOverviewResponse.builder()
+                .storeId(storeId)
+                .storeName(wallet.getStore() != null ? wallet.getStore().getStoreName(): null) // nếu có
+                .walletId(wallet.getWalletId())
+                .defaultBalance(nz(wallet.getDefaultBalance()))
+                .depositBalance(nz(wallet.getDepositBalance()))
+                .debtBalance(nz(wallet.getDebtBalance()))
+                .build();
+    }
+
+    }
+

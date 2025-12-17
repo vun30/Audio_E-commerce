@@ -380,4 +380,22 @@ public class StoreWalletController {
         return storeWalletService.withdrawDepositToDefault(req);
     }
 
+    @Operation(
+            summary = "Tổng quan ví store đang đăng nhập",
+            description = """
+                Trả về các số dư chính của ví shop:
+                - defaultBalance: số dư nạp / số dư khả dụng trong hệ thống theo bạn định nghĩa
+                - depositBalance: tiền ký quỹ
+                - debtBalance: số nợ hiện tại
+                
+                ✅ StoreId tự lấy từ token JWT.
+            """
+    )
+    @GetMapping("/overview")
+    public ResponseEntity<BaseResponse<StoreWalletOverviewResponse>> getOverview() {
+        StoreWalletOverviewResponse data = storeWalletService.getMyWalletOverview();
+        return ResponseEntity.ok(new BaseResponse<>(200, "✅ Lấy tổng quan ví thành công", data));
+    }
+
+
 }
