@@ -1,12 +1,17 @@
 package org.example.audio_ecommerce.service.Impl;
 
-import jakarta.transaction.Transactional;
+import org.example.audio_ecommerce.dto.request.DepositTransferRequest;
+import org.example.audio_ecommerce.dto.request.WithdrawDepositToDefaultRequest;
+import org.example.audio_ecommerce.dto.request.WithdrawRequest;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.scheduler.StoreDebtUnlockService;
+import org.example.audio_ecommerce.scheduler.StoreWalletDebtCron;
 import org.example.audio_ecommerce.service.StoreWalletService;
 import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +41,8 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     private final PlatformTransactionRepository platformTransactionRepository;
     private final PlatformWalletRepository platformWalletRepository;
     private final ProductRepository productRepository;
+    private final StoreWalletDebtCron storeWalletDebtCron;
+    private final StoreDebtUnlockService storeDebtUnlockService;
 
 
     /**
@@ -129,24 +136,20 @@ public class StoreWalletServiceImpl implements StoreWalletService {
             UUID transactionId,
             Pageable pageable
     ) {
-        // ✅ Nếu không có walletId, tự động lấy từ tài khoản đang đăng nhập
-        if (walletId == null) {
-            walletId = getCurrentStoreWalletId();
-        }
+        if (walletId == null) walletId = getCurrentStoreWalletId();
 
-        // ✅ Kiểm tra điều kiện thời gian hợp lệ
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("Thời gian 'from' phải nhỏ hơn hoặc bằng 'to'");
         }
 
-        // ✅ Lấy dữ liệu từ repository
-        Page<StoreWalletTransaction> transactionsPage = storeWalletTransactionRepository.filterTransactions(
-                walletId, from, to, type, transactionId, pageable
-        );
+        Page<StoreWalletTransaction> transactionsPage =
+                storeWalletTransactionRepository.filterTransactions(
+                        walletId, from, to, type, transactionId, pageable
+                );
 
-        // ✅ Ánh xạ sang DTO
         return transactionsPage.map(this::mapToTransactionResponse);
     }
+
 
     /**
      * 🧩 Hàm tiện ích: Lấy walletId của cửa hàng đang đăng nhập
@@ -184,16 +187,18 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     private String getDisplayName(StoreWalletTransactionType type) {
         if (type == null) return "Không xác định";
         return switch (type) {
-            case DEPOSIT -> "Nạp tiền vào ví";
-            case PENDING_HOLD -> "Giữ tiền chờ xác nhận";
-            case RELEASE_PENDING -> "Giải phóng tiền chờ";
+            case DEPOSIT -> "Tiền bán hàng (payout vào ví)";
+            case PENDING_HOLD -> "Giữ tiền tạm thời (pending hold)";
+            case RELEASE_PENDING -> "Giải phóng tiền giữ (pending → default)";
             case WITHDRAW -> "Rút tiền về ngân hàng";
-            case REFUND -> "Hoàn tiền cho khách hàng";
-            case ADJUSTMENT -> "Điều chỉnh thủ công";
-            case REFUND_RETURN -> "Hoàn trả hàng";
-            case REFUND_FORCE -> "Hoàn tiền (bắt buộc)";
+            case REFUND -> "Hoàn tiền cho khách";
+            case ADJUSTMENT -> "Điều chỉnh thủ công (admin)";
+            case REFUND_RETURN -> "Hoàn tiền do trả hàng";
+            case REFUND_FORCE -> "Hoàn tiền cưỡng chế";
             case TOPUP -> "Nạp tiền vào ví";
-            case DEBT_PAYMENT -> "Phí dịch vụ";
+            case DEBT_PAYMENT -> "Thanh toán nợ";
+            case TRANSFER_TO_DEPOSIT -> "Chuyển tiền giữa các ví";
+            case TRANSFER_DEPOSIT_TO_DEFAULT -> "Chuyển tiền từu ví ký quỹ sang ví chính";
         };
     }
 
@@ -212,7 +217,6 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     }
 
 
-    //============================Thanh toán nợ từ default balance============================
     @Transactional
     public ResponseEntity<BaseResponse> payMyDebtFromDefaultBalance() {
 
@@ -223,17 +227,17 @@ public class StoreWalletServiceImpl implements StoreWalletService {
         Store store = storeRepository.findByAccount_Email(email)
                 .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store cho tài khoản: " + email));
 
+        UUID storeId = store.getStoreId();
+
         // 2) Load wallet
-        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(store.getStoreId())
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
                 .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
 
         // 3) Lấy các khoản nợ FINAL chưa trả (StoreOrder)
-        List<StoreOrder> unpaidFinalOrders =
-                storeOrderRepository.findUnpaidFinalOrdersOfStore(store.getStoreId());
+        List<StoreOrder> unpaidFinalOrders = storeOrderRepository.findUnpaidFinalOrdersOfStore(storeId);
 
         // 4) Lấy các khoản return fee SHOP chịu chưa trả
-        List<ReturnShippingFee> unpaidReturnFees =
-                returnShippingFeeRepository.findUnpaidShopReturnFees(store.getStoreId());
+        List<ReturnShippingFee> unpaidReturnFees = returnShippingFeeRepository.findUnpaidShopReturnFees(storeId);
 
         // 5) Tính tổng nợ cần trả
         BigDecimal totalOrderDebt = unpaidFinalOrders.stream()
@@ -254,8 +258,8 @@ public class StoreWalletServiceImpl implements StoreWalletService {
 
         // 6) Kiểm tra đủ tiền trong defaultBalance
         BigDecimal defaultBalance = nz(wallet.getDefaultBalance());
-
         BigDecimal balanceAfter = defaultBalance.subtract(totalToPay);
+
         if (balanceAfter.compareTo(BigDecimal.ZERO) < 0) {
             throw new RuntimeException("❌ Số dư defaultBalance không đủ để thanh toán nợ. " +
                     "Cần=" + totalToPay + ", hiện có=" + defaultBalance);
@@ -287,7 +291,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
         PlatformTransaction flat = PlatformTransaction.builder()
                 .wallet(platformWallet)
                 .orderId(null)
-                .storeId(store.getStoreId())
+                .storeId(storeId)
                 .customerId(null)
                 .amount(totalToPay)
                 .type(TransactionType.DEBT_PAYMENT)
@@ -299,99 +303,84 @@ public class StoreWalletServiceImpl implements StoreWalletService {
         platformTransactionRepository.save(flat);
 
         // 9) Mark paid các order final
-        for (StoreOrder o : unpaidFinalOrders) {
-            o.setPaidByShop(true);
-        }
+        for (StoreOrder o : unpaidFinalOrders) o.setPaidByShop(true);
         storeOrderRepository.saveAll(unpaidFinalOrders);
 
         // 10) Mark paid các return fee shop chịu
-        for (ReturnShippingFee f : unpaidReturnFees) {
-            f.setPaidByShop(true);
-        }
+        for (ReturnShippingFee f : unpaidReturnFees) f.setPaidByShop(true);
         returnShippingFeeRepository.saveAll(unpaidReturnFees);
 
-        // ==========================================================
-        // 10.1) RECHECK "CÒN VƯỢT HẠN MỨC" KHÔNG? (để quyết định unblock)
-        // ==========================================================
-        // ✅ Flush đúng repository vừa update để DB/trigger/calc debtBalance kịp phản ánh
+        // ✅ Flush để đảm bảo query recalc thấy paidByShop=true ngay trong transaction
         storeOrderRepository.flush();
         returnShippingFeeRepository.flush();
         storeWalletRepository.flush();
-        storeRepository.flush();
 
-        StoreWallet walletFresh = storeWalletRepository.findByStore_StoreId(store.getStoreId())
-                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy ví sau khi cập nhật"));
+        // ==========================================================
+        // ✅ NEW: GỌI GIÁN TIẾP CRON -> RECALC debtBalance CHO STORE NÀY
+        // ==========================================================
+        storeWalletDebtCron.recalcStoreDebtBalanceByStoreId(storeId);
 
-        Store storeFresh = storeRepository.findById(store.getStoreId())
-                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store sau khi cập nhật"));
+        // ==========================================================
+        // ✅ NEW: GỌI UNLOCK SERVICE (rule chuẩn: debt<limit + deposit>=10%debt)
+        // ==========================================================
+        storeDebtUnlockService.tryUnlockStore(storeId);
+        // hoặc nếu bạn vẫn muốn delay 3 phút:
+        // storeDebtUnlockService.scheduleUnlockCheck(storeId);
 
-        BigDecimal debtNow = nz(walletFresh.getDebtBalance());
-        BigDecimal depositNow = nz(walletFresh.getDepositBalance());
-        BigDecimal legalPointNow = nz(storeFresh.getLegalPoint());
+        // ==========================================================
+        // ❌ OLD LOGIC: RECHECK + UNBLOCK inline (KHÔNG DÙNG NỮA)
+        // -> comment giữ lại theo yêu cầu, không xóa
+        // ==========================================================
+    /*
+    storeRepository.flush();
 
-        BigDecimal creditLimit = depositNow.add(legalPointNow.multiply(new BigDecimal("100000")));
+    StoreWallet walletFresh = storeWalletRepository.findByStore_StoreId(storeId)
+            .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy ví sau khi cập nhật"));
 
-        boolean canUnblock;
-        if (creditLimit.compareTo(BigDecimal.ZERO) <= 0) {
-            canUnblock = debtNow.compareTo(BigDecimal.ZERO) <= 0;
-        } else {
-            BigDecimal ratioNow = debtNow.divide(creditLimit, 4, RoundingMode.HALF_UP);
-            canUnblock = ratioNow.compareTo(BigDecimal.ONE) < 0;
+    Store storeFresh = storeRepository.findById(storeId)
+            .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store sau khi cập nhật"));
+
+    BigDecimal debtNow = nz(walletFresh.getDebtBalance());
+    BigDecimal depositNow = nz(walletFresh.getDepositBalance());
+    BigDecimal legalPointNow = nz(storeFresh.getLegalPoint());
+
+    BigDecimal creditLimit = depositNow.add(legalPointNow.multiply(new BigDecimal("100000")));
+
+    boolean canUnblock;
+    if (creditLimit.compareTo(BigDecimal.ZERO) <= 0) {
+        canUnblock = debtNow.compareTo(BigDecimal.ZERO) <= 0;
+    } else {
+        BigDecimal ratioNow = debtNow.divide(creditLimit, 4, RoundingMode.HALF_UP);
+        canUnblock = ratioNow.compareTo(BigDecimal.ONE) < 0;
+    }
+
+    if (storeFresh.getStatus() == StoreStatus.SUSPENDED_DEBT) {
+        if (!canUnblock) {
+            BigDecimal needTopup = debtNow.subtract(creditLimit).max(BigDecimal.ZERO);
+            return ResponseEntity.ok(...);
         }
 
-        if (storeFresh.getStatus() == StoreStatus.SUSPENDED_DEBT) {
+        storeFresh.setStatus(StoreStatus.ACTIVE);
+        storeFresh.setLastRiskWarningAt(now);
+        storeRepository.save(storeFresh);
 
-            if (!canUnblock) {
-                BigDecimal needTopup = debtNow.subtract(creditLimit).max(BigDecimal.ZERO);
-
-                log.warn("[DEBT-PAY][STILL-BLOCKED] storeId={} debtNow={} creditLimit={} needTopup={}",
-                        storeFresh.getStoreId(), debtNow, creditLimit, needTopup);
-
-                return ResponseEntity.ok(new BaseResponse<>(200,
-                        "✅ Đã thanh toán nợ FINAL/return fee. Tuy nhiên cửa hàng vẫn vượt hạn mức => chưa thể mở khóa. " +
-                                "Cần nạp thêm cọc tối thiểu: " + needTopup,
-                        PayDebtResult.builder()
-                                .storeId(storeFresh.getStoreId())
-                                .paidAmount(totalToPay)
-                                .balanceAfter(balanceAfter)
-                                .paidOrdersCount(unpaidFinalOrders.size())
-                                .paidReturnFeesCount(unpaidReturnFees.size())
-                                .paidAt(now)
-                                .transactionId(tx.getTransactionId())
-                                .build()));
-            }
-
-            // ✅ CAN UNBLOCK
-            storeFresh.setStatus(StoreStatus.ACTIVE);
-            storeFresh.setLastRiskWarningAt(now);
-            storeRepository.save(storeFresh);
-
-            int backToActive = productRepository.bulkUpdateStatusByStoreAndStatus(
-                    storeFresh.getStoreId(),
-                    ProductStatus.SUSPENDED_DEBT,
-                    ProductStatus.ACTIVE
-            );
-
-            int backToUnlisted = productRepository.bulkUpdateStatusByStoreAndStatus(
-                    storeFresh.getStoreId(),
-                    ProductStatus.UNLISTED_BEFORE_SUSPENDED_DEBT,
-                    ProductStatus.UNLISTED
-            );
-
-            log.warn("[DEBT-PAY][UNBLOCK] storeId={} storeStatus=ACTIVE backToActive={} backToUnlisted={}",
-                    storeFresh.getStoreId(), backToActive, backToUnlisted);
-        }
+        productRepository.bulkUpdateStatusByStoreAndStatus(...);
+        productRepository.bulkUpdateStatusByStoreAndStatus(...);
+    }
+    */
 
         // 11) Response
         return ResponseEntity.ok(new BaseResponse<>(200, "✅ Thanh toán nợ thành công",
                 PayDebtResult.builder()
-                        .storeId(storeFresh.getStoreId()) // ✅ dùng storeFresh cho thống nhất
+                        .storeId(storeId)
                         .paidAmount(totalToPay)
                         .balanceAfter(balanceAfter)
                         .paidOrdersCount(unpaidFinalOrders.size())
                         .paidReturnFeesCount(unpaidReturnFees.size())
                         .paidAt(now)
                         .transactionId(tx.getTransactionId())
+                        // optional debug:
+                        // .debtAfterRecalc(newDebt)
                         .build()
         ));
     }
@@ -399,6 +388,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
     private BigDecimal nz(BigDecimal v) {
         return v == null ? BigDecimal.ZERO : v;
     }
+
     public ResponseEntity<BaseResponse> getMyDebtComponents(
             DebtComponentType componentType,
             String status,
@@ -561,6 +551,261 @@ public class StoreWalletServiceImpl implements StoreWalletService {
         return ResponseEntity.ok(new BaseResponse<>(200, "✅ Lấy breakdown nợ theo thành phần thành công", pageResult));
     }
 
-    private BigDecimal nvl(BigDecimal v) { return v == null ? BigDecimal.ZERO : v; }
+    private BigDecimal nvl(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
+    }  // chống ỗi khi cộng trừ BigDecimal , tránh null pointer exception , trả về 0 nếu null , nó mà lỗi thì kiếm lại hàm này check nha vu
+
+    @Transactional
+    @Override
+    public ResponseEntity<BaseResponse> withdrawFromDefaultBalance(WithdrawRequest req) {
+
+        if (req == null || req.getAmount() == null) {
+            throw new RuntimeException("❌ amount is required");
+        }
+        BigDecimal amount = req.getAmount();
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("❌ amount must be > 0");
+        }
+
+        // 1) Resolve store hiện tại từ token
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store cho tài khoản: " + email));
+
+        UUID storeId = store.getStoreId();
+
+        // 2) Load wallet
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
+                .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
+
+        // 3) Check số dư defaultBalance
+        BigDecimal defaultBalance = nz(wallet.getDefaultBalance());
+        BigDecimal balanceAfter = defaultBalance.subtract(amount);
+
+        if (balanceAfter.compareTo(BigDecimal.ZERO) < 0) {
+            // ❌ không đủ tiền -> không tạo transaction
+            throw new RuntimeException("❌ Số dư defaultBalance không đủ để rút. " +
+                    "Cần=" + amount + ", hiện có=" + defaultBalance);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // 4) Trừ tiền
+        wallet.setDefaultBalance(balanceAfter);
+        wallet.setUpdatedAt(now);
+        storeWalletRepository.save(wallet);
+
+        // 5) Lưu StoreWalletTransaction
+        String desc = "Rút tiền từ ví defaultBalance";
+        if (req.getBankName() != null && !req.getBankName().isBlank()) desc += " | bank=" + req.getBankName();
+        if (req.getBankAccountNo() != null && !req.getBankAccountNo().isBlank())
+            desc += " | accNo=" + req.getBankAccountNo();
+        if (req.getNote() != null && !req.getNote().isBlank()) desc += " | note=" + req.getNote();
+
+        StoreWalletTransaction tx = StoreWalletTransaction.builder()
+                .wallet(wallet)
+                .type(StoreWalletTransactionType.WITHDRAW)
+                .amount(amount)
+                .balanceAfter(balanceAfter)
+                .description(desc)
+                .orderId(null)
+                .createdAt(now)
+                .build();
+        storeWalletTransactionRepository.save(tx);
+
+        // 6) Lưu PlatformTransaction để truy soát
+        PlatformWallet platformWallet = platformWalletRepository.findMainPlatformWallet()
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy PlatformWallet chính"));
+
+        PlatformTransaction flat = PlatformTransaction.builder()
+                .wallet(platformWallet)
+                .orderId(null)
+                .storeId(storeId)
+                .customerId(null)
+                .amount(amount)
+                .type(TransactionType.WITHDRAW) // ✅ đảm bảo enum TransactionType có WITHDRAW
+                .status(TransactionStatus.SUCCESS)
+                .description("Store withdraw from defaultBalance | tx=" + tx.getTransactionId())
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        platformTransactionRepository.save(flat);
+
+        // 7) Response
+        return ResponseEntity.ok(new BaseResponse<>(200, "✅ Rút tiền thành công",
+                WithdrawResult.builder()
+                        .storeId(storeId)
+                        .withdrawAmount(amount)
+                        .balanceAfter(balanceAfter)
+                        .withdrawAt(now)
+                        .transactionId(tx.getTransactionId())
+                        .build()
+        ));
+    }
+
+
+    @Transactional
+    @Override
+    public ResponseEntity<BaseResponse> transferDefaultToDeposit(DepositTransferRequest req) {
+
+        if (req == null || req.getAmount() == null) {
+            throw new RuntimeException("❌ amount is required");
+        }
+        BigDecimal amount = req.getAmount();
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("❌ amount must be > 0");
+        }
+
+        // 1) Resolve store từ token
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store cho tài khoản: " + email));
+
+        UUID storeId = store.getStoreId();
+
+        // 2) Load wallet
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
+                .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
+
+        BigDecimal defaultBal = nz(wallet.getDefaultBalance());
+        BigDecimal depositBal = nz(wallet.getDepositBalance());
+
+        // 3) Check đủ tiền ở defaultBalance
+        BigDecimal defaultAfter = defaultBal.subtract(amount);
+        if (defaultAfter.compareTo(BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("❌ defaultBalance không đủ để chuyển sang ví cọc. " +
+                    "Cần=" + amount + ", hiện có=" + defaultBal);
+        }
+
+        BigDecimal depositAfter = depositBal.add(amount);
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // 4) Update wallet (chuyển nội bộ)
+        wallet.setDefaultBalance(defaultAfter);
+        wallet.setDepositBalance(depositAfter);
+        wallet.setUpdatedAt(now);
+        storeWalletRepository.save(wallet);
+
+        // 5) Lưu StoreWalletTransaction
+        String desc = "Chuyển tiền từ defaultBalance sang depositBalance";
+        if (req.getNote() != null && !req.getNote().isBlank()) desc += " | note=" + req.getNote();
+
+        StoreWalletTransaction tx = StoreWalletTransaction.builder()
+                .wallet(wallet)
+                .type(StoreWalletTransactionType.TRANSFER_TO_DEPOSIT) // ✅ thêm enum này
+                .amount(amount)
+                .balanceAfter(defaultAfter) // nếu field này hiểu là "balanceAfter của ví default"
+                .description(desc)
+                .orderId(null)
+                .createdAt(now)
+                .build();
+        storeWalletTransactionRepository.save(tx);
+
+        // ✅ Nếu bạn muốn: có thể lưu thêm 1 record thứ 2 cho "deposit side"
+        // nhưng thường 1 record là đủ để truy soát.
+
+        return ResponseEntity.ok(new BaseResponse<>(200, "✅ Chuyển sang ví cọc thành công",
+                DepositTransferResult.builder()
+                        .storeId(storeId)
+                        .amount(amount)
+                        .defaultBalanceAfter(defaultAfter)
+                        .depositBalanceAfter(depositAfter)
+                        .transactionId(tx.getTransactionId())
+                        .transferredAt(now)
+                        .build()
+        ));
+    }
+
+    @Transactional
+    @Override
+    public ResponseEntity<BaseResponse> withdrawDepositToDefault(WithdrawDepositToDefaultRequest req) {
+
+        BigDecimal amount = nz(req.getAmount());
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("❌ Số tiền rút phải > 0");
+        }
+
+        // 1) Resolve store từ token
+        String principal = SecurityContextHolder.getContext().getAuthentication().getName();
+        String email = principal.contains(":") ? principal.split(":")[0] : principal;
+
+        Store store = storeRepository.findByAccount_Email(email)
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy store cho tài khoản: " + email));
+
+        UUID storeId = store.getStoreId();
+
+        // 2) Load wallet
+        StoreWallet wallet = storeWalletRepository.findByStore_StoreId(storeId)
+                .orElseThrow(() -> new RuntimeException("❌ Cửa hàng này chưa có ví."));
+
+        BigDecimal depositBefore = nz(wallet.getDepositBalance());
+        BigDecimal defaultBefore = nz(wallet.getDefaultBalance());
+
+        // 3) Check đủ tiền cọc
+        BigDecimal depositAfter = depositBefore.subtract(amount);
+        if (depositAfter.compareTo(BigDecimal.ZERO) < 0) {
+            throw new RuntimeException("❌ Số dư ví cọc không đủ. Hiện có=" + depositBefore + ", cần rút=" + amount);
+        }
+
+        // 4) Check rule: creditAfter >= debtNow
+        // creditAfter = depositAfter + legalPoint*100000
+        BigDecimal legalPoint = nz(store.getLegalPoint());
+        BigDecimal debtNow = nz(wallet.getDebtBalance());
+
+        BigDecimal creditAfter = depositAfter.add(legalPoint.multiply(new BigDecimal("100000")));
+
+        if (creditAfter.compareTo(debtNow) < 0) {
+            // ✅ báo lỗi đúng nghiệp vụ: rút sẽ làm credit < nợ => không cho rút
+            throw new RuntimeException(
+                    "❌ Không thể rút vì sau khi rút CREDIT < DEBT. " +
+                            "debt=" + debtNow + ", creditAfter=" + creditAfter +
+                            " (creditAfter = depositAfter + legalPoint*100000)"
+            );
+        }
+
+        // 5) Update ví: deposit giảm, default tăng
+        BigDecimal defaultAfter = defaultBefore.add(amount);
+
+        LocalDateTime now = LocalDateTime.now();
+        wallet.setDepositBalance(depositAfter);
+        wallet.setDefaultBalance(defaultAfter);
+        wallet.setUpdatedAt(now);
+        storeWalletRepository.save(wallet);
+
+        // 6) Lưu StoreWalletTransaction
+        StoreWalletTransaction tx = StoreWalletTransaction.builder()
+                .wallet(wallet)
+                .type(StoreWalletTransactionType.TRANSFER_DEPOSIT_TO_DEFAULT)
+                .amount(amount)
+                .balanceAfter(defaultAfter) // ✅ bạn đang dùng balanceAfter như defaultBalanceAfter
+                .description("Chuyển tiền từ ví cọc -> ví default")
+                .orderId(null)
+                .createdAt(now)
+                .build();
+        storeWalletTransactionRepository.save(tx);
+
+        // 7) Response
+        WithdrawDepositToDefaultResult result = WithdrawDepositToDefaultResult.builder()
+                .storeId(storeId)
+                .amount(amount)
+                .depositBefore(depositBefore)
+                .depositAfter(depositAfter)
+                .defaultBefore(defaultBefore)
+                .defaultAfter(defaultAfter)
+                .debtNow(debtNow)
+                .creditAfter(creditAfter)
+                .transactionId(tx.getTransactionId())
+                .createdAt(now)
+                .build();
+
+        return ResponseEntity.ok(new BaseResponse<>(200, "✅ Rút tiền từ ví cọc về ví default thành công", result));
+    }
+
+
 
 }

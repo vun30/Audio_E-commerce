@@ -7,7 +7,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.request.DepositTransferRequest;
+import org.example.audio_ecommerce.dto.request.WithdrawDepositToDefaultRequest;
+import org.example.audio_ecommerce.dto.request.WithdrawRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.Enum.DebtComponentType;
 import org.example.audio_ecommerce.entity.Enum.StoreWalletBucket;
@@ -94,6 +98,16 @@ public class StoreWalletController {
                     - `type`: loại giao dịch (`DEPOSIT`, `WITHDRAW`, `REFUND`, ...)
                     - `transactionId`: mã giao dịch cụ thể
                     - `sort`: định dạng "thuộc_tính:hướng" (VD: createdAt:desc)
+                     case DEPOSIT -> "Tiền bán hàng (payout vào ví)";
+                            case PENDING_HOLD -> "Giữ tiền tạm thời (pending hold)";
+                            case RELEASE_PENDING -> "Giải phóng tiền giữ (pending → default)";
+                            case WITHDRAW -> "Rút tiền về ngân hàng";
+                            case REFUND -> "Hoàn tiền cho khách";
+                            case ADJUSTMENT -> "Điều chỉnh thủ công (admin)";
+                            case REFUND_RETURN -> "Hoàn tiền do trả hàng";
+                            case REFUND_FORCE -> "Hoàn tiền cưỡng chế";
+                            case TOPUP -> "Nạp tiền vào ví";
+                            case DEBT_PAYMENT -> "Thanh toán nợ";
                     """
     )
     @ApiResponses({
@@ -160,7 +174,7 @@ public class StoreWalletController {
     // 💰 4️⃣ TỔNG QUAN PAYOUT THEO ITEM (ước tính / pending / done / lãi ròng)
     // =============================================================
     @Operation(
-            summary = "Tổng quan ví payout theo từng order item",
+            summary = "Tổng quan ví payout theo từng order item // BỎ KO DÙNG",
             description = """
                     Trả về 4 con số cho cửa hàng:
                     - estimatedGross: doanh thu ước tính (item chưa payout)
@@ -223,4 +237,147 @@ public class StoreWalletController {
                 new BaseResponse<>(200, "✅ Lấy danh sách item theo bucket thành công", result)
         );
     }
+
+    @Operation(
+            summary = "Thanh toán nợ cửa hàng từ ví khả dụng (defaultBalance)",
+            description = """
+                API cho phép cửa hàng đang đăng nhập thanh toán **các khoản nợ ĐÃ CHỐT (real debt)** 
+                bằng tiền trong ví `defaultBalance`.
+
+                🔹 Phạm vi thanh toán:
+                - Chỉ thanh toán các khoản nợ đã kết thúc trạng thái (DELIVERED, RETURNED).
+                - Bao gồm:
+                  • Chênh lệch phí ship (SHIP_DIFF)
+                  • Phí quay đầu / không nhận hàng đã chốt (RTO_FEE)
+                  • Phí hoàn/return mà SHOP chịu (RETURN_SHIPPING_FEE)
+
+                🔹 KHÔNG thanh toán:
+                - Các khoản nợ ảo / nợ tạm (đơn chưa end status).
+                - Các khoản phí chưa được xác nhận bởi hệ thống.
+
+                🔹 Quy trình xử lý:
+                1️⃣ Kiểm tra cửa hàng từ token đăng nhập (không cần truyền storeId).
+                2️⃣ Tính tổng nợ real chưa thanh toán.
+                3️⃣ Kiểm tra đủ tiền trong `defaultBalance`.
+                4️⃣ Trừ tiền từ ví.
+                5️⃣ Lưu lịch sử giao dịch (DEBT_PAYMENT).
+                6️⃣ Đánh dấu các khoản nợ là đã thanh toán.
+                7️⃣ Tính lại `debtBalance`.
+                8️⃣ Tự động kiểm tra mở khóa cửa hàng (nếu đang bị khóa do nợ).
+
+                🔹 Lưu ý:
+                - Nếu số dư không đủ → giao dịch bị từ chối và KHÔNG ghi nhận transaction.
+                - Việc mở khóa phụ thuộc điều kiện:
+                  debt < (deposit + legalPoint × 100.000)
+                  và deposit ≥ 10% debt
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Thanh toán nợ thành công",
+                    content = @Content(schema = @Schema(implementation = PayDebtResult.class))
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Không có khoản nợ nào cần thanh toán"
+            ),
+            @ApiResponse(
+                    responseCode = "409",
+                    description = "Số dư ví không đủ để thanh toán nợ"
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "Chưa đăng nhập hoặc token không hợp lệ"
+            )
+    })
+    @PostMapping("/debt/pay")
+    public ResponseEntity<BaseResponse> payMyDebt() {
+        return storeWalletService.payMyDebtFromDefaultBalance();
+    }
+
+    @Operation(
+            summary = "Rút tiền từ ví khả dụng (defaultBalance)",
+            description = """
+                API cho phép cửa hàng đang đăng nhập rút tiền từ ví `defaultBalance`.
+
+                Quy trình:
+                1) Lấy store từ token (không cần truyền storeId)
+                2) Kiểm tra số dư defaultBalance
+                3) Trừ tiền và lưu StoreWalletTransaction (WITHDRAW)
+                4) Lưu PlatformTransaction để truy soát
+
+                Lưu ý:
+                - Nếu số dư không đủ: từ chối và KHÔNG ghi nhận transaction.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Rút tiền thành công",
+                    content = @Content(schema = @Schema(implementation = WithdrawResult.class))
+            ),
+            @ApiResponse(responseCode = "409", description = "Số dư không đủ để rút"),
+            @ApiResponse(responseCode = "401", description = "Chưa đăng nhập / token không hợp lệ")
+    })
+    @PostMapping("/withdraw")
+    public ResponseEntity<BaseResponse> withdrawFromDefault(@RequestBody WithdrawRequest req) {
+        return storeWalletService.withdrawFromDefaultBalance(req);
+    }
+
+
+    @Operation(
+            summary = "Chuyển tiền từ ví default sang ví cọc (deposit)",
+            description = """
+                API cho phép cửa hàng đang đăng nhập chuyển một khoản tiền tùy chọn từ:
+                - defaultBalance -> depositBalance
+
+                Quy trình:
+                1) Lấy store từ token (không cần truyền storeId)
+                2) Kiểm tra defaultBalance đủ tiền
+                3) Trừ defaultBalance, cộng depositBalance
+                4) Lưu StoreWalletTransaction (TRANSFER_TO_DEPOSIT)
+                
+                Lưu ý:
+                - Nếu không đủ tiền => từ chối và không ghi transaction.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Chuyển thành công",
+                    content = @Content(schema = @Schema(implementation = DepositTransferResult.class))
+            ),
+            @ApiResponse(responseCode = "409", description = "defaultBalance không đủ"),
+            @ApiResponse(responseCode = "401", description = "Chưa đăng nhập / token không hợp lệ")
+    })
+    @PostMapping("/deposit/transfer-in")
+    public ResponseEntity<BaseResponse> transferDefaultToDeposit(@RequestBody DepositTransferRequest req) {
+        return storeWalletService.transferDefaultToDeposit(req);
+    }
+
+    @Operation(
+            summary = "Rút tiền từ ví cọc (depositBalance) về ví defaultBalance",
+            description = """
+                API cho phép cửa hàng đang đăng nhập chuyển một khoản tiền từ ví cọc sang ví default.
+
+                ✅ Điều kiện bắt buộc:
+                - amount > 0
+                - depositBalance đủ để rút
+                - Sau khi rút phải đảm bảo: 
+                  creditAfter = depositAfter + legalPoint * 100000  >= debtBalance
+
+                Nếu không thỏa điều kiện => trả lỗi và KHÔNG ghi nhận transaction.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Rút thành công"),
+            @ApiResponse(responseCode = "409", description = "Không đủ điều kiện rút (deposit không đủ hoặc creditAfter < debt)"),
+            @ApiResponse(responseCode = "401", description = "Chưa đăng nhập / token không hợp lệ")
+    })
+    @PostMapping("/deposit/withdraw-to-default")
+    public ResponseEntity<BaseResponse> withdrawDepositToDefault(@Valid @RequestBody WithdrawDepositToDefaultRequest req) {
+        return storeWalletService.withdrawDepositToDefault(req);
+    }
+
 }

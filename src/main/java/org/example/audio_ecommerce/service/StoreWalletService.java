@@ -1,5 +1,8 @@
 package org.example.audio_ecommerce.service;
 
+import org.example.audio_ecommerce.dto.request.DepositTransferRequest;
+import org.example.audio_ecommerce.dto.request.WithdrawDepositToDefaultRequest;
+import org.example.audio_ecommerce.dto.request.WithdrawRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.StoreWalletTransactionResponse;
 import org.example.audio_ecommerce.entity.Enum.DebtComponentType;
@@ -42,6 +45,14 @@ public interface StoreWalletService {
             int page,
             int size
     );
+
+    ResponseEntity<BaseResponse> payMyDebtFromDefaultBalance();
+
+    ResponseEntity<BaseResponse> withdrawFromDefaultBalance(WithdrawRequest req);
+
+    ResponseEntity<BaseResponse> transferDefaultToDeposit(DepositTransferRequest req);
+
+    ResponseEntity<BaseResponse> withdrawDepositToDefault(WithdrawDepositToDefaultRequest req);
 
 }
 

@@ -35,14 +35,15 @@ public interface StoreWalletTransactionRepository extends JpaRepository<StoreWal
     Optional<StoreWalletTransaction> findByExternalRef(String externalRef);
 
     @Query("""
-    SELECT t FROM StoreWalletTransaction t
+    SELECT t
+    FROM StoreWalletTransaction t
     WHERE t.wallet.walletId = :walletId
       AND (:from IS NULL OR t.createdAt >= :from)
       AND (:to IS NULL OR t.createdAt <= :to)
       AND (:type IS NULL OR t.type = :type)
       AND (:transactionId IS NULL OR t.transactionId = :transactionId)
     ORDER BY t.createdAt DESC
-    """)
+""")
     Page<StoreWalletTransaction> filterTransactions(
             @Param("walletId") UUID walletId,
             @Param("from") LocalDateTime from,
