@@ -31,6 +31,7 @@ public interface ReturnRequestService {
             UUID returnRequestId,
             ReturnShopReceiveRequest req
     );
+    ReturnRequestResponse disputeToAdmin(UUID returnRequestId, ReturnDisputeRequest req);
 
     // ADMIN
     Page<ReturnRequestResponse> listDispute(Pageable pageable);

@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.ReturnCreateGhnOrderRequest;
+import org.example.audio_ecommerce.dto.request.ReturnDisputeRequest;
 import org.example.audio_ecommerce.dto.request.ReturnRejectRequest;
 import org.example.audio_ecommerce.dto.request.ReturnShopReceiveRequest;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
@@ -59,6 +60,14 @@ public class StoreReturnController {
     @PostMapping("/{id}/refund-without-return")
     public ReturnRequestResponse refundWithoutReturn(@PathVariable UUID id) {
         return returnService.refundWithoutReturnByShop(id);
+    }
+
+    @PostMapping("/{id}/dispute")
+    public ReturnRequestResponse disputeToAdmin(
+            @PathVariable UUID id,
+            @Valid @RequestBody ReturnDisputeRequest req
+    ) {
+        return returnService.disputeToAdmin(id, req);
     }
 
 

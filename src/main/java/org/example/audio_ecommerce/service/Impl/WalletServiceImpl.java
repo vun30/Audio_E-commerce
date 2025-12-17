@@ -326,6 +326,7 @@ public class WalletServiceImpl implements WalletService {
                 .balanceAfter(t.getBalanceAfter())
                 .description(t.getDescription())
                 .createdAt(t.getCreatedAt())
+                .updatedAt(t.getUpdatedAt())
                 .build();
     }
 }

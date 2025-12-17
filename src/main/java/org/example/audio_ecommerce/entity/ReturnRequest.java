@@ -132,6 +132,8 @@ public class ReturnRequest extends BaseEntity {
     @Column(name = "shop_dispute_reason", length = 1000)
     private String shopDisputeReason;
 
-    @Column(name = "legal_point_deducted", nullable = false)
+    @Builder.Default
+    @Column(name = "legal_point_deducted", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean legalPointDeducted = false;
+
 }
