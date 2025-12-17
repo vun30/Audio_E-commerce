@@ -17,4 +17,5 @@ public class WalletTransactionResponse {
     private BigDecimal balanceAfter;
     private String description;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
