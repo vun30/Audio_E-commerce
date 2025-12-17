@@ -132,5 +132,9 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
 """)
     List<StoreOrder> findUnpaidFinalOrdersOfStore(@Param("storeId") UUID storeId);
 
+    List<StoreOrder> findByStatusAndReturnChargeApplied(
+            OrderStatus status,
+            Boolean returnChargeApplied
+    );
 
 }
