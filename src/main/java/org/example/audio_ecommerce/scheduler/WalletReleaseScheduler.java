@@ -110,8 +110,7 @@ public class WalletReleaseScheduler {
 //
 //        log.info("🏁 [Scheduler] Hoàn tất quét release. Đã xử lý {} giao dịch.", processed);
 //    }
-    @Scheduled(cron = "0 */1 * * * ?")
-// KHÔNG @Transactional ở đây
+//    @Scheduled(cron = "0 */1 * * * ?")
     public void releaseHeldFunds() {
 
         LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(1); // TEST
