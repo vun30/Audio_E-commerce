@@ -65,6 +65,7 @@ public class Store {
     @Column(precision = 3, scale = 2)
     private BigDecimal rating;
 
+    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2, columnDefinition = "decimal(18,2) default 1.00")
     private BigDecimal legalPoint = BigDecimal.ONE; // điểm uy tín shop
 

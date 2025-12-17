@@ -65,4 +65,6 @@ public interface StoreWalletTransactionRepository extends JpaRepository<StoreWal
                                         @Param("from") LocalDateTime from,
                                         @Param("to") LocalDateTime to);
 
+    boolean existsByExternalRef(String externalRef);
+
 }
