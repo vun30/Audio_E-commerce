@@ -146,4 +146,35 @@ public class PlatformWalletController {
         return ResponseEntity.ok(walletService.getPlatformWallet());
     }
 
+    // ==============================
+    // 📊 LẤY TỔNG QUAN VÍ PLATFORM
+    // ==============================
+    @Operation(
+            summary = "Lấy tổng quan ví Platform (Overview)",
+            description = """
+                - API trả về thông tin tổng quan ví Platform.
+                - Bao gồm: tổng tiền nạp, tiền pending, tiền done, phí commission, etc.
+                - Hữu ích cho dashboard admin theo dõi trạng thái ví nền tảng.
+                - Hiển thị số lượng order pending và done.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Lấy overview thành công",
+                    content = @Content(schema = @Schema(implementation = org.example.audio_ecommerce.dto.response.PlatformWalletOverviewResponse.class))
+            ),
+            @ApiResponse(responseCode = "500", description = "Lỗi server")
+    })
+    @GetMapping("/platform/overview")
+    public ResponseEntity<org.example.audio_ecommerce.dto.response.BaseResponse<org.example.audio_ecommerce.dto.response.PlatformWalletOverviewResponse>> getPlatformWalletOverview() {
+        var overview = walletService.getPlatformWalletOverview();
+        return ResponseEntity.ok(
+                org.example.audio_ecommerce.dto.response.BaseResponse.success(
+                        "Tổng quan ví platform",
+                        overview
+                )
+        );
+    }
+
 }

@@ -71,4 +71,15 @@ public interface PlatformTransactionRepository extends JpaRepository<PlatformTra
     // ✅ Check trùng transaction theo idempotencyKey
     boolean existsByIdempotencyKey(String idempotencyKey);
 
+    // ✅ Đếm số lượng transaction theo status và type
+    @Query("""
+        SELECT COUNT(t)
+        FROM PlatformTransaction t
+        WHERE t.status = :status AND t.type = :type
+    """)
+    Long countByStatusAndType(
+            @Param("status") TransactionStatus status,
+            @Param("type") TransactionType type
+    );
+
 }

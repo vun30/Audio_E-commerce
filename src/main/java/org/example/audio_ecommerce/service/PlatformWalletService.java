@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.response.PlatformTransactionResponse;
+import org.example.audio_ecommerce.dto.response.PlatformWalletOverviewResponse;
 import org.example.audio_ecommerce.dto.response.PlatformWalletResponse;
 import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
 import org.example.audio_ecommerce.entity.Enum.TransactionType;
@@ -28,5 +29,8 @@ public interface PlatformWalletService {
     );
 
     PlatformWalletResponse getPlatformWallet();
+
+    // ✅ Lấy tổng quan ví platform (overview)
+    PlatformWalletOverviewResponse getPlatformWalletOverview();
 
 }

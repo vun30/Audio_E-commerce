@@ -63,7 +63,7 @@ public class StoreWalletTransaction {
     @Builder.Default
     private BigDecimal balanceBefore = BigDecimal.ZERO;
 
-    @Column(name = "external_ref", length = 64, unique = true)
+    @Column(name = "external_ref", length = 255, unique = true)
     private String externalRef;
 
 
