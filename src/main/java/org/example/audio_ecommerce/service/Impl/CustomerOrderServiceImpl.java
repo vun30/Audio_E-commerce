@@ -72,6 +72,33 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         return toCustomerOrderDetail(order);
     }
 
+    @Override
+    @Transactional
+    public void confirmReceivedByCustomerOrder(UUID customerId, UUID customerOrderId) {
+
+        CustomerOrder co = customerOrderRepository.findById(customerOrderId)
+                .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
+
+        if (!co.getCustomer().getId().equals(customerId)) {
+            throw new IllegalArgumentException("Customer does not own this order");
+        }
+
+        StoreOrder so = storeOrderRepository.findFirstByCustomerOrder_Id(customerOrderId)
+                .orElseThrow(() -> new NoSuchElementException("StoreOrder not found for this CustomerOrder"));
+
+        if (so.getStatus() != OrderStatus.DELIVERY_SUCCESS) {
+            if (so.getStatus() == OrderStatus.COMPLETED) return; // idempotent
+            throw new IllegalStateException("Only DELIVERY_SUCCESS can be confirmed received");
+        }
+
+        so.setStatus(OrderStatus.COMPLETED);
+        storeOrderRepository.save(so);
+
+        co.setStatus(OrderStatus.COMPLETED);
+        customerOrderRepository.save(co);
+    }
+
+
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
         // 🔹 Lấy tất cả store_order thuộc customer_order này
         List<StoreOrder> storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());

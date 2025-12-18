@@ -9,4 +9,5 @@ import java.util.UUID;
 public interface CustomerOrderService {
     PagedResult<CustomerOrderDetailResponse> getCustomerOrders(UUID customerId, OrderStatus status, int page, int size);
     CustomerOrderDetailResponse getCustomerOrderDetail(UUID customerId, UUID orderId);
+    void confirmReceivedByCustomerOrder(UUID customerId, UUID customerOrderId);
 }
