@@ -140,7 +140,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         CustomerOrder customerOrder = orderItem.getCustomerOrder();
 
         // chỉ đổi trạng thái nếu đơn đã giao thành công
-        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
+        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS || customerOrder.getStatus() == OrderStatus.COMPLETED) {
             customerOrder.setStatus(OrderStatus.RETURN_REQUESTED);
             customerOrder.setCreatedAt(LocalDateTime.now()); // nếu có field này
             customerOrderRepository.save(customerOrder);
