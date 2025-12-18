@@ -616,26 +616,39 @@ public class CartServiceImpl implements CartService {
                         : (ci.getVariant() != null
                         ? Optional.ofNullable(ci.getVariant().getVariantPrice()).orElse(BigDecimal.ZERO)
                         : getBaseUnitPrice(ci.getProduct()));
+
                 BigDecimal bulkUnit = ci.getType() == CartItemType.COMBO
                         ? baseListUnit
                         : (ci.getVariant() != null
                         ? baseListUnit
                         : getUnitPriceWithBulk(ci.getProduct(), ci.getQuantity()));
+
+                int qty = Math.max(ci.getQuantity(), 1);
+
                 BigDecimal lineBefore = baseListUnit
                         .multiply(BigDecimal.valueOf(ci.getQuantity()))
                         .setScale(0, RoundingMode.DOWN);
+
                 BigDecimal platformPerUnit = bulkUnit.subtract(ci.getUnitPrice());
+
                 if (platformPerUnit.compareTo(BigDecimal.ZERO) < 0) platformPerUnit = BigDecimal.ZERO;
+
                 BigDecimal platformDiscount = platformPerUnit
                         .multiply(BigDecimal.valueOf(ci.getQuantity()))
                         .setScale(0, RoundingMode.DOWN);
+
                 BigDecimal shopItemPerUnit = baseListUnit.subtract(bulkUnit);
+
                 if (shopItemPerUnit.compareTo(BigDecimal.ZERO) < 0) shopItemPerUnit = BigDecimal.ZERO;
+
                 BigDecimal shopItemDiscount = shopItemPerUnit
                         .multiply(BigDecimal.valueOf(ci.getQuantity()))
                         .setScale(0, RoundingMode.DOWN);
+
                 BigDecimal totalItemDiscount = platformDiscount.add(shopItemDiscount);
+
                 BigDecimal finalLine = lineBefore.subtract(totalItemDiscount);
+
                 if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
                 BigDecimal finalUnit = finalLine.divide(
                         BigDecimal.valueOf(ci.getQuantity()), 0, RoundingMode.DOWN
@@ -650,18 +663,26 @@ public class CartServiceImpl implements CartService {
                         .variantId(ci.getVariantIdOrNull())
                         .variantOptionName(ci.getVariantOptionNameSnapshot())
                         .variantOptionValue(ci.getVariantOptionValueSnapshot())
-                        .unitPrice(baseListUnit.setScale(0, RoundingMode.DOWN)) // giá FE thấy ở cart (sau campaign/bulk)
-                        .lineTotal(lineBefore) // = unitPrice * qty (trước voucher)
+                        // ✅ Giá “trước voucher cấp đơn” = giá trong cart sau bulk + campaign
+                        .unitPrice(Optional.ofNullable(ci.getUnitPrice()).orElse(BigDecimal.ZERO).setScale(0, RoundingMode.DOWN))
+                        .lineTotal(Optional.ofNullable(ci.getLineTotal()).orElse(BigDecimal.ZERO).setScale(0, RoundingMode.DOWN))
                         .storeId(storeIdKey)
+                        // ✅ Giá list/niêm yết
                         .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
-                        .linePriceBeforeDiscount(lineBefore)
-                        .platformVoucherDiscount(platformDiscount)
+                        .linePriceBeforeDiscount(lineBefore) // lineBefore = baseListUnit * qty
+
+                        // ✅ Item-level discount breakdown (trước voucher cấp đơn)
+                        .platformVoucherDiscount(platformDiscount)  // đang dùng field này để chứa campaign-discount
                         .shopItemDiscount(shopItemDiscount)
-                        .shopOrderVoucherDiscount(BigDecimal.ZERO) // sẽ được cập nhật sau nếu allocate voucher per item
+                        .shopOrderVoucherDiscount(BigDecimal.ZERO)
+
                         .totalItemDiscount(totalItemDiscount)
+
+                        // ✅ Sau item-level discount (phải khớp lineTotal của cart)
                         .finalUnitPrice(finalUnit)
                         .finalLineTotal(finalLine)
-                        .amountCharged(finalLine) // số tiền thực sau mọi item-based discount
+                        .amountCharged(finalLine)
+
                         .build();
                 coItems.add(coi);
 
@@ -787,6 +808,130 @@ public class CartServiceImpl implements CartService {
 
             customerOrderRepository.save(co);
         }
+
+        // === NEW: Allocate voucher down to CustomerOrderItem (để refund/preview theo item đúng) ===
+        for (CustomerOrder co : createdOrders) {
+            UUID storeIdOfOrder = co.getItems().stream()
+                    .map(CustomerOrderItem::getStoreId)
+                    .findFirst().orElse(null);
+
+            if (storeIdOfOrder == null) continue;
+
+            BigDecimal sv = storeResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+            BigDecimal pv = platformResult.discountByStore.getOrDefault(storeIdOfOrder, BigDecimal.ZERO);
+
+            List<CustomerOrderItem> items = Optional.ofNullable(co.getItems()).orElse(List.of());
+
+            // ===== Allocate PLATFORM voucher (pv) xuống eligible items (PRODUCT + thuộc campaign) =====
+            if (pv != null && pv.compareTo(BigDecimal.ZERO) > 0 && !items.isEmpty()) {
+
+                Set<UUID> cpIds = Optional.ofNullable(platformVouchers).orElse(List.of()).stream()
+                        .map(PlatformVoucherUse::getCampaignProductId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+
+                Map<UUID, PlatformCampaignProduct> cps = cpIds.isEmpty()
+                        ? Collections.emptyMap()
+                        : platformCampaignProductRepository.findAllById(cpIds).stream()
+                        .collect(Collectors.toMap(PlatformCampaignProduct::getId, x -> x));
+
+                Set<UUID> eligibleProductIds = cps.values().stream()
+                        .map(PlatformCampaignProduct::getProduct)
+                        .filter(Objects::nonNull)
+                        .map(Product::getProductId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+
+                List<CustomerOrderItem> eligibleItems = items.stream()
+                        .filter(it -> "PRODUCT".equalsIgnoreCase(it.getType()))
+                        .filter(it -> it.getRefId() != null)
+                        .filter(it -> eligibleProductIds.contains(it.getRefId()))
+                        .toList();
+
+                BigDecimal baseTotal = eligibleItems.stream()
+                        .map(x -> Optional.ofNullable(x.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                if (baseTotal.compareTo(BigDecimal.ZERO) > 0 && !eligibleItems.isEmpty()) {
+                    BigDecimal allocated = BigDecimal.ZERO;
+
+                    for (int i = 0; i < eligibleItems.size(); i++) {
+                        CustomerOrderItem it = eligibleItems.get(i);
+
+                        BigDecimal base = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal share = base.multiply(pv).divide(baseTotal, 0, RoundingMode.DOWN);
+
+                        if (i == eligibleItems.size() - 1) share = pv.subtract(allocated);
+
+//                        BigDecimal oldPv = Optional.ofNullable(it.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+//                        it.setPlatformVoucherDiscount(oldPv.add(share));
+
+                        // recompute per item
+                        BigDecimal platformD = Optional.ofNullable(it.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal shopItemD  = Optional.ofNullable(it.getShopItemDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal shopOrderD = Optional.ofNullable(it.getShopOrderVoucherDiscount()).orElse(BigDecimal.ZERO);
+
+                        BigDecimal totalD = platformD.add(shopItemD).add(shopOrderD);
+                        it.setTotalItemDiscount(totalD);
+
+                        BigDecimal lineBefore = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal finalLine = lineBefore.subtract(totalD);
+                        if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+
+                        it.setFinalLineTotal(finalLine);
+
+                        int qty = Math.max(it.getQuantity(), 1);
+                        it.setFinalUnitPrice(finalLine.divide(BigDecimal.valueOf(qty), 0, RoundingMode.DOWN));
+
+                        it.setAmountCharged(finalLine);
+
+                        allocated = allocated.add(share);
+                    }
+                }
+            }
+
+            // ===== Allocate SHOP voucher (sv) xuống tất cả items theo linePriceBeforeDiscount =====
+            if (sv != null && sv.compareTo(BigDecimal.ZERO) > 0 && !items.isEmpty()) {
+
+                BigDecimal subtotalBefore = items.stream()
+                        .map(x -> Optional.ofNullable(x.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                if (subtotalBefore.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal allocated = BigDecimal.ZERO;
+
+                    for (int i = 0; i < items.size(); i++) {
+                        CustomerOrderItem it = items.get(i);
+
+                        BigDecimal base = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal share = base.multiply(sv).divide(subtotalBefore, 0, RoundingMode.DOWN);
+
+                        if (i == items.size() - 1) share = sv.subtract(allocated);
+
+                        it.setShopOrderVoucherDiscount(share);
+
+                        BigDecimal platformD = Optional.ofNullable(it.getPlatformVoucherDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal shopItemD  = Optional.ofNullable(it.getShopItemDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal totalD = platformD.add(shopItemD).add(share);
+                        it.setTotalItemDiscount(totalD);
+
+                        BigDecimal lineBefore = Optional.ofNullable(it.getLinePriceBeforeDiscount()).orElse(BigDecimal.ZERO);
+                        BigDecimal finalLine = lineBefore.subtract(totalD);
+                        if (finalLine.compareTo(BigDecimal.ZERO) < 0) finalLine = BigDecimal.ZERO;
+
+                        it.setFinalLineTotal(finalLine);
+                        int qty = Math.max(it.getQuantity(), 1);
+                        it.setFinalUnitPrice(finalLine.divide(BigDecimal.valueOf(qty), 0, RoundingMode.DOWN));
+                        it.setAmountCharged(finalLine);
+
+                        allocated = allocated.add(share);
+                    }
+                }
+            }
+
+            customerOrderRepository.save(co);
+        }
+
 
         // === NEW: đổ voucher xuống từng StoreOrder (GHN) ===
         for (CustomerOrder co : createdOrders) {
@@ -1043,7 +1188,7 @@ public class CartServiceImpl implements CartService {
             }
         }
 
-// xoá các item remaining=0
+        // xoá các item remaining=0
         cart.getItems().removeAll(toDelete);
         cartRepo.save(cart);
         cartItemRepo.deleteAll(toDelete);

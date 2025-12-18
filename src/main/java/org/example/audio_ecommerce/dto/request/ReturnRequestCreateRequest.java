@@ -19,9 +19,6 @@ public class ReturnRequestCreateRequest {
     private UUID productId;
 
     @NotNull
-    private BigDecimal itemPrice;
-
-    @NotNull
     private ReturnReasonType reasonType;
 
     @Size(max = 1000)

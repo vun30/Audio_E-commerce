@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.service;
 
 import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.ReturnPackageFeeResponse;
+import org.example.audio_ecommerce.dto.response.ReturnPreviewResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,7 +20,7 @@ public interface ReturnRequestService {
             UUID returnRequestId,
             ReturnPackageInfoRequest req
     );
-
+    ReturnPreviewResponse previewReturnForOrder(UUID orderId);
     // SHOP
     Page<ReturnRequestResponse> listForCurrentShop(Pageable pageable);
 

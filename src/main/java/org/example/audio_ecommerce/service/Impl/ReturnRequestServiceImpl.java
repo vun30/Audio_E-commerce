@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.ReturnPackageFeeResponse;
+import org.example.audio_ecommerce.dto.response.ReturnPreviewResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
@@ -805,6 +806,45 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     r.getId(), r.getReasonType(), finalFault
             );
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReturnPreviewResponse previewReturnForOrder(UUID orderId) {
+
+        UUID customerId = securityUtils.getCurrentCustomerId();
+
+        // ✅ lấy thẳng items của order theo customerId (an toàn + đúng mục tiêu “hoàn theo sản phẩm”)
+        List<CustomerOrderItem> items = customerOrderItemRepo
+                .findAllByCustomerOrder_IdAndCustomerOrder_Customer_Id(orderId, customerId);
+
+        if (items == null || items.isEmpty()) {
+            throw new NoSuchElementException("Order not found or has no items");
+        }
+
+        var itemPreviews = items.stream().map(it -> {
+
+            // ✅ Giá hoàn = số tiền thực trả sau mọi giảm giá (không tính ship)
+            BigDecimal refundable = it.getAmountCharged();
+            if (refundable == null) refundable = it.getFinalLineTotal();
+            if (refundable == null) refundable = it.getLineTotal();
+            if (refundable == null) refundable = BigDecimal.ZERO;
+
+            return ReturnPreviewResponse.Item.builder()
+                    .orderItemId(it.getId())
+                    .productId(it.getRefId())
+                    .productName(it.getName())
+                    .quantity(it.getQuantity())
+                    .refundableAmount(refundable)
+                    .finalLineTotal(it.getFinalLineTotal())
+                    .amountCharged(it.getAmountCharged())
+                    .build();
+        }).toList();
+
+        return ReturnPreviewResponse.builder()
+                .orderId(orderId)
+                .items(itemPreviews)
+                .build();
     }
 
 
