@@ -30,6 +30,16 @@ public class CustomerController {
 //        return customerService.create(req);
 //    }
 
+    @PostMapping("/{customerId}/orders/{orderId}/confirm-received")
+    public BaseResponse<Void> confirmReceived(
+            @PathVariable UUID customerId,
+            @PathVariable UUID orderId
+    ) {
+        customerOrderService.confirmReceivedByCustomerOrder(customerId, orderId);
+        return BaseResponse.success("Confirmed received", null);
+    }
+
+
     @GetMapping("/{id}")
     public CustomerResponse get(@PathVariable UUID id) {
         return customerService.get(id);
