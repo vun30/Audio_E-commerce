@@ -149,4 +149,6 @@ Page<Product> findAllWithAdvancedFilters(
             @Param("fromStatus") ProductStatus fromStatus,
             @Param("toStatus") ProductStatus toStatus
     );
+
+
 }

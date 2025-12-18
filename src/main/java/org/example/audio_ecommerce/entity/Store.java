@@ -65,8 +65,9 @@ public class Store {
     @Column(precision = 3, scale = 2)
     private BigDecimal rating;
 
-    @Column(length = 20)
-    private BigDecimal legalPoint; // điểm uy tín shop
+    @Builder.Default
+    @Column(nullable = false, precision = 18, scale = 2, columnDefinition = "decimal(18,2) default 1.00")
+    private BigDecimal legalPoint = BigDecimal.ONE; // điểm uy tín shop
 
     @Column(name = "last_risk_warning_at")
     private LocalDateTime lastRiskWarningAt;
