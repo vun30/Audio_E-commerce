@@ -21,7 +21,7 @@ public enum OrderStatus {
     EXCEPTION,
 
        // KH đã gửi yêu cầu hoàn
-    RETURNING,          // đang trên đường trả
+    RETURNING,          // đang trên đường trả cus booom
     GHN_CREATED
 
 //    HOLD_FOR_RETURN,               // Đang giữ tiền chờ shop xử lý

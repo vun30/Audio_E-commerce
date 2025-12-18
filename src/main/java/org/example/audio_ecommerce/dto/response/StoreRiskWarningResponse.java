@@ -24,6 +24,7 @@ public class StoreRiskWarningResponse {
     private BigDecimal creditLimit;       // legalPoint * 1,000,000
 
     private BigDecimal debtBalance;
+    private BigDecimal payableNowDebt; // tổng nợ có thể thanh toán ngay
     private BigDecimal depositBalance;
     private BigDecimal effectiveDebt;     // max(0, debt - deposit)
 

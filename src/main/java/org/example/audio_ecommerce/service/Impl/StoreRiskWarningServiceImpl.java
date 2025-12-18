@@ -34,7 +34,9 @@ public class StoreRiskWarningServiceImpl implements StoreRiskWarningService {
     @Transactional
     public int runEarlyWarningScan() {
 
-        List<Store> stores = storeRepository.findAllActiveWithWallet(StoreStatus.ACTIVE);
+        List<Store> stores = storeRepository.findStoresWithWalletByStatuses(
+                List.of(StoreStatus.ACTIVE, StoreStatus.PAUSED, StoreStatus.SUSPENDED_DEBT)
+        );
         int updated = 0;
         LocalDateTime now = LocalDateTime.now();
 
@@ -75,13 +77,13 @@ public class StoreRiskWarningServiceImpl implements StoreRiskWarningService {
         if (debt.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.NONE;
 
         // không có cọc + không có bonus mà có nợ => nguy hiểm
-        if (adjustedDeposit.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.CRITICAL_90;
+        if (adjustedDeposit.compareTo(BigDecimal.ZERO) <= 0) return StoreRiskWarningLevel.BLOCK_100;
 
         BigDecimal ratio = debt.divide(adjustedDeposit, 4, RoundingMode.HALF_UP);
 
-        if (ratio.compareTo(R80) >= 0) return StoreRiskWarningLevel.CRITICAL_90;
-        if (ratio.compareTo(R50) >= 0) return StoreRiskWarningLevel.WARNING_80;
-        if (ratio.compareTo(R20) >= 0) return StoreRiskWarningLevel.WARNING_80; // NOTICE map chung
+        if (ratio.compareTo(R80) >= 0) return StoreRiskWarningLevel.DANGER_80;
+        if (ratio.compareTo(R50) >= 0) return StoreRiskWarningLevel.WARNING_50;
+        if (ratio.compareTo(R20) >= 0) return StoreRiskWarningLevel.DEBT_NOTICE_20; // NOTICE map chung
         return StoreRiskWarningLevel.NONE;
     }
 

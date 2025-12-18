@@ -20,7 +20,7 @@ public class StoreWalletDebtCron {
     private final ReturnShippingFeeRepository returnShippingFeeRepository;
     private final StoreWalletRepository storeWalletRepository;
 
-    @Scheduled(cron = "0 */2 * * * *") // mỗi 2 phút
+    @Scheduled(cron = "*/30 * * * * *") // mỗi 30s
     @Transactional
     public void recalcStoreDebtBalance() {
 
@@ -63,4 +63,57 @@ public class StoreWalletDebtCron {
             log.info("StoreWalletDebtCron updated debtBalance for {} stores", updated);
         }
     }
+
+    @Transactional
+    public void recalcStoreDebtBalanceByStoreId(UUID storeId) {
+
+        if (storeId == null) return;
+
+        // 1️⃣ Nợ từ StoreOrder (reuse y hệt cron, nhưng chỉ lấy phần của storeId)
+        BigDecimal orderDebt = BigDecimal.ZERO;
+        for (Object[] row : storeOrderRepository.sumDebtFromOrdersByStore()) {
+            UUID sid = (UUID) row[0];
+            if (storeId.equals(sid)) {
+                orderDebt = (BigDecimal) row[1];
+                break;
+            }
+        }
+
+        // 2️⃣ Nợ từ ReturnShippingFee (reuse y hệt cron, nhưng chỉ lấy phần của storeId)
+        BigDecimal returnDebt = BigDecimal.ZERO;
+        for (Object[] row : returnShippingFeeRepository.sumDebtFromReturnFeesByStore()) {
+            UUID sid = (UUID) row[0];
+            if (storeId.equals(sid)) {
+                returnDebt = (BigDecimal) row[1];
+                break;
+            }
+        }
+
+        BigDecimal newDebt = nz(orderDebt).add(nz(returnDebt));
+
+        // 3️⃣ Update StoreWallet (chỉ store này)
+        StoreWallet wallet = storeWalletRepository
+                .findByStore_StoreId(storeId)
+                .orElse(null);
+
+        if (wallet == null) {
+            log.warn("[DEBT-RECALC-ONE][SKIP] storeId={} wallet not found", storeId);
+            return;
+        }
+
+        BigDecimal oldDebt = nz(wallet.getDebtBalance());
+
+        if (oldDebt.compareTo(newDebt) != 0) {
+            wallet.setDebtBalance(newDebt);
+            storeWalletRepository.save(wallet);
+
+            log.info("[DEBT-RECALC-ONE] storeId={} oldDebt={} newDebt={}",
+                    storeId, oldDebt, newDebt);
+        }
+    }
+
+    private BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
+    }
+
 }
