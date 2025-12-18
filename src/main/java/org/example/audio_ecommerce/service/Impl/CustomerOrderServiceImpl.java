@@ -100,27 +100,32 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
 
 
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
-        // 🔹 Lấy tất cả store_order thuộc customer_order này
         List<StoreOrder> storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
 
-        // Map storeId -> storeOrderId để gán cho từng CustomerOrderItem
         Map<UUID, UUID> storeIdToStoreOrderId = storeOrders.stream()
                 .filter(so -> so.getStore() != null && so.getStore().getStoreId() != null)
                 .collect(Collectors.toMap(
                         so -> so.getStore().getStoreId(),
                         StoreOrder::getId,
-                        (a, b) -> a // nếu trùng storeId thì lấy cái đầu tiên
+                        (a, b) -> a
                 ));
 
-        // 🔹 Map items (product detail + image + variant + storeOrderId)
         List<CustomerOrderItemResponse> itemResponses =
                 toCustomerOrderItemResponses(order.getItems(), storeIdToStoreOrderId);
 
-        // 🔹 Map storeOrders (voucher detail, shipping, total,...)
+        // ✅ recompute theo rule: totalAmount = giá gốc (sum linePriceBeforeDiscount)
+        BigDecimal recomputeTotal = Optional.ofNullable(order.getItems()).orElse(List.of()).stream()
+                .map(it -> it.getLinePriceBeforeDiscount() != null ? it.getLinePriceBeforeDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal discount = defaultBigDecimal(order.getDiscountTotal());
+        BigDecimal ship = defaultBigDecimal(order.getShippingFeeTotal());
+
+        BigDecimal recomputeGrand = recomputeTotal.subtract(discount).add(ship);
+        if (recomputeGrand.compareTo(BigDecimal.ZERO) < 0) recomputeGrand = BigDecimal.ZERO;
+
         List<StoreOrderSummaryResponse> storeOrderResponses =
-                storeOrders.stream()
-                        .map(this::toStoreOrderSummary)
-                        .collect(Collectors.toList());
+                storeOrders.stream().map(this::toStoreOrderSummary).collect(Collectors.toList());
 
         return CustomerOrderDetailResponse.builder()
                 .id(order.getId())
@@ -128,10 +133,13 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .status(order.getStatus())
                 .message(order.getMessage())
                 .createdAt(order.getCreatedAt())
-                .totalAmount(defaultBigDecimal(order.getTotalAmount()))
-                .discountTotal(defaultBigDecimal(order.getDiscountTotal()))
-                .shippingFeeTotal(defaultBigDecimal(order.getShippingFeeTotal()))
-                .grandTotal(defaultBigDecimal(order.getGrandTotal()))
+
+                // ✅ dùng recompute thay vì order.getTotalAmount/order.getGrandTotal
+                .totalAmount(recomputeTotal)
+                .discountTotal(discount)
+                .shippingFeeTotal(ship)
+                .grandTotal(recomputeGrand)
+
                 .externalOrderCode(order.getExternalOrderCode())
                 .receiverName(order.getShipReceiverName())
                 .phoneNumber(order.getShipPhoneNumber())
@@ -147,6 +155,7 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .storeOrders(storeOrderResponses)
                 .build();
     }
+
 
     private List<CustomerOrderItemResponse> toCustomerOrderItemResponses(
             List<CustomerOrderItem> items,
