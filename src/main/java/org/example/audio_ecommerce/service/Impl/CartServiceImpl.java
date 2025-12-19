@@ -42,7 +42,7 @@ public class CartServiceImpl implements CartService {
     private final NotificationCreatorService notificationCreatorService;
     private final PlatformFeeRepository platformFeeRepository;
     private final PlatformCampaignProductUsageRepository platformCampaignProductUsageRepository;
-
+    private final CustomerOrderItemRepository customerOrderItemRepository;
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -928,7 +928,7 @@ public class CartServiceImpl implements CartService {
                     }
                 }
             }
-
+            customerOrderItemRepository.saveAll(items);
             customerOrderRepository.save(co);
         }
 
@@ -948,6 +948,8 @@ public class CartServiceImpl implements CartService {
 
                 String storeJson = storeDetailJsonByStore.getOrDefault(sid, "{}");
                 String platJson = platformDetailJsonByStore.getOrDefault(sid, "{}");
+                co.setStoreVoucherDetailJson(storeJson);              // <== THÊM
+                co.setPlatformVoucherDetailJson(platJson);
                 so.setStoreVoucherDetailJson(storeJson);
                 so.setPlatformVoucherDetailJson(platJson);
 

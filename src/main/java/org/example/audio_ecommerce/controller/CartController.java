@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.controller;
 
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,14 +32,63 @@ public class CartController {
     private final CartService cartService;
 
     @Operation(
-            summary = "Lấy giỏ hàng hiện tại",
-            description = "Trả về giỏ hàng ACTIVE của khách hàng (nếu chưa có có thể trả về giỏ rỗng)."
+            summary = "Lấy giỏ hàng hiện tại của Customer",
+            description = """
+  API trả về **giỏ hàng ACTIVE** hiện tại của customer để FE hiển thị màn Cart.
+
+  ======================
+  1) FE HIỂN THỊ CẦN GÌ?
+  ======================
+  - Render `items[]`: tên, ảnh, variant, origin, quantity.
+  - Render giá từng item theo đúng BE:
+    - `unitPrice`: đơn giá hiệu lực (giá BE đang áp dụng).
+    - `lineTotal`: = unitPrice * quantity (BE trả sẵn).
+  - Render tổng tiền cart:
+    - `subtotal`: tổng lineTotal
+    - `discountTotal`: tổng giảm (cấp cart)
+    - `grandTotal`: = subtotal - discountTotal
+
+  ======================
+  2) QUY TẮC HIỂN THỊ GIÁ (RẤT QUAN TRỌNG)
+  ======================
+  Các field liên quan giá:
+  - `baseUnitPrice`: giá gốc (chưa áp campaign)
+  - `platformCampaignPrice`: giá sau campaign (nếu có)
+  - `inPlatformCampaign`: item có thuộc campaign hay không
+  - `campaignUsageExceeded`: customer đã dùng vượt limit campaign hay chưa
+  - `campaignRemaining`: số lượt còn lại (nếu có giới hạn)
+
+  Rule FE khuyến nghị:
+  - Nếu `inPlatformCampaign = true` và `platformCampaignPrice != null` và `campaignUsageExceeded != true`:
+    -> Giá bán hiển thị = `platformCampaignPrice`
+    -> Giá gạch/compare = `baseUnitPrice` (nếu != null)
+  - Nếu `campaignUsageExceeded = true`:
+    -> Hiển thị badge “Hết lượt ưu đãi”
+    -> Không dùng `platformCampaignPrice` (coi như không có campaign cho user này)
+  - Nếu không có campaign:
+    -> Hiển thị giá bán = `unitPrice`
+    -> Giá gạch chỉ hiển thị nếu FE có rule khác (tùy UI)
+
+  ======================
+  3) VARIANT / ORIGIN
+  ======================
+  - Variant:
+    - Nếu `variantId != null`: hiển thị `variantOptionName : variantOptionValue`
+    - Ưu tiên ảnh `variantUrl` nếu có (fallback về `image`)
+  - Origin (nguồn gửi):
+    - `originProvinceCode`, `originDistrictCode`, `originWardCode`
+    - FE dùng để hiển thị “Gửi từ …” và phục vụ tính ship ở bước preview checkout
+
+  ======================
+  4) LƯU Ý
+  ======================
+  - API này KHÔNG tạo đơn hàng, KHÔNG trừ tiền, KHÔNG giữ tồn kho.
+  - Chỉ dùng để hiển thị giỏ hàng.
+  """
     )
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Thành công",
-                    content = @Content(schema = @Schema(implementation = CartResponse.class))),
-            @ApiResponse(responseCode = "404", description = "Không tìm thấy customer")
-    })
+    @ApiResponse(responseCode = "200", description = "OK - Trả về CartResponse")
+    @ApiResponse(responseCode = "400", description = "Sai định dạng UUID hoặc tham số không hợp lệ")
+    @ApiResponse(responseCode = "404", description = "Không tìm thấy customer hoặc giỏ hàng")
     @GetMapping
     public CartResponse getActive(
             @Parameter(description = "ID khách hàng (UUID)", required = true)
@@ -203,6 +253,84 @@ public class CartController {
         return cartService.updateItemQuantityWithVouchers(customerId, request);
     }
 
+    @Operation(
+            summary = "Preview checkout (COD) từ giỏ hàng (chưa tạo đơn)",
+            description = """
+  API dùng để **xem trước thông tin checkout** trước khi tạo đơn thực tế.
+  FE gọi ở màn hình “Xác nhận đặt hàng” để hiển thị breakdown: tiền hàng / phí ship / giảm giá / tổng phải trả.
+
+  ======================
+  1) REQUEST (CheckoutCODRequest)
+  ======================
+  - `items[]`: danh sách item muốn mua + số lượng chốt ở bước checkout
+    - FE phải gửi đúng quantity user chọn mua (không phụ thuộc quantity đang lưu trong cart).
+  - `addressId` (optional):
+    - Nếu có: BE tính phí ship theo địa chỉ này.
+    - Nếu null: BE có thể dùng địa chỉ mặc định (tuỳ logic hiện tại của bạn).
+  - `message` (optional): ghi chú đơn (nếu có).
+  - `storeVouchers` (optional): voucher theo shop.
+  - `platformVouchers` (optional): voucher của sàn.
+  - `serviceTypeIds` (optional Map<storeId, serviceTypeId>):
+    - Cho phép FE chọn loại dịch vụ vận chuyển cho từng shop khi preview.
+
+  ======================
+  2) RESPONSE (CheckoutPreviewResponse)
+  ======================
+  Tổng quan toàn hệ thống (tất cả store):
+  - `overallSubtotal`: tổng tiền hàng trước giảm (tổng linePriceBeforeDiscount)
+  - `overallShipping`: tổng phí ship (cộng tất cả store)
+  - `overallDiscount`: tổng giảm (platform + store)
+  - `overallGrandTotal`: tổng phải trả = overallSubtotal + overallShipping - overallDiscount
+
+  Breakdown theo từng store (`stores[]`):
+  - `subtotal`: tổng tiền hàng trước giảm của store
+  - `shippingFee`: phí ship của store
+  - `platformDiscount`: giảm từ voucher sàn áp vào store (nếu có)
+  - `storeDiscount`: giảm từ voucher shop (nếu có)
+  - `discountTotal`: tổng giảm của store = platformDiscount + storeDiscount
+  - `grandTotal`: tổng phải trả của store = subtotal + shippingFee - discountTotal
+  - `shippingServiceTypeId` (optional): loại dịch vụ ship BE đã dùng/tính cho store
+  - `storeVoucherDetailJson`, `platformVoucherDetailJson` (optional):
+    - JSON string để FE hiển thị chi tiết voucher áp dụng (tên, code, số tiền giảm, điều kiện...)
+
+  Item breakdown trong từng store (`stores[].items[]`):
+  - `unitPriceBeforeDiscount`: đơn giá trước voucher (và trước các giảm cấp store/platform)
+  - `linePriceBeforeDiscount`: = unitPriceBeforeDiscount * quantity
+  - `finalUnitPrice`: đơn giá sau khi phân bổ/áp giảm (nếu có)
+  - `finalLineTotal`: = finalUnitPrice * quantity
+
+  ======================
+  3) QUY TẮC HIỂN THỊ FE (KHUYẾN NGHỊ)
+  ======================
+  - Hiển thị tổng tiền trang checkout theo:
+    - Tiền hàng: overallSubtotal
+    - Phí ship: overallShipping
+    - Giảm giá: overallDiscount
+    - Tổng thanh toán: overallGrandTotal
+  - Nếu UI chia theo shop:
+    - Render stores[] và dùng PerStore.subtotal/shippingFee/discountTotal/grandTotal.
+  - Giá item hiển thị:
+    - Giá gốc: unitPriceBeforeDiscount
+    - Giá sau giảm: finalUnitPrice (nếu khác null và khác giá gốc)
+    - Tổng dòng: finalLineTotal
+
+  ======================
+  4) LƯU Ý QUAN TRỌNG
+  ======================
+  - Preview KHÔNG tạo CustomerOrder/StoreOrder.
+  - KHÔNG trừ tiền, KHÔNG giữ tồn kho.
+  - Có thể trả lỗi nếu:
+    - quantity không hợp lệ
+    - item không thuộc cart/customer
+    - hết hàng / không đủ tồn
+    - voucher không hợp lệ / không áp dụng
+    - thiếu addressId trong trường hợp bắt buộc để tính ship (tuỳ rule của bạn)
+  """
+    )
+    @ApiResponse(responseCode = "200", description = "OK - Trả về CheckoutPreviewResponse")
+    @ApiResponse(responseCode = "400", description = "Request body không hợp lệ / quantity <= 0 / thiếu items")
+    @ApiResponse(responseCode = "404", description = "Không tìm thấy customer/cart/cartItem/address")
+    @ApiResponse(responseCode = "409", description = "Hết hàng / voucher không áp dụng / dữ liệu thay đổi gây xung đột")
     @PostMapping("/checkout/preview")
     public BaseResponse<CheckoutPreviewResponse> previewCheckout(
             @RequestHeader("X-Customer-Id") UUID customerId,
