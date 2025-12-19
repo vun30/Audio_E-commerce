@@ -11,7 +11,7 @@ import java.util.UUID;
 @Data
 public class ChatMessageRequest {
     private String senderId;      // UUID string
-    private String senderType;    // "CUSTOMER" hoặc "STORE"
+    private String senderType;    // "CUSTOMER" hoặc "STORE" hoặc "ADMIN"
 
     // text
     private String content;       // nếu là TEXT thì dùng content
