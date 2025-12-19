@@ -24,6 +24,9 @@ public class CustomerOrderDetailResponse {
     private BigDecimal totalAmount;
     private BigDecimal discountTotal;
     private BigDecimal shippingFeeTotal;
+    private BigDecimal storeVoucherDiscount;
+    private BigDecimal storeVoucherProductDiscount;
+    private BigDecimal platformVoucherDiscount;
     private BigDecimal grandTotal;
     private String externalOrderCode;
     private String receiverName;

@@ -113,15 +113,42 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         List<CustomerOrderItemResponse> itemResponses =
                 toCustomerOrderItemResponses(order.getItems(), storeIdToStoreOrderId);
 
+        List<CustomerOrderItem> items = Optional.ofNullable(order.getItems()).orElse(List.of());
+
         // ✅ recompute theo rule: totalAmount = giá gốc (sum linePriceBeforeDiscount)
-        BigDecimal recomputeTotal = Optional.ofNullable(order.getItems()).orElse(List.of()).stream()
+        BigDecimal recomputeTotal = items.stream()
                 .map(it -> it.getLinePriceBeforeDiscount() != null ? it.getLinePriceBeforeDiscount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal discount = defaultBigDecimal(order.getDiscountTotal());
+        // =========================
+        // ✅ NEW: tách giảm giá theo yêu cầu FE
+        // =========================
+
+        // 1) Voucher toàn shop (được phân bổ xuống item)
+        BigDecimal storeVoucherOrderDiscount = items.stream()
+                .map(it -> it.getShopOrderVoucherDiscount() != null ? it.getShopOrderVoucherDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 2) Voucher theo sản phẩm của shop
+        BigDecimal storeVoucherProductDiscount = items.stream()
+                .map(it -> it.getShopItemDiscount() != null ? it.getShopItemDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 3) (Khuyến nghị) Voucher sàn / platform (nếu có field ở item)
+        BigDecimal platformVoucherDiscountTotal = items.stream()
+                .map(it -> it.getPlatformVoucherDiscount() != null ? it.getPlatformVoucherDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // ✅ Tổng giảm đúng bản chất: store(order) + store(product) + platform
+        BigDecimal recomputeDiscountTotal = storeVoucherOrderDiscount
+                .add(storeVoucherProductDiscount)
+                .add(platformVoucherDiscountTotal);
+
+        // Shipping
         BigDecimal ship = defaultBigDecimal(order.getShippingFeeTotal());
 
-        BigDecimal recomputeGrand = recomputeTotal.subtract(discount).add(ship);
+        // ✅ recompute grand theo rule: grand = total - discount + ship
+        BigDecimal recomputeGrand = recomputeTotal.subtract(recomputeDiscountTotal).add(ship);
         if (recomputeGrand.compareTo(BigDecimal.ZERO) < 0) recomputeGrand = BigDecimal.ZERO;
 
         List<StoreOrderSummaryResponse> storeOrderResponses =
@@ -136,7 +163,15 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
 
                 // ✅ dùng recompute thay vì order.getTotalAmount/order.getGrandTotal
                 .totalAmount(recomputeTotal)
-                .discountTotal(discount)
+
+                // ✅ tổng giảm (giữ field cũ để FE không bị vỡ)
+                .discountTotal(recomputeDiscountTotal)
+
+                // ✅ NEW: tách riêng để FE hiển thị
+                .storeVoucherDiscount(storeVoucherOrderDiscount)
+                .storeVoucherProductDiscount(storeVoucherProductDiscount)
+                .platformVoucherDiscount(platformVoucherDiscountTotal) // nếu bạn muốn hiển thị riêng
+
                 .shippingFeeTotal(ship)
                 .grandTotal(recomputeGrand)
 
@@ -155,6 +190,7 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .storeOrders(storeOrderResponses)
                 .build();
     }
+
 
 
     private List<CustomerOrderItemResponse> toCustomerOrderItemResponses(
