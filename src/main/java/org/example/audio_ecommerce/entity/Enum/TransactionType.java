@@ -12,5 +12,6 @@ public enum TransactionType {
     PLATFORM_FEE,
     SHIPPING_FEE_ADJUST,
     REFUND_CUSTOMER_RETURN,
-    DEBT_PAYMENT
+    DEBT_PAYMENT,
+    TOPUP
 }

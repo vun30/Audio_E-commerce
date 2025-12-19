@@ -3,14 +3,9 @@ package org.example.audio_ecommerce.service.Impl;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CustomerWithdrawCreateRequest;
 import org.example.audio_ecommerce.dto.response.CustomerWithdrawResponse;
-import org.example.audio_ecommerce.entity.CustomerWithdrawRequest;
+import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
-import org.example.audio_ecommerce.entity.Wallet;
-import org.example.audio_ecommerce.entity.WalletTransaction;
-import org.example.audio_ecommerce.repository.CustomerWithdrawRequestRepository;
-import org.example.audio_ecommerce.repository.WithdrawProofRepository;
-import org.example.audio_ecommerce.repository.WalletRepository;
-import org.example.audio_ecommerce.repository.WalletTransactionRepository;
+import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.CustomerWithdrawService;
 import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
@@ -32,6 +27,8 @@ public class CustomerWithdrawServiceImpl implements CustomerWithdrawService {
     private final CustomerWithdrawRequestRepository withdrawRepo;
     private final WalletTransactionRepository txnRepo;
     private final WithdrawProofRepository proofRepo;
+    private final PlatformWalletRepository platformWalletRepository;
+    private final PlatformTransactionRepository platformTransactionRepository;
 
     @Override
     @Transactional
@@ -74,6 +71,44 @@ public class CustomerWithdrawServiceImpl implements CustomerWithdrawService {
                 .payoutRef("AUTO:" + UUID.randomUUID()) // optional, để trace
                 .build();
         withdrawRepo.save(wr);
+
+        // ===== PLATFORM CASH OUT (CUSTOMER WITHDRAW) =====
+        PlatformWallet platform = platformWalletRepository.getPlatformMainWallet();
+
+        BigDecimal cashBefore = platform.getCashBalance() != null ? platform.getCashBalance() : BigDecimal.ZERO;
+        BigDecimal cashAfter  = cashBefore.subtract(amount);
+
+        platform.setCashBalance(cashAfter);
+        platform.setRefundedTotal(
+                (platform.getRefundedTotal() != null ? platform.getRefundedTotal() : BigDecimal.ZERO)
+                        .add(amount)
+        );
+        platformWalletRepository.save(platform);
+
+        // Lưu platform_transaction (bucket=CASH)
+        PlatformTransaction pTxn = PlatformTransaction.builder()
+                .wallet(platform)
+                .orderId(null)
+                .storeId(null)
+                .customerId(customerId)
+                .amount(amount)
+                .type(TransactionType.WITHDRAW)                    // đổi đúng enum của bạn
+                .status(TransactionStatus.DONE)
+                .description("Customer withdraw (auto) withdrawReqId=" + wr.getId())
+                .idempotencyKey("PAYOUT:CUS_WITHDRAW:" + wr.getId()) // unique
+                .channel(PaymentChannel.BANK_TRANSFER)             // hoặc INTERNAL nếu bạn chưa payout thật
+                .externalRefId(wr.getPayoutRef())                  // nếu payoutRef có
+                .externalRefCode("CWR:" + wr.getId())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .bucket(WalletBucket.CASH)
+                .direction(TxDirection.OUT)
+                .balanceBefore(cashBefore)
+                .balanceAfter(cashAfter)
+                .build();
+
+        platformTransactionRepository.save(pTxn);
+
 
         // 3) Log wallet transaction DONE
         WalletTransaction txn = WalletTransaction.builder()

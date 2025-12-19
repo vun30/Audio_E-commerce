@@ -24,5 +24,17 @@ public interface PlatformWalletRepository extends JpaRepository<PlatformWallet, 
     """)
     Optional<PlatformWallet> findMainPlatformWallet();
 
+    //repo cho rút tiền
+    Optional<PlatformWallet> findByOwnerTypeAndOwnerIdIsNull(WalletOwnerType ownerType);
+
+    /**
+     * Helper dùng cho cashBalance (luôn phải tồn tại 1 record)
+     */
+    default PlatformWallet getPlatformMainWallet() {
+        return findByOwnerTypeAndOwnerIdIsNull(WalletOwnerType.PLATFORM)
+                .orElseThrow(() ->
+                        new IllegalStateException("PLATFORM wallet not found")
+                );
+    }
 
 }
