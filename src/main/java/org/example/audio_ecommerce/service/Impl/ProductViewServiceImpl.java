@@ -46,6 +46,9 @@ public ResponseEntity<BaseResponse> getThumbnailView(
         BigDecimal minPrice,
         BigDecimal maxPrice,
         BigDecimal minRating,
+        Integer minReviewCount,
+        Integer minViewCount,
+        Integer minSellCount,
         Pageable pageable,
         String sortBy,
         String sortDir
@@ -112,6 +115,15 @@ public ResponseEntity<BaseResponse> getThumbnailView(
             )
 
             // ======================================================
+            // 🔥 FILTER COUNTS
+            // ======================================================
+            .filter(p ->
+                    (minReviewCount == null || (p.getReviewCount() != null && p.getReviewCount() >= minReviewCount))
+                            && (minViewCount == null || (p.getViewCount() != null && p.getViewCount() >= minViewCount))
+                            && (minSellCount == null || (p.getSellCount() != null && p.getSellCount() >= minSellCount))
+            )
+
+            // ======================================================
             // 🔥 FUZZY SEARCH (Name + Brand + Desc)
             // ======================================================
             .filter(p -> {
@@ -128,7 +140,9 @@ public ResponseEntity<BaseResponse> getThumbnailView(
     // ======================================================
     Comparator<Product> comparator;
 
-    switch (sortBy.toLowerCase()) {
+    String safeSortBy = sortBy != null ? sortBy.toLowerCase() : "name";
+
+    switch (safeSortBy) {
         case "price" -> {
             comparator = Comparator.comparing(p -> {
                 BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
@@ -140,8 +154,16 @@ public ResponseEntity<BaseResponse> getThumbnailView(
                             .orElse(basePrice);
                 }
                 return basePrice;
-            });
+            }, Comparator.nullsLast(BigDecimal::compareTo));
         }
+        case "view", "viewcount" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getViewCount()).orElse(0));
+        case "review", "reviewcount" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getReviewCount()).orElse(0));
+        case "rating", "ratingaverage" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getRatingAverage()).orElse(BigDecimal.ZERO));
+        case "sell", "sellcount" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getSellCount()).orElse(0));
         default -> comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
     }
 

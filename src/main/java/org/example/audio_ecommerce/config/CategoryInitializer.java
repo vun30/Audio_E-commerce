@@ -33,35 +33,52 @@ public class CategoryInitializer {
         log.info("🚀 Initializing default Categories...");
 
         // =====================================================
-        // 1) LOA – SPEAKER
-        // =====================================================
+// 1) LOA – SPEAKER (ĐỦ CHO RECOMMEND + MÔ PHỎNG)
+// - User chỉ nhập số (không nhập đơn vị)
+// - Đơn vị hiển thị nằm trong attributeLabel
+// =====================================================
         createCategory(
                 "Loa",
                 List.of(
-                        att("frequencyResponse", "Dải tần", CategoryAttributeDataType.STRING, List.of()),
+                        // ====== BẮT BUỘC (LÕI) ======
 
-                        att("sensitivity", "Độ nhạy", CategoryAttributeDataType.STRING, List.of()),
+                        // Loại loa: dùng cho filter + preset directivity
+                        att("speakerType", "Loại loa", CategoryAttributeDataType.STRING,
+                                List.of("Loa bookshelf", "Loa đứng", "Loa center", "Loa subwoofer")),
 
-                        att("impedance", "Trở kháng", CategoryAttributeDataType.STRING,
-                                List.of("2Ω", "4Ω", "6Ω", "8Ω", "16Ω")),
+                        // dB / 1W / 1m
+                        att("sensitivityDb", "Độ nhạy (dB/1W/1m)", CategoryAttributeDataType.NUMBER, List.of()),
 
-                        att("powerHandling", "Công suất chịu đựng", CategoryAttributeDataType.STRING, List.of()),
+                        // W
+                        att("powerRmsW", "Công suất RMS (W)", CategoryAttributeDataType.NUMBER, List.of()),
 
-                        att("driverConfiguration", "Cấu hình driver", CategoryAttributeDataType.STRING,
-                                List.of("1-Way", "2-Way", "3-Way", "4-Way", "Coaxial")),
+                        // Ω (nhập số 2/4/6/8/16)
+                        att("impedanceOhm", "Trở kháng (Ω)", CategoryAttributeDataType.NUMBER,
+                                List.of("2", "4", "6", "8", "16")),
 
-                        att("driverSize", "Kích thước driver", CategoryAttributeDataType.STRING,
-                                List.of("1 inch", "2 inch", "3 inch", "4 inch", "5 inch",
-                                        "6.5 inch", "8 inch", "10 inch", "12 inch", "15 inch", "18 inch")),
+                        // Hz
+                        att("frequencyLowHz", "Tần số thấp nhất (Hz)", CategoryAttributeDataType.NUMBER, List.of()),
+                        att("frequencyHighHz", "Tần số cao nhất (Hz)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        // % (khuyến nghị có)
+                        att("thdPercent", "Độ méo tiếng tổng THD (%)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        // ====== OPTIONAL CHO HƯỚNG PHỦ ÂM (nếu có data hãng) ======
+                        att("dispersionHorizontalDeg", "Góc phủ âm ngang (độ)", CategoryAttributeDataType.NUMBER, List.of()),
+                        att("dispersionVerticalDeg", "Góc phủ âm dọc (độ)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        // ====== MÔ TẢ / FILTER (KHÔNG BẮT BUỘC CHO TÍNH TOÁN) ======
+                        att("driverConfiguration", "Cấu hình loa", CategoryAttributeDataType.STRING,
+                                List.of("1 đường tiếng", "2 đường tiếng", "3 đường tiếng", "4 đường tiếng", "Đồng trục")),
+
+                        // inch (user nhập số, ví dụ 6.5)
+                        att("driverSizeInch", "Kích thước củ loa (inch)", CategoryAttributeDataType.NUMBER, List.of()),
 
                         att("enclosureType", "Loại thùng loa", CategoryAttributeDataType.STRING,
-                                List.of("Closed", "Ported", "Bass-reflex", "Open-back",
-                                        "Sealed", "Bandpass", "Transmission Line")),
+                                List.of("Thùng kín", "Thùng hở", "Bass reflex", "Bandpass", "Transmission Line")),
 
-                        att("coveragePattern", "Góc phủ âm", CategoryAttributeDataType.STRING,
-                                List.of("60°", "75°", "90°", "120°", "180°", "360°")),
-
-                        att("crossoverFrequency", "Tần cắt", CategoryAttributeDataType.STRING, List.of())
+                        // Hz
+                        att("crossoverFrequencyHz", "Tần số cắt (Hz)", CategoryAttributeDataType.NUMBER, List.of())
                 )
         );
 
