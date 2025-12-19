@@ -164,6 +164,28 @@ public class StoreOrderItem {
     @Column(name = "net_payout_item", precision = 18, scale = 2)
     private BigDecimal netPayoutItem = BigDecimal.ZERO;
 
+    // ===== Voucher Information Columns =====
+    
+    // Voucher percentage columns
+    @Column(name = "store_voucher_percentage", precision = 5, scale = 2)
+    private BigDecimal storeVoucherPercentage = BigDecimal.ZERO;
+    
+    @Column(name = "store_item_voucher_percentage", precision = 5, scale = 2)
+    private BigDecimal storeItemVoucherPercentage = BigDecimal.ZERO;
+    
+    @Column(name = "platform_campaign_percentage", precision = 5, scale = 2)
+    private BigDecimal platformCampaignPercentage = BigDecimal.ZERO;
+    
+    // Voucher name/code columns
+    @Column(name = "store_voucher_name", length = 100)
+    private String storeVoucherName;
+    
+    @Column(name = "store_item_voucher_name", length = 100)
+    private String storeItemVoucherName;
+    
+    @Column(name = "platform_campaign_name", length = 100)
+    private String platformCampaignName;
+
     @Column(
             name = "payout_processed",
             nullable = false,

@@ -8,6 +8,7 @@ import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.*;
+import org.example.audio_ecommerce.util.VoucherInfoUtil;
 
 import static org.example.audio_ecommerce.service.Impl.GhnFeeRequestBuilder.buildForStoreShipment;
 
@@ -43,6 +44,7 @@ public class CartServiceImpl implements CartService {
     private final PlatformFeeRepository platformFeeRepository;
     private final PlatformCampaignProductUsageRepository platformCampaignProductUsageRepository;
     private final CustomerOrderItemRepository customerOrderItemRepository;
+    private final ShopVoucherRepository voucherRepo; // Added for voucher information update
 
     // ====== NEW: để kiểm tra COD theo ví đặt cọc ======
     private final StoreWalletRepository storeWalletRepository;
@@ -1142,6 +1144,16 @@ public class CartServiceImpl implements CartService {
                     }
                 }
 
+                // ✅ NEW: Update voucher information for each StoreOrderItem
+                for (StoreOrderItem item : items) {
+                    VoucherInfoUtil.updateVoucherInfoForItem(
+                            item,
+                            storeVouchers,
+                            platformVouchers,
+                            voucherRepo,
+                            platformCampaignProductRepository
+                    );
+                }
 
                 storeOrderRepository.save(so);
             }
