@@ -149,5 +149,13 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
 """)
     List<Store> findStoresWithWalletByStatuses(@Param("statuses") List<StoreStatus> statuses);
 
-
+    @Query("""
+        select so
+        from StoreOrder so
+        where so.status = :status
+          and so.storeScored = false
+    """)
+    List<StoreOrder> findDeliverySuccessNotScored(
+            @Param("status") OrderStatus status
+    );
 }
