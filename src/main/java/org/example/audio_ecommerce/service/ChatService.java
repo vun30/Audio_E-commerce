@@ -16,4 +16,22 @@ public interface ChatService {
     void markMessagesAsRead(UUID customerId, UUID storeId, String viewerId);
     void deleteMessage(UUID customerId, UUID storeId, String messageId, String viewerType);
     void deleteAllMessages(UUID customerId, UUID storeId, String viewerType);
+    
+    // New methods for customer-admin chat
+    ChatMessageResponse sendAdminMessage(UUID customerId, UUID adminId, ChatMessageRequest req);
+    List<ChatMessageResponse> getAdminMessages(UUID customerId, UUID adminId, int limit, String viewerType);
+    List<ChatConversationResponse> getCustomerAdminConversations(UUID customerId);
+    List<ChatConversationResponse> getAdminConversations(UUID adminId);
+    void markAdminMessagesAsRead(UUID customerId, UUID adminId, String viewerId);
+    void deleteAdminMessage(UUID customerId, UUID adminId, String messageId, String viewerType);
+    void deleteAllAdminMessages(UUID customerId, UUID adminId, String viewerType);
+    
+    // New methods for store-admin chat
+    ChatMessageResponse sendStoreAdminMessage(UUID storeId, UUID adminId, ChatMessageRequest req);
+    List<ChatMessageResponse> getStoreAdminMessages(UUID storeId, UUID adminId, int limit, String viewerType);
+    List<ChatConversationResponse> getStoreAdminConversations(UUID storeId);
+    List<ChatConversationResponse> getAdminStoreConversations(UUID adminId);
+    void markStoreAdminMessagesAsRead(UUID storeId, UUID adminId, String viewerId);
+    void deleteStoreAdminMessage(UUID storeId, UUID adminId, String messageId, String viewerType);
+    void deleteAllStoreAdminMessages(UUID storeId, UUID adminId, String viewerType);
 }

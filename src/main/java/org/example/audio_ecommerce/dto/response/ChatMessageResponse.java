@@ -25,6 +25,7 @@ public class ChatMessageResponse {
     private Boolean read;
     private Boolean deletedForCustomer;
     private Boolean deletedForStore;
+    private Boolean deletedForAdmin;       // for admin conversations
 
     private UUID productId;
     private String productName;
