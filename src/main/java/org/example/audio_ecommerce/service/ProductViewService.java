@@ -26,6 +26,9 @@ public interface ProductViewService {
             BigDecimal minPrice,
             BigDecimal maxPrice,
             BigDecimal minRating,
+            Integer minReviewCount,
+            Integer minViewCount,
+            Integer minSellCount,
             Pageable pageable,
             String sortBy,
             String sortDir

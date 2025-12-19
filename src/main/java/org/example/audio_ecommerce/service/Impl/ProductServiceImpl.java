@@ -502,6 +502,9 @@ public class ProductServiceImpl implements ProductService {
                 )
 
 
+                .ratingAverage(p.getRatingAverage())
+                .reviewCount(p.getReviewCount())
+                .viewCount(p.getViewCount())
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
                 .lastUpdatedAt(p.getLastUpdatedAt())
