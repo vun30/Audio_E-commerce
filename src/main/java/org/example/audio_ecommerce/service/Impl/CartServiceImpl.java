@@ -702,7 +702,7 @@ public class CartServiceImpl implements CartService {
                         // snapshot fields
                         .unitPriceBeforeDiscount(baseListUnit.setScale(0, RoundingMode.DOWN))
                         .linePriceBeforeDiscount(lineBefore)
-                        .platformVoucherDiscount(platformDiscount)
+//                        .platformVoucherDiscount(platformDiscount)
                         .shopItemDiscount(shopItemDiscount)
                         .shopOrderVoucherDiscount(BigDecimal.ZERO)
                         .totalItemDiscount(totalItemDiscount)
@@ -776,7 +776,7 @@ public class CartServiceImpl implements CartService {
                 storeItemsMap
         );
 
-// 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
+        // 6) SAU ĐÓ mới tính voucher SHOP với base (subtotal - platformDiscount)
         var storeResult = voucherService.computeDiscountByStoreWithDetail(
                 customerId,
                 storeVouchers,
