@@ -343,7 +343,7 @@ public class CartServiceImpl implements CartService {
                     baseUnitPrice = v.getVariantPrice();
                     if (baseUnitPrice == null) baseUnitPrice = getBaseUnitPrice(p);
                 } else {
-                    baseUnitPrice = getUnitPriceWithBulk(p, ci.getQuantity());
+                    baseUnitPrice = getBaseUnitPrice(p);
                 }
                 if (baseUnitPrice == null) baseUnitPrice = BigDecimal.ZERO;
 
