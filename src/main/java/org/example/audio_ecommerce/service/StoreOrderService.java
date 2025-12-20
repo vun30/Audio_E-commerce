@@ -13,5 +13,6 @@ public interface StoreOrderService {
     StoreOrder updateOrderStatus(UUID storeId, UUID orderId, OrderStatus status);
     PagedResult<StoreOrderDetailResponse> getOrdersForStore(UUID storeId, int page, int size, String orderCodeKeyword, OrderStatus status, LocalDate fromDate, LocalDate toDate);
     StoreOrderDetailResponse getOrderDetailForStore(UUID storeId, UUID orderId);
+    StoreOrderDetailResponse cancelNewOrder(UUID storeId, UUID orderId, String reason);
 }
 

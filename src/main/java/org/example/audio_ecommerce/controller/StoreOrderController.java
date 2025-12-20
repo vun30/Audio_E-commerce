@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.request.StoreCancelOrderRequest;
 import org.example.audio_ecommerce.dto.request.StoreOrderStatusUpdateRequest;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
@@ -96,6 +97,16 @@ public class StoreOrderController {
     ) {
         StoreOrderDetailResponse res = storeOrderService.getOrderDetailForStore(storeId, orderId);
         return ResponseEntity.ok(res);
+    }
+
+    @PatchMapping("/{orderId}/cancel")
+    public StoreOrderDetailResponse cancelNewOrder(
+            @PathVariable UUID storeId,
+            @PathVariable UUID orderId,
+            @RequestBody(required = false) StoreCancelOrderRequest req
+    ) {
+        String reason = (req != null) ? req.getReason() : null;
+        return storeOrderService.cancelNewOrder(storeId, orderId, reason);
     }
 
     private StoreOrderSettlementResponse toSettlementResponse(StoreOrder so) {

@@ -192,6 +192,9 @@ public class StoreOrder {
     @Column(name = "store_scored", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean storeScored = false;
 
+    @Column(nullable = false)
+    private boolean sellCountUpdated = false;
+
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {

@@ -158,4 +158,7 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     List<StoreOrder> findDeliverySuccessNotScored(
             @Param("status") OrderStatus status
     );
+
+    List<StoreOrder> findByStatusAndSellCountUpdatedFalse(OrderStatus status);
+
 }
