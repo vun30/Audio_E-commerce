@@ -72,28 +72,87 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         return toCustomerOrderDetail(order);
     }
 
+    @Override
+    @Transactional
+    public void confirmReceivedByCustomerOrder(UUID customerId, UUID customerOrderId) {
+
+        CustomerOrder co = customerOrderRepository.findById(customerOrderId)
+                .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
+
+        if (!co.getCustomer().getId().equals(customerId)) {
+            throw new IllegalArgumentException("Customer does not own this order");
+        }
+
+        StoreOrder so = storeOrderRepository.findFirstByCustomerOrder_Id(customerOrderId)
+                .orElseThrow(() -> new NoSuchElementException("StoreOrder not found for this CustomerOrder"));
+
+        if (so.getStatus() != OrderStatus.DELIVERY_SUCCESS) {
+            if (so.getStatus() == OrderStatus.COMPLETED) return; // idempotent
+            throw new IllegalStateException("Only DELIVERY_SUCCESS can be confirmed received");
+        }
+
+        so.setStatus(OrderStatus.COMPLETED);
+        storeOrderRepository.save(so);
+
+        co.setStatus(OrderStatus.COMPLETED);
+        customerOrderRepository.save(co);
+    }
+
+
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
-        // 🔹 Lấy tất cả store_order thuộc customer_order này
         List<StoreOrder> storeOrders = storeOrderRepository.findAllByCustomerOrder_Id(order.getId());
 
-        // Map storeId -> storeOrderId để gán cho từng CustomerOrderItem
         Map<UUID, UUID> storeIdToStoreOrderId = storeOrders.stream()
                 .filter(so -> so.getStore() != null && so.getStore().getStoreId() != null)
                 .collect(Collectors.toMap(
                         so -> so.getStore().getStoreId(),
                         StoreOrder::getId,
-                        (a, b) -> a // nếu trùng storeId thì lấy cái đầu tiên
+                        (a, b) -> a
                 ));
 
-        // 🔹 Map items (product detail + image + variant + storeOrderId)
         List<CustomerOrderItemResponse> itemResponses =
                 toCustomerOrderItemResponses(order.getItems(), storeIdToStoreOrderId);
 
-        // 🔹 Map storeOrders (voucher detail, shipping, total,...)
+        List<CustomerOrderItem> items = Optional.ofNullable(order.getItems()).orElse(List.of());
+
+        // ✅ recompute theo rule: totalAmount = giá gốc (sum linePriceBeforeDiscount)
+        BigDecimal recomputeTotal = items.stream()
+                .map(it -> it.getLinePriceBeforeDiscount() != null ? it.getLinePriceBeforeDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // =========================
+        // ✅ NEW: tách giảm giá theo yêu cầu FE
+        // =========================
+
+        // 1) Voucher toàn shop (được phân bổ xuống item)
+        BigDecimal storeVoucherOrderDiscount = items.stream()
+                .map(it -> it.getShopOrderVoucherDiscount() != null ? it.getShopOrderVoucherDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 2) Voucher theo sản phẩm của shop
+        BigDecimal storeVoucherProductDiscount = items.stream()
+                .map(it -> it.getShopItemDiscount() != null ? it.getShopItemDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 3) (Khuyến nghị) Voucher sàn / platform (nếu có field ở item)
+        BigDecimal platformVoucherDiscountTotal = items.stream()
+                .map(it -> it.getPlatformVoucherDiscount() != null ? it.getPlatformVoucherDiscount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // ✅ Tổng giảm đúng bản chất: store(order) + store(product) + platform
+        BigDecimal recomputeDiscountTotal = storeVoucherOrderDiscount
+                .add(storeVoucherProductDiscount)
+                .add(platformVoucherDiscountTotal);
+
+        // Shipping
+        BigDecimal ship = defaultBigDecimal(order.getShippingFeeTotal());
+
+        // ✅ recompute grand theo rule: grand = total - discount + ship
+        BigDecimal recomputeGrand = recomputeTotal.subtract(recomputeDiscountTotal).add(ship);
+        if (recomputeGrand.compareTo(BigDecimal.ZERO) < 0) recomputeGrand = BigDecimal.ZERO;
+
         List<StoreOrderSummaryResponse> storeOrderResponses =
-                storeOrders.stream()
-                        .map(this::toStoreOrderSummary)
-                        .collect(Collectors.toList());
+                storeOrders.stream().map(this::toStoreOrderSummary).collect(Collectors.toList());
 
         return CustomerOrderDetailResponse.builder()
                 .id(order.getId())
@@ -101,10 +160,21 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .status(order.getStatus())
                 .message(order.getMessage())
                 .createdAt(order.getCreatedAt())
-                .totalAmount(defaultBigDecimal(order.getTotalAmount()))
-                .discountTotal(defaultBigDecimal(order.getDiscountTotal()))
-                .shippingFeeTotal(defaultBigDecimal(order.getShippingFeeTotal()))
-                .grandTotal(defaultBigDecimal(order.getGrandTotal()))
+
+                // ✅ dùng recompute thay vì order.getTotalAmount/order.getGrandTotal
+                .totalAmount(recomputeTotal)
+
+                // ✅ tổng giảm (giữ field cũ để FE không bị vỡ)
+                .discountTotal(recomputeDiscountTotal)
+
+                // ✅ NEW: tách riêng để FE hiển thị
+                .storeVoucherDiscount(storeVoucherOrderDiscount)
+                .storeVoucherProductDiscount(storeVoucherProductDiscount)
+                .platformVoucherDiscount(platformVoucherDiscountTotal) // nếu bạn muốn hiển thị riêng
+
+                .shippingFeeTotal(ship)
+                .grandTotal(recomputeGrand)
+
                 .externalOrderCode(order.getExternalOrderCode())
                 .receiverName(order.getShipReceiverName())
                 .phoneNumber(order.getShipPhoneNumber())
@@ -120,6 +190,8 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
                 .storeOrders(storeOrderResponses)
                 .build();
     }
+
+
 
     private List<CustomerOrderItemResponse> toCustomerOrderItemResponses(
             List<CustomerOrderItem> items,

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.example.audio_ecommerce.entity.CustomerOrder;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,6 +26,11 @@ public interface CustomerOrderRepository extends JpaRepository<CustomerOrder, UU
     List<CustomerOrder> findByStatusAndCustomerRewardedFalse(
             OrderStatus status
     );
+    List<CustomerOrder> findByStatusAndDeliveredAtBefore(
+            OrderStatus status,
+            LocalDateTime deliveredAt
+    );
+
 
 }
 

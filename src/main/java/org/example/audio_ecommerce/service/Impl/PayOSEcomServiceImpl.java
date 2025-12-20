@@ -47,7 +47,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final StoreWalletRepository storeWalletRepository;
     private final StoreWalletTransactionRepository storeWalletTransactionRepository;
-
+    private final PlatformWalletRepository platformWalletRepository;
 
     private long generateOrderCode() {
         return System.currentTimeMillis() + new Random().nextInt(999);
@@ -484,6 +484,45 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         wallet.setLastTransactionAt(LocalDateTime.now());
         walletRepository.save(wallet);
 
+        // ===== PLATFORM CASH IN (CUSTOMER TOPUP) =====
+        PlatformWallet platform = platformWalletRepository.getPlatformMainWallet();
+
+        BigDecimal cashBefore = platform.getCashBalance() != null ? platform.getCashBalance() : BigDecimal.ZERO;
+        BigDecimal cashAfter  = cashBefore.add(txn.getAmount());
+
+        platform.setCashBalance(cashAfter);
+        platform.setReceivedTotal(
+                (platform.getReceivedTotal() != null ? platform.getReceivedTotal() : BigDecimal.ZERO)
+                        .add(txn.getAmount())
+        );
+        platformWalletRepository.save(platform);
+
+// Lưu platform_transaction (bucket=CASH)
+        PlatformTransaction pTxn = PlatformTransaction.builder()
+                .wallet(platform)
+                .orderId(null)
+                .storeId(null)
+                .customerId(wallet.getCustomer().getId())          // hoặc customerId param nếu bạn có
+                .amount(txn.getAmount())
+                .type(TransactionType.TOPUP)                       // nếu enum bạn dùng tên khác thì đổi đúng tên
+                .status(TransactionStatus.DONE)
+                .description("Customer topup via PayOS, walletTxnId=" + txn.getId())
+                .idempotencyKey("PAYOS:WALLET_TOPUP:" + txn.getExternalRef()) // EXTREF = orderCode PayOS
+                .channel(PaymentChannel.PAYOS)
+                .externalRefId(null)
+                .externalRefCode(txn.getExternalRef())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .bucket(WalletBucket.CASH)
+                .direction(TxDirection.IN)
+                .balanceBefore(cashBefore)
+                .balanceAfter(cashAfter)
+                .build();
+
+        platformTransactionRepository.save(pTxn);
+
+
+
         txn.setBalanceBefore(before);
         txn.setBalanceAfter(after);
         txn.setStatus(WalletTransactionStatus.SUCCESS);
@@ -518,6 +557,43 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         wallet.setDefaultBalance(after);
         wallet.setUpdatedAt(LocalDateTime.now());
         storeWalletRepository.save(wallet);
+
+        // ===== PLATFORM CASH IN (CUSTOMER TOPUP) =====
+        PlatformWallet platform = platformWalletRepository.getPlatformMainWallet();
+
+        BigDecimal cashBefore = platform.getCashBalance() != null ? platform.getCashBalance() : BigDecimal.ZERO;
+        BigDecimal cashAfter  = cashBefore.add(txn.getAmount());
+
+        platform.setCashBalance(cashAfter);
+        platform.setReceivedTotal(
+                (platform.getReceivedTotal() != null ? platform.getReceivedTotal() : BigDecimal.ZERO)
+                        .add(txn.getAmount())
+        );
+        platformWalletRepository.save(platform);
+
+// Lưu platform_transaction (bucket=CASH)
+        PlatformTransaction pTxn = PlatformTransaction.builder()
+                .wallet(platform)
+                .orderId(null)
+                .storeId(wallet.getStore().getStoreId())          // hoặc customerId param nếu bạn có
+                .amount(txn.getAmount())
+                .type(TransactionType.TOPUP)                       // nếu enum bạn dùng tên khác thì đổi đúng tên
+                .status(TransactionStatus.DONE)
+                .description("Store topup via PayOS, walletTxnId=" + txn.getOrderId())
+                .idempotencyKey("PAYOS:WALLET_TOPUP:" + txn.getExternalRef()) // EXTREF = orderCode PayOS
+                .channel(PaymentChannel.PAYOS)
+                .externalRefId(null)
+                .externalRefCode(txn.getExternalRef())
+                .bucket(WalletBucket.CASH)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .direction(TxDirection.IN)
+                .balanceBefore(cashBefore)
+                .balanceAfter(cashAfter)
+                .build();
+
+        platformTransactionRepository.save(pTxn);
+
 
         txn.setBalanceBefore(before);
         txn.setBalanceAfter(after);

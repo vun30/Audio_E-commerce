@@ -127,7 +127,7 @@ public class CustomerOrder {
             totalAmount = BigDecimal.ZERO;
         } else {
             totalAmount = items.stream()
-                    .map(CustomerOrderItem::getLineTotal)
+                    .map(CustomerOrderItem::getLinePriceBeforeDiscount)
                     .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
         }
