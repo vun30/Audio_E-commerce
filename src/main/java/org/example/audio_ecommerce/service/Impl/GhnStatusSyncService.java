@@ -48,6 +48,7 @@ public class GhnStatusSyncService {
 
     // Các status GHN cần sync định kỳ (đang hoạt động)
     private static final EnumSet<GhnStatus> ACTIVE_STATUSES = EnumSet.of(
+            GhnStatus.READY_PICKUP,
             GhnStatus.READY_TO_PICK,         // Thêm status mặc định
             GhnStatus.PICKING,
             GhnStatus.MONEY_COLLECT_PICKING,
