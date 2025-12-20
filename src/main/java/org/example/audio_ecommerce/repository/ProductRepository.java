@@ -160,5 +160,18 @@ Page<Product> findAllWithAdvancedFilters(
 """)
     int inactivateOnlyActiveProductsByStore(@Param("storeId") UUID storeId);
 
+    @Modifying
+    @Query("""
+UPDATE Product p
+SET p.status = :toStatus
+WHERE p.store.id = :storeId
+  AND p.status = :fromStatus
+""")
+    int updateProductStatusByStore(
+            @Param("storeId") UUID storeId,
+            @Param("fromStatus") ProductStatus fromStatus,
+            @Param("toStatus") ProductStatus toStatus
+    );
+
 
 }

@@ -626,7 +626,7 @@ public class ProductServiceImpl implements ProductService {
 
             // ❌ Chặn toàn bộ trạng thái KHÔNG hợp lệ
             if (currentStatus != ProductStatus.ACTIVE
-                    && currentStatus != ProductStatus.INACTIVE) {
+                    && currentStatus != ProductStatus.INACTIVE_PAUSE) {
 
                 return ResponseEntity.badRequest().body(
                         BaseResponse.error(
@@ -646,7 +646,7 @@ public class ProductServiceImpl implements ProductService {
             // ✅ Toggle ACTIVE <-> INACTIVE
             ProductStatus newStatus =
                     (currentStatus == ProductStatus.ACTIVE)
-                            ? ProductStatus.INACTIVE
+                            ? ProductStatus.INACTIVE_PAUSE
                             : ProductStatus.ACTIVE;
 
             product.setStatus(newStatus);
