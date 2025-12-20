@@ -150,6 +150,54 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     List<Store> findStoresWithWalletByStatuses(@Param("statuses") List<StoreStatus> statuses);
 
     @Query("""
+        select count(o)
+        from StoreOrder o
+        where o.store.storeId = :storeId
+          and o.deliveredAt is not null
+          and o.deliveredAt >= :from
+          and o.deliveredAt <= :to
+    """)
+    long countDeliveredOrders(
+            @Param("storeId") UUID storeId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query(value = """
+        select
+            year(o.delivered_at) as y,
+            month(o.delivered_at) as m,
+            count(*) as deliveredOrders
+        from store_order o
+        where o.store_id = :storeId
+          and o.delivered_at is not null
+          and year(o.delivered_at) = :year
+        group by year(o.delivered_at), month(o.delivered_at)
+        order by y asc, m asc
+    """, nativeQuery = true)
+    List<Object[]> deliveredOrdersByMonth(
+            @Param("storeId") UUID storeId,
+            @Param("year") int year
+    );
+
+    @Query(value = """
+        select
+            year(o.delivered_at) as y,
+            count(*) as deliveredOrders
+        from store_order o
+        where o.store_id = :storeId
+          and o.delivered_at is not null
+          and year(o.delivered_at) between :fromYear and :toYear
+        group by year(o.delivered_at)
+        order by y asc
+    """, nativeQuery = true)
+    List<Object[]> deliveredOrdersByYear(
+            @Param("storeId") UUID storeId,
+            @Param("fromYear") int fromYear,
+            @Param("toYear") int toYear
+    );
+
+
         select so
         from StoreOrder so
         where so.status = :status
