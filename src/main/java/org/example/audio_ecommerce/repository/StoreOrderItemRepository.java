@@ -19,10 +19,10 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // Lấy items theo storeId + storeOrderId (bảo vệ: order phải thuộc store)
     @Query("""
-        select i from StoreOrderItem i
-        where i.storeOrder.id = :storeOrderId
-          and i.storeOrder.store.storeId = :storeId
-        """)
+            select i from StoreOrderItem i
+            where i.storeOrder.id = :storeOrderId
+              and i.storeOrder.store.storeId = :storeId
+            """)
     List<StoreOrderItem> findItemsOfStoreOrder(@Param("storeId") UUID storeId,
                                                @Param("storeOrderId") UUID storeOrderId);
 
@@ -31,11 +31,11 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
     List<StoreOrderItem> findAllByDeliveredAtIsNullAndStoreOrder_DeliveredAtIsNotNull();
 
     @Query("""
-        SELECT i FROM StoreOrderItem i
-        WHERE i.storeOrder.store.storeId = :shopId
-          AND i.eligibleForPayout = true
-          AND i.isPayout = false
-    """)
+                SELECT i FROM StoreOrderItem i
+                WHERE i.storeOrder.store.storeId = :shopId
+                  AND i.eligibleForPayout = true
+                  AND i.isPayout = false
+            """)
     List<StoreOrderItem> findEligibleForPayout(@Param("shopId") UUID shopId);
 
     // ✔ ĐÃ SỬA: dùng Store_StoreId thay vì Store_Id
@@ -47,62 +47,62 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
     List<StoreOrderItem> findAllByStoreOrder_ShippingFeeRealIsNotNull();
 
     @Query("""
-        SELECT COUNT(i)
-        FROM StoreOrderItem i
-        WHERE i.refId = :productId AND i.type = 'PRODUCT'
-    """)
+                SELECT COUNT(i)
+                FROM StoreOrderItem i
+                WHERE i.refId = :productId AND i.type = 'PRODUCT'
+            """)
     int countOrdersByProduct(@Param("productId") UUID productId);
 
     @Query("""
-        SELECT COUNT(i)
-        FROM StoreOrderItem i
-        WHERE i.variantId = :variantId
-    """)
+                SELECT COUNT(i)
+                FROM StoreOrderItem i
+                WHERE i.variantId = :variantId
+            """)
     int countOrdersByVariant(@Param("variantId") UUID variantId);
 
     List<StoreOrderItem> findAllByStoreOrder_Store_StoreId(UUID storeId);
 
     // Bucket: ESTIMATED – tất cả item chưa payout
     @Query("""
-        select i from StoreOrderItem i
-        where i.storeOrder.store.storeId = :storeId
-          and (i.isReturned = false or i.isReturned is null)
-          and (i.isPayout = false or i.isPayout is null)
-    """)
+                select i from StoreOrderItem i
+                where i.storeOrder.store.storeId = :storeId
+                  and (i.isReturned = false or i.isReturned is null)
+                  and (i.isPayout = false or i.isPayout is null)
+            """)
     Page<StoreOrderItem> findEstimatedItems(@Param("storeId") UUID storeId, Pageable pageable);
 
     // Bucket: PENDING – item chưa payout & chưa eligible_for_payout (tiền còn bị giữ)
     @Query("""
-        select i from StoreOrderItem i
-        where i.storeOrder.store.storeId = :storeId
-          and (i.isReturned = false or i.isReturned is null)
-          and (i.eligibleForPayout = false or i.eligibleForPayout is null)
-          and (i.isPayout = false or i.isPayout is null)
-    """)
+                select i from StoreOrderItem i
+                where i.storeOrder.store.storeId = :storeId
+                  and (i.isReturned = false or i.isReturned is null)
+                  and (i.eligibleForPayout = false or i.eligibleForPayout is null)
+                  and (i.isPayout = false or i.isPayout is null)
+            """)
     Page<StoreOrderItem> findPendingItems(@Param("storeId") UUID storeId, Pageable pageable);
 
     // Bucket: DONE – item đã payout xong
     @Query("""
-        select i from StoreOrderItem i
-        where i.storeOrder.store.storeId = :storeId
-          and i.isPayout = true
-    """)
+                select i from StoreOrderItem i
+                where i.storeOrder.store.storeId = :storeId
+                  and i.isPayout = true
+            """)
     Page<StoreOrderItem> findDoneItems(@Param("storeId") UUID storeId, Pageable pageable);
 
     // ..............................
 
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where (:storeId is null or s.storeId = :storeId)
-          and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
-          and i.isReturned = false
-          and i.deliveredAt is not null
-          and (:from is null or i.deliveredAt >= :from)
-          and (:to   is null or i.deliveredAt <  :to)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where (:storeId is null or s.storeId = :storeId)
+                  and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
+                  and i.isReturned = false
+                  and i.deliveredAt is not null
+                  and (:from is null or i.deliveredAt >= :from)
+                  and (:to   is null or i.deliveredAt <  :to)
+            """)
     List<StoreOrderItem> findPlatformWalletItems(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -113,19 +113,19 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // 1) WAITING_SEND_STORE: payoutProcessed = false, eligibleForPayout = false
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where (:storeId is null or s.storeId = :storeId)
-          and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
-          and i.isReturned = false
-          and i.deliveredAt is not null
-          and i.payoutProcessed = false
-          and i.eligibleForPayout = false
-          and (:from is null or i.deliveredAt >= :from)
-          and (:to   is null or i.deliveredAt <  :to)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where (:storeId is null or s.storeId = :storeId)
+                  and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
+                  and i.isReturned = false
+                  and i.deliveredAt is not null
+                  and i.payoutProcessed = false
+                  and i.eligibleForPayout = false
+                  and (:from is null or i.deliveredAt >= :from)
+                  and (:to   is null or i.deliveredAt <  :to)
+            """)
     Page<StoreOrderItem> findWaitingSendStoreItems(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -135,18 +135,18 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // 2) FEE_WILL_COLLECT: payoutProcessed = false
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where (:storeId is null or s.storeId = :storeId)
-          and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
-          and i.isReturned = false
-          and i.deliveredAt is not null
-          and i.payoutProcessed = false
-          and (:from is null or i.deliveredAt >= :from)
-          and (:to   is null or i.deliveredAt <  :to)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where (:storeId is null or s.storeId = :storeId)
+                  and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
+                  and i.isReturned = false
+                  and i.deliveredAt is not null
+                  and i.payoutProcessed = false
+                  and (:from is null or i.deliveredAt >= :from)
+                  and (:to   is null or i.deliveredAt <  :to)
+            """)
     Page<StoreOrderItem> findFeeWillCollectItems(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -156,18 +156,18 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // 3) FEE_COLLECTED: payoutProcessed = true
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where (:storeId is null or s.storeId = :storeId)
-          and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
-          and i.isReturned = false
-          and i.deliveredAt is not null
-          and i.payoutProcessed = true
-          and (:from is null or i.deliveredAt >= :from)
-          and (:to   is null or i.deliveredAt <  :to)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where (:storeId is null or s.storeId = :storeId)
+                  and so.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
+                  and i.isReturned = false
+                  and i.deliveredAt is not null
+                  and i.payoutProcessed = true
+                  and (:from is null or i.deliveredAt >= :from)
+                  and (:to   is null or i.deliveredAt <  :to)
+            """)
     Page<StoreOrderItem> findFeeCollectedItems(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -176,31 +176,31 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
     );
 
     @Query("""
-        select distinct so.customerOrder.id
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.customerOrder co
-        where i.eligibleForPayout = true
-          and (i.isPayout is null or i.isPayout = false)
-          and (
-                (co.deliveredAt is not null and co.deliveredAt <= :cutoffTime)
-             or (co.deliveredAt is null and co.createdAt <= :cutoffTime)
-          )
-    """)
+                select distinct so.customerOrder.id
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.customerOrder co
+                where i.eligibleForPayout = true
+                  and (i.isPayout is null or i.isPayout = false)
+                  and (
+                        (co.deliveredAt is not null and co.deliveredAt <= :cutoffTime)
+                     or (co.deliveredAt is null and co.createdAt <= :cutoffTime)
+                  )
+            """)
     List<UUID> findEligibleCustomerOrderIdsForPayout(@Param("cutoffTime") LocalDateTime cutoffTime);
 
     @Query("""
-        SELECT i FROM StoreOrderItem i
-        WHERE (:storeId IS NULL OR i.storeOrder.store.storeId = :storeId)
-          AND i.eligibleForPayout = TRUE
-          AND i.isPayout = :isPayout
-          AND (
-                (:isDelivered = TRUE  AND i.deliveredAt IS NOT NULL)
-             OR (:isDelivered = FALSE AND i.deliveredAt IS NULL)
-          )
-          AND i.storeOrder.paymentMethod = :paymentMethod
-          AND i.storeOrder.createdAt BETWEEN :fromDate AND :toDate
-    """)
+                SELECT i FROM StoreOrderItem i
+                WHERE (:storeId IS NULL OR i.storeOrder.store.storeId = :storeId)
+                  AND i.eligibleForPayout = TRUE
+                  AND i.isPayout = :isPayout
+                  AND (
+                        (:isDelivered = TRUE  AND i.deliveredAt IS NOT NULL)
+                     OR (:isDelivered = FALSE AND i.deliveredAt IS NULL)
+                  )
+                  AND i.storeOrder.paymentMethod = :paymentMethod
+                  AND i.storeOrder.createdAt BETWEEN :fromDate AND :toDate
+            """)
     List<StoreOrderItem> findItemsForOverview(
             @Param("storeId") UUID storeId,
             @Param("isDelivered") boolean isDelivered,
@@ -214,11 +214,11 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
     // 2) PLATFORM FEE (item đã giao nhưng chưa payout)
     // ============================================================
     @Query("""
-        SELECT i FROM StoreOrderItem i
-        WHERE (:storeId IS NULL OR i.storeOrder.store.storeId = :storeId)
-          AND i.platformFeePercentage > 0
-          AND i.deliveredAt BETWEEN :fromDate AND :toDate
-    """)
+                SELECT i FROM StoreOrderItem i
+                WHERE (:storeId IS NULL OR i.storeOrder.store.storeId = :storeId)
+                  AND i.platformFeePercentage > 0
+                  AND i.deliveredAt BETWEEN :fromDate AND :toDate
+            """)
     List<StoreOrderItem> findPlatformFeeItems(
             @Param("storeId") UUID storeId,
             @Param("fromDate") LocalDateTime fromDate,
@@ -229,11 +229,11 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
     // 3) TỔNG TIỀN ĐÃ TRẢ CHO SHOP (item đã payout)
     // ============================================================
     @Query("""
-        SELECT i FROM StoreOrderItem i
-        WHERE (:storeId IS NULL OR i.storeOrder.store.storeId = :storeId)
-          AND i.isPayout = TRUE
-          AND i.deliveredAt BETWEEN :fromDate AND :toDate
-    """)
+                SELECT i FROM StoreOrderItem i
+                WHERE (:storeId IS NULL OR i.storeOrder.store.storeId = :storeId)
+                  AND i.isPayout = TRUE
+                  AND i.deliveredAt BETWEEN :fromDate AND :toDate
+            """)
     List<StoreOrderItem> findPaidItems(
             @Param("storeId") UUID storeId,
             @Param("fromDate") LocalDateTime fromDate,
@@ -246,19 +246,19 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // ---------- 1) Pending balance (hold) ----------
     @Query("""
-        select
-          count(i),
-          coalesce(sum(i.finalLineTotal), 0)
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where s.storeId = :storeId
-          and i.deliveredAt is not null
-          and i.deliveredAt >= :from and i.deliveredAt <= :to
-          and (i.eligibleForPayout = false or i.eligibleForPayout is null)
-          and (i.isPayout = false or i.isPayout is null)
-          and (i.isReturned = false or i.isReturned is null)
-    """)
+                select
+                  count(i),
+                  coalesce(sum(i.finalLineTotal), 0)
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.deliveredAt >= :from and i.deliveredAt <= :to
+                  and (i.eligibleForPayout = false or i.eligibleForPayout is null)
+                  and (i.isPayout = false or i.isPayout is null)
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     List<Object[]> sumPendingBalance(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -267,20 +267,20 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // ---------- 2) Eligible but not payout => platform fee payable ----------
     @Query("""
-        select
-          count(i),
-          coalesce(sum(i.finalLineTotal), 0),
-          coalesce(sum(i.finalLineTotal * (i.platformFeePercentage / 100.0)), 0)
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where s.storeId = :storeId
-          and i.deliveredAt is not null
-          and i.deliveredAt >= :from and i.deliveredAt <= :to
-          and i.eligibleForPayout = true
-          and (i.isPayout = false or i.isPayout is null)
-          and (i.isReturned = false or i.isReturned is null)
-    """)
+                select
+                  count(i),
+                  coalesce(sum(i.finalLineTotal), 0),
+                  coalesce(sum(i.finalLineTotal * (i.platformFeePercentage / 100.0)), 0)
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.deliveredAt >= :from and i.deliveredAt <= :to
+                  and i.eligibleForPayout = true
+                  and (i.isPayout = false or i.isPayout is null)
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     List<Object[]> sumPlatformFeePayable(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -289,20 +289,20 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // ---------- 3) Payout done => available balance ----------
     @Query("""
-        select
-          count(i),
-          coalesce(sum(i.finalLineTotal), 0),
-          coalesce(sum(i.finalLineTotal * (i.platformFeePercentage / 100.0)), 0)
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where s.storeId = :storeId
-          and i.deliveredAt is not null
-          and i.deliveredAt >= :from and i.deliveredAt <= :to
-          and i.eligibleForPayout = true
-          and i.isPayout = true
-          and (i.isReturned = false or i.isReturned is null)
-    """)
+                select
+                  count(i),
+                  coalesce(sum(i.finalLineTotal), 0),
+                  coalesce(sum(i.finalLineTotal * (i.platformFeePercentage / 100.0)), 0)
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.deliveredAt >= :from and i.deliveredAt <= :to
+                  and i.eligibleForPayout = true
+                  and i.isPayout = true
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     List<Object[]> sumAvailableBalance(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -315,17 +315,17 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // 1) PENDING (hold)
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where s.storeId = :storeId
-          and i.deliveredAt is not null
-          and i.deliveredAt >= :from and i.deliveredAt <= :to
-          and (i.eligibleForPayout = false or i.eligibleForPayout is null)
-          and (i.isPayout = false or i.isPayout is null)
-          and (i.isReturned = false or i.isReturned is null)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.deliveredAt >= :from and i.deliveredAt <= :to
+                  and (i.eligibleForPayout = false or i.eligibleForPayout is null)
+                  and (i.isPayout = false or i.isPayout is null)
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     Page<StoreOrderItem> findPendingBreakdown(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -335,17 +335,17 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // 2) ELIGIBLE_NOT_PAYOUT
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where s.storeId = :storeId
-          and i.deliveredAt is not null
-          and i.deliveredAt >= :from and i.deliveredAt <= :to
-          and i.eligibleForPayout = true
-          and (i.isPayout = false or i.isPayout is null)
-          and (i.isReturned = false or i.isReturned is null)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.deliveredAt >= :from and i.deliveredAt <= :to
+                  and i.eligibleForPayout = true
+                  and (i.isPayout = false or i.isPayout is null)
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     Page<StoreOrderItem> findEligibleNotPayoutBreakdown(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -355,17 +355,17 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // 3) PAYOUT_DONE
     @Query("""
-        select i
-        from StoreOrderItem i
-        join i.storeOrder so
-        join so.store s
-        where s.storeId = :storeId
-          and i.deliveredAt is not null
-          and i.deliveredAt >= :from and i.deliveredAt <= :to
-          and i.eligibleForPayout = true
-          and i.isPayout = true
-          and (i.isReturned = false or i.isReturned is null)
-    """)
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.deliveredAt >= :from and i.deliveredAt <= :to
+                  and i.eligibleForPayout = true
+                  and i.isPayout = true
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     Page<StoreOrderItem> findPayoutDoneBreakdown(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -376,18 +376,134 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
 
     // StoreOrderItemRepository.java
     @Query("""
-    select i
-    from StoreOrderItem i
-    join i.storeOrder so
-    join so.store s
-    where s.storeId = :storeId
-      and i.deliveredAt is not null
-      and i.eligibleForPayout = true
-      and (i.isPayout = false or i.isPayout is null)
-      and (i.isReturned = false or i.isReturned is null)
-""")
+                select i
+                from StoreOrderItem i
+                join i.storeOrder so
+                join so.store s
+                where s.storeId = :storeId
+                  and i.deliveredAt is not null
+                  and i.eligibleForPayout = true
+                  and (i.isPayout = false or i.isPayout is null)
+                  and (i.isReturned = false or i.isReturned is null)
+            """)
     List<StoreOrderItem> findEligibleItemsToAutoPayout(@Param("storeId") UUID storeId);
 
 
+    // Summary payout items: gross, feePaid, itemsSold
+    @Query("""
+                select
+                    coalesce(sum(i.finalLineTotal), 0),
+                    coalesce(sum(i.platformFeeAmount), 0),
+                    coalesce(sum(i.quantity), 0)
+                from StoreOrderItem i
+                join i.storeOrder o
+                where o.store.storeId = :storeId
+                  and o.deliveredAt is not null
+                  and o.deliveredAt >= :from
+                  and o.deliveredAt <= :to
+                  and i.isPayout = true
+            """)
+    Object[] getPayoutItemSummary(
+            @Param("storeId") UUID storeId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 
+    // Top1 best-selling by refId
+    @Query("""
+    select i.refId, sum(i.quantity)
+    from StoreOrderItem i
+    join i.storeOrder o
+    where o.store.storeId = :storeId
+      and i.deliveredAt is not null
+      and i.deliveredAt >= :from
+      and i.deliveredAt <= :to
+      and (i.eligibleForPayout = true or i.isPayout = true)
+      and (i.isReturned = false or i.isReturned is null)
+    group by i.refId
+    order by sum(i.quantity) desc
+""")
+    List<Object[]> findTopSellingRefId(
+            @Param("storeId") UUID storeId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    // Growth by month (MySQL native)
+    @Query(value = """
+    select
+        year(i.delivered_at) as y,
+        month(i.delivered_at) as m,
+        coalesce(sum(i.final_line_total), 0) as gross,
+        coalesce(sum(i.platform_fee_amount), 0) as fee,
+        coalesce(sum(i.quantity), 0) as itemsSold
+    from store_order_item i
+    join store_order o on o.id = i.store_order_id
+    where o.store_id = :storeId
+      and i.delivered_at is not null
+      and year(i.delivered_at) = :year
+      and (i.eligible_for_payout = 1 or i.is_payout = 1)
+      and (i.is_returned = 0 or i.is_returned is null)
+    group by year(i.delivered_at), month(i.delivered_at)
+    order by y asc, m asc
+""", nativeQuery = true)
+    List<Object[]> growthByMonth(
+            @Param("storeId") UUID storeId,
+            @Param("year") int year
+    );
+
+    // Growth by year (native)
+    @Query(value = """
+    select
+        year(i.delivered_at) as y,
+        coalesce(sum(i.final_line_total), 0) as gross,
+        coalesce(sum(i.platform_fee_amount), 0) as fee,
+        coalesce(sum(i.quantity), 0) as itemsSold
+    from store_order_item i
+    join store_order o on o.id = i.store_order_id
+    where o.store_id = :storeId
+      and i.delivered_at is not null
+      and year(i.delivered_at) between :fromYear and :toYear
+      and (i.eligible_for_payout = 1 or i.is_payout = 1)
+      and (i.is_returned = 0 or i.is_returned is null)
+    group by year(i.delivered_at)
+    order by y asc
+""", nativeQuery = true)
+    List<Object[]> growthByYear(
+            @Param("storeId") UUID storeId,
+            @Param("fromYear") int fromYear,
+            @Param("toYear") int toYear
+    );
+
+    @Query(value = """
+    select
+        i.ref_id as refId,
+        cast(coalesce(sum(i.quantity), 0) as signed) as qty
+    from store_order_item i
+    join store_order o on o.id = i.store_order_id
+    where o.store_id = :storeId
+      and i.delivered_at is not null
+      and (i.eligible_for_payout = 1 or i.is_payout = 1)
+      and (i.is_returned = 0 or i.is_returned is null)
+    group by i.ref_id
+    order by qty desc
+    limit 10
+""", nativeQuery = true)
+    List<Object[]> findTop10SellingRefIdDelivered(@Param("storeId") UUID storeId);
+
+    @Query("""
+    select i
+    from StoreOrderItem i
+    join i.storeOrder o
+    where o.store.storeId = :storeId
+      and i.deliveredAt is not null
+      and i.deliveredAt >= :from and i.deliveredAt <= :to
+      and (i.eligibleForPayout = true or i.isPayout = true)
+      and (i.isReturned = false or i.isReturned is null)
+""")
+    List<StoreOrderItem> findDeliveredEligibleOrPayoutItems(
+            @Param("storeId") UUID storeId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 }
