@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.entity.Enum;
 public enum ProductStatus {
     DRAFT,          // Soạn thảo, chưa publish
     ACTIVE,         // Đang bán bình thường (live/published)
+    INACTIVE_PAUSE, // Tạm dừng bởi người bán
     INACTIVE,       // Tạm dừng (có thể tương đương unlist hoặc suspended)
     OUT_OF_STOCK,   // Hết hàng (sold out, nhưng vẫn hiển thị)
     DISCONTINUED,   // Ngừng bán vĩnh viễn
