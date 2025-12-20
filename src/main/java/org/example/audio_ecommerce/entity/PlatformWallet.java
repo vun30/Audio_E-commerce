@@ -36,23 +36,18 @@ public class PlatformWallet {
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal cashBalance = BigDecimal.ZERO;
 
-    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal totalBalance = BigDecimal.ZERO;     // Tổng tiền hiện có trong ví
 
-    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal pendingBalance = BigDecimal.ZERO;   // Tiền đang bị hold
 
-    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal doneBalance = BigDecimal.ZERO;      // Tiền đã xác nhận hoàn tất
 
-    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal receivedTotal = BigDecimal.ZERO;    // Tổng tiền từng nhận qua ví
 
-    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
     private BigDecimal refundedTotal = BigDecimal.ZERO;    // Tổng tiền đã hoàn trả (refund)
 
