@@ -42,6 +42,18 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     """)
     List<StoreOrder> findPendingShippingOrders(UUID storeId);
 
+    Optional<StoreOrder> findFirstByCustomerOrder_Id(UUID customerOrderId);
+
+    @Query("""
+        select so
+        from StoreOrder so
+        where so.status = :status
+          and so.storeScored = false
+    """)
+    List<StoreOrder> findDeliverySuccessNotScored(
+            @Param("status") OrderStatus status
+    );
+
 
     // API cũ để tương thích, nhưng không dùng nữa
     List<StoreOrder> findAllByStore_StoreIdAndPaidByShopFalse(UUID storeId);
@@ -140,7 +152,6 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             Boolean returnChargeApplied
     );
 
-    Optional<StoreOrder> findFirstByCustomerOrder_Id(UUID customerOrderId);
     @Query("""
     select distinct s
     from Store s
@@ -197,14 +208,5 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             @Param("toYear") int toYear
     );
 
-    @Query("""
-        select so
-        from StoreOrder so
-        where so.status = :status
-          and so.storeScored = false
-    """)
-    List<StoreOrder> findDeliverySuccessNotScored(
-            @Param("status") OrderStatus status
-    );
 
 }
