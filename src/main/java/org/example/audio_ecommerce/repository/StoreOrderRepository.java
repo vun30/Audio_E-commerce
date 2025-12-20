@@ -197,7 +197,7 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             @Param("toYear") int toYear
     );
 
-
+    @Query("""
         select so
         from StoreOrder so
         where so.status = :status
@@ -206,4 +206,5 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     List<StoreOrder> findDeliverySuccessNotScored(
             @Param("status") OrderStatus status
     );
+
 }
