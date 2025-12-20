@@ -16,6 +16,7 @@ import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -619,24 +620,53 @@ public class ProductServiceImpl implements ProductService {
     public ResponseEntity<BaseResponse> disableProduct(UUID productId) {
         try {
             Product product = productRepository.findById(productId)
-                    .orElseThrow(() -> new RuntimeException("❌ Product not found"));
+                    .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy sản phẩm"));
 
-            if (product.getStatus() == ProductStatus.INACTIVE) {
-                product.setStatus(ProductStatus.ACTIVE);
-            } else {
-                product.setStatus(ProductStatus.INACTIVE);
+            ProductStatus currentStatus = product.getStatus();
+
+            // ❌ Chặn toàn bộ trạng thái KHÔNG hợp lệ
+            if (currentStatus != ProductStatus.ACTIVE
+                    && currentStatus != ProductStatus.INACTIVE) {
+
+                return ResponseEntity.badRequest().body(
+                        BaseResponse.error(
+                                """
+                                ❌ Không thể thay đổi trạng thái sản phẩm.
+                                👉 API này CHỈ cho phép thao tác với sản phẩm đang ở trạng thái:
+                                   - ACTIVE (Đang bán)
+                                   - INACTIVE (Tạm ẩn)
+    
+                                👉 Trạng thái hiện tại của sản phẩm: %s
+                                """
+                                        .formatted(currentStatus)
+                        )
+                );
             }
 
+            // ✅ Toggle ACTIVE <-> INACTIVE
+            ProductStatus newStatus =
+                    (currentStatus == ProductStatus.ACTIVE)
+                            ? ProductStatus.INACTIVE
+                            : ProductStatus.ACTIVE;
+
+            product.setStatus(newStatus);
             product.setUpdatedAt(LocalDateTime.now());
             productRepository.save(product);
 
             return ResponseEntity.ok(
-                    new BaseResponse<>(200, "🚫 Product status updated", toResponse(product))
+                    new BaseResponse<>(
+                            200,
+                            "✅ Cập nhật trạng thái sản phẩm thành công",
+                            toResponse(product)
+                    )
             );
 
         } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(BaseResponse.error("❌ disableProduct failed: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(
+                    BaseResponse.error(
+                            "❌ Không thể cập nhật trạng thái sản phẩm: " + e.getMessage()
+                    )
+            );
         }
     }
 
@@ -664,6 +694,7 @@ public class ProductServiceImpl implements ProductService {
                     .body(BaseResponse.error("❌ incrementViewCount failed: " + e.getMessage()));
         }
     }
+
 
     @Override
     public ResponseEntity<BaseResponse> approveProduct(UUID productId, ApproveProductRequest req) {
@@ -828,5 +859,100 @@ public class ProductServiceImpl implements ProductService {
         }
     }
 
+    @Override
+    @Transactional
+    public ResponseEntity<BaseResponse> adminToggleSuspendProduct(UUID productId) {
+        try {
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy sản phẩm"));
+
+            ProductStatus current = product.getStatus();
+
+            // ❌ CHẶN CÁC TRẠNG THÁI KHÔNG ĐƯỢC SUSPEND
+            if (current == ProductStatus.REJECT
+                    || current == ProductStatus.PENDING_APPROVAL
+                    || current == ProductStatus.OUT_OF_STOCK) {
+
+                return ResponseEntity.badRequest().body(
+                        BaseResponse.error("""
+                            ❌ Không thể tạm ngưng (SUSPEND) sản phẩm.
+                            👉 Không được phép thao tác khi sản phẩm đang ở trạng thái:
+                               - REJECT (Bị từ chối)
+                               - PENDING_APPROVAL (Chờ duyệt)
+                               - OUT_OF_STOCK (Hết hàng)
+
+                            👉 Trạng thái hiện tại: %s
+                            """.formatted(current))
+                );
+            }
+
+            ProductStatus newStatus;
+
+            // =========================
+            // CASE 1: BẤM MỞ LẠI
+            // =========================
+            if (current == ProductStatus.SUSPENDED) {
+
+                newStatus = ProductStatus.ACTIVE;
+
+            } else if (current == ProductStatus.INACTIVE_INACTIVE) {
+
+                newStatus = ProductStatus.INACTIVE;
+
+            }
+
+            // =========================
+            // CASE 2: BẤM SUSPEND
+            // =========================
+            else if (current == ProductStatus.ACTIVE) {
+
+                newStatus = ProductStatus.SUSPENDED;
+
+            } else if (current == ProductStatus.INACTIVE) {
+
+                newStatus = ProductStatus.INACTIVE_INACTIVE;
+
+            }
+
+            // =========================
+            // CASE 3: TRẠNG THÁI KHÁC → CHẶN
+            // =========================
+            else {
+                return ResponseEntity.badRequest().body(
+                        BaseResponse.error("""
+                            ❌ Không thể bật/tắt tạm ngưng sản phẩm.
+                            👉 Admin chỉ được thao tác khi sản phẩm đang ở:
+                               - ACTIVE
+                               - INACTIVE
+                               - SUSPENDED
+                               - INACTIVE_INACTIVE
+
+                            👉 Trạng thái hiện tại: %s
+                            """.formatted(current))
+                );
+            }
+
+            // =========================
+            // UPDATE
+            // =========================
+            product.setStatus(newStatus);
+            product.setUpdatedAt(LocalDateTime.now());
+
+            productRepository.save(product);
+
+            return ResponseEntity.ok(
+                    BaseResponse.success("✅ Cập nhật trạng thái SUSPEND sản phẩm thành công", Map.of(
+                            "productId", productId,
+                            "oldStatus", current,
+                            "newStatus", newStatus
+                    ))
+            );
+
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(
+                    BaseResponse.error("❌ adminToggleSuspendProduct thất bại: " + e.getMessage())
+            );
+        }
+    }
 
 }
