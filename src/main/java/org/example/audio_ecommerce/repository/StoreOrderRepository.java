@@ -15,6 +15,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, JpaSpecificationExecutor<StoreOrder> {
@@ -139,6 +140,7 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             Boolean returnChargeApplied
     );
 
+    Optional<StoreOrder> findFirstByCustomerOrder_Id(UUID customerOrderId);
     @Query("""
     select distinct s
     from Store s
@@ -195,5 +197,14 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             @Param("toYear") int toYear
     );
 
+    @Query("""
+        select so
+        from StoreOrder so
+        where so.status = :status
+          and so.storeScored = false
+    """)
+    List<StoreOrder> findDeliverySuccessNotScored(
+            @Param("status") OrderStatus status
+    );
 
 }
