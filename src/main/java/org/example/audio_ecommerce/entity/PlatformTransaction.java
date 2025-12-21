@@ -21,119 +21,140 @@ public class PlatformTransaction {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    // Ví platform trung gian chứa giao dịch
+    // =========================
+    // WALLET LINK
+    // =========================
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "wallet_id", nullable = false)
     private PlatformWallet wallet;
 
-    // Giao dịch liên quan tới đơn hàng nào
-    @Column(nullable = true)
+    // =========================
+    // RELATION IDS (OPTIONAL)
+    // =========================
+    @Column
     private UUID orderId;
 
-    // ID cửa hàng nhận tiền (nếu là giao dịch với shop)
     @Column
     private UUID storeId;
 
-    // ID khách hàng nhận tiền (nếu là giao dịch refund)
     @Column
     private UUID customerId;
 
-    // Số tiền giao dịch
+    // =========================
+    // CORE LEDGER AMOUNT
+    // =========================
+    @Builder.Default
     @Column(nullable = false, precision = 18, scale = 2)
-    private BigDecimal amount;
+    private BigDecimal amount = BigDecimal.ZERO;
 
-    // Loại giao dịch
+    // =========================
+    // TRANSACTION META (BẮT BUỘC SET)
+    // =========================
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private TransactionType type;
 
-    // Trạng thái giao dịch
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private TransactionStatus status;
 
-    // Ghi chú chi tiết
-    @Column(length = 255)
-    private String description;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private PaymentChannel channel;
 
-    // Thời điểm tạo và cập nhật
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private WalletBucket bucket;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private TxDirection direction;
+
+    // =========================
+    // LEDGER BALANCE SNAPSHOT
+    // =========================
+    @Builder.Default
+    @Column(nullable = false, precision = 18, scale = 2)
+    private BigDecimal balanceBefore = BigDecimal.ZERO;
+
+    @Builder.Default
+    @Column(nullable = false, precision = 18, scale = 2)
+    private BigDecimal balanceAfter = BigDecimal.ZERO;
+
+    // =========================
+    // TIME
+    // =========================
+    @Builder.Default
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Builder.Default
     @Column(nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();
 
-
-//Định danh & chống bắn callback nhiều lần (idempotency)
-    // Khóa chống ghi trùng (PayOS callback, job unlock, payout retry...)
+    // =========================
+    // IDEMPOTENCY / EXTERNAL
+    // =========================
     @Column(length = 80, unique = true)
-    private String idempotencyKey;   // vd: "PAYOS:txn_123", "UNLOCK:orderId", "PAYOUT:req_456"
-
-    //Nguồn tiền / kênh thanh toán
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private PaymentChannel channel; // PAYOS, COD, WALLET, BANK_TRANSFER, GHN_SETTLEMENT, INTERNAL
+    private String idempotencyKey;
 
     @Column(length = 120)
-    private String externalRefId;    // payosTransactionId / bankTxnId / ghnStatementId...
+    private String externalRefId;
 
     @Column(length = 120)
-    private String externalRefCode;  // orderCode, payosPaymentLinkId, ...
+    private String externalRefCode;
 
-
-    //. “Bucket” bị ảnh hưởng (để biết tiền vào/ra cái nào)
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 30)
-    private WalletBucket bucket; // CASH, PENDING, PAYABLE_TO_STORE, STORE_DEBT, COMMISSION, LOGISTICS_PAYABLE, SHIP_CUS_COLLECTED, SHIP_STORE_CHARGED
-
-
-    //Chiều (+/-) và số dư trước/sau để audit
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 10)
-    private TxDirection direction; // IN, OUT
-
-    @Column(nullable = false, precision = 18, scale = 2)
-    private BigDecimal balanceBefore;
-
-    @Column(nullable = false, precision = 18, scale = 2)
-    private BigDecimal balanceAfter;
-
-
-    //Chi tiết “phân bổ” theo đơn (rất cần cho payout/commission/ship diff)
+    // =========================
+    // ORDER / COMMISSION BREAKDOWN
+    // =========================
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal itemAmount;          // tiền hàng (100k)
+    private BigDecimal itemAmount = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal shipCustomerPaid;    // ship khách trả (30k)
+    private BigDecimal shipCustomerPaid = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal shipReal;            // ship thực tế GHN (40k)
+    private BigDecimal shipReal = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal shipDiffChargeStore; // phần shop bù (10k)
+    private BigDecimal shipDiffChargeStore = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal commissionAmount;    // phí nền tảng (10k)
+    private BigDecimal commissionAmount = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 5, scale = 2)
-    private BigDecimal commissionRate;      // 10.00 (%)
+    private BigDecimal commissionRate = BigDecimal.ZERO;
 
-
-    //Payout: số tiền shop yêu cầu rút & số tiền thực nhận (cấn nợ)
+    // =========================
+    // PAYOUT
+    // =========================
     @Column
-    private UUID payoutRequestId;           // nếu bạn có bảng payout_request
+    private UUID payoutRequestId;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal payoutGross;         // shop "được nhận" theo đơn (vd 90k)
+    private BigDecimal payoutGross = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal debtDeducted;        // cấn trừ nợ (vd 10k ship diff)
+    private BigDecimal debtDeducted = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(precision = 18, scale = 2)
-    private BigDecimal payoutNet;           // thực chuyển shop (vd 80k)
+    private BigDecimal payoutNet = BigDecimal.ZERO;
 
-    //Metadata để tra cứu nhanh (JSON)
+    // =========================
+    // MISC
+    // =========================
+    @Column(length = 255)
+    private String description;
+
     @Column(columnDefinition = "TEXT")
-    private String metadataJson; // lưu json nhỏ: ghn fee breakdown, rto fee, lý do refund, ...
-
+    private String metadataJson;
 }

@@ -167,6 +167,10 @@ public class StoreOrder {
     @Column(name = "paid_by_shop", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean paidByShop = false;
 
+    @Builder.Default
+    @Column(name = "ghn_debt_finalized", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean ghnDebtFinalized = false;
+
     // ====== Settlement breakdown cho shop ======
 
     @Column(name = "platform_fee_amount", precision = 18, scale = 2)

@@ -72,6 +72,9 @@ public class ProductViewController {
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
             @RequestParam(required = false) BigDecimal minRating,
+            @RequestParam(required = false) Integer minReviewCount,
+            @RequestParam(required = false) Integer minViewCount,
+            @RequestParam(required = false) Integer minSellCount,
 
             // Paging
             @RequestParam(defaultValue = "0") int page,
@@ -94,6 +97,9 @@ public class ProductViewController {
                 minPrice,
                 maxPrice,
                 minRating,
+                minReviewCount,
+                minViewCount,
+                minSellCount,
                 pageable,
                 sortBy,
                 sortDir

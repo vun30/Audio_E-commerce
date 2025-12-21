@@ -37,4 +37,21 @@ public interface PlatformWalletRepository extends JpaRepository<PlatformWallet, 
                 );
     }
 
+
+//    @Query(value = """
+//        SELECT
+//            so.status           AS status,
+//            so.created_at       AS createdAt,
+//            so.delivered_at     AS deliveredAt,
+//            so.shipping_fee_real AS shippingFeeReal,
+//            so.shipping_fee     AS shippingFee,
+//            so.paid_by_shop     AS paidByShop
+//        FROM store_order so
+//        WHERE (:from IS NULL OR so.created_at >= :from)
+//          AND (:to   IS NULL OR so.created_at <= :to)
+//          AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
+//    """, nativeQuery = true)
+//    List<FlatDebtOrderRow> findFlatDebtRows(@Param("from") LocalDateTime from,
+//                                            @Param("to") LocalDateTime to);
+
 }

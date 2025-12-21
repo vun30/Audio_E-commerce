@@ -55,6 +55,10 @@ public class ReturnShippingFee extends BaseEntity {
     )
     private Boolean paidByShop = false;
 
+    @Builder.Default
+    @Column(name = "ghn_debt_finalized", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean ghnDebtFinalized = false;
+
 
     // ===== STATUS =====
     @Builder.Default

@@ -30,5 +30,6 @@ public interface ProductService {
     ResponseEntity<BaseResponse> disableProduct(UUID productId);
     ResponseEntity<BaseResponse> incrementViewCount(UUID productId);
     ResponseEntity<BaseResponse> approveProduct(UUID productId, ApproveProductRequest  req);
+    ResponseEntity<BaseResponse> adminToggleSuspendProduct(UUID productId);
 
 }

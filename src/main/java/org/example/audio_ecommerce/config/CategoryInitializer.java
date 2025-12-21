@@ -33,35 +33,52 @@ public class CategoryInitializer {
         log.info("🚀 Initializing default Categories...");
 
         // =====================================================
-        // 1) LOA – SPEAKER
-        // =====================================================
+// 1) LOA – SPEAKER (ĐỦ CHO RECOMMEND + MÔ PHỎNG)
+// - User chỉ nhập số (không nhập đơn vị)
+// - Đơn vị hiển thị nằm trong attributeLabel
+// =====================================================
         createCategory(
                 "Loa",
                 List.of(
-                        att("frequencyResponse", "Dải tần", CategoryAttributeDataType.STRING, List.of()),
+                        // ====== BẮT BUỘC (LÕI) ======
 
-                        att("sensitivity", "Độ nhạy", CategoryAttributeDataType.STRING, List.of()),
+                        // Loại loa: dùng cho filter + preset directivity
+                        att("speakerType", "Loại loa", CategoryAttributeDataType.STRING,
+                                List.of("Loa bookshelf", "Loa đứng", "Loa center", "Loa subwoofer")),
 
-                        att("impedance", "Trở kháng", CategoryAttributeDataType.STRING,
-                                List.of("2Ω", "4Ω", "6Ω", "8Ω", "16Ω")),
+                        // dB / 1W / 1m
+                        att("sensitivityDb", "Độ nhạy (dB/1W/1m)", CategoryAttributeDataType.NUMBER, List.of()),
 
-                        att("powerHandling", "Công suất chịu đựng", CategoryAttributeDataType.STRING, List.of()),
+                        // W
+                        att("powerRmsW", "Công suất RMS (W)", CategoryAttributeDataType.NUMBER, List.of()),
 
-                        att("driverConfiguration", "Cấu hình driver", CategoryAttributeDataType.STRING,
-                                List.of("1-Way", "2-Way", "3-Way", "4-Way", "Coaxial")),
+                        // Ω (nhập số 2/4/6/8/16)
+                        att("impedanceOhm", "Trở kháng (Ω)", CategoryAttributeDataType.NUMBER,
+                                List.of("2", "4", "6", "8", "16")),
 
-                        att("driverSize", "Kích thước driver", CategoryAttributeDataType.STRING,
-                                List.of("1 inch", "2 inch", "3 inch", "4 inch", "5 inch",
-                                        "6.5 inch", "8 inch", "10 inch", "12 inch", "15 inch", "18 inch")),
+                        // Hz
+                        att("frequencyLowHz", "Tần số thấp nhất (Hz)", CategoryAttributeDataType.NUMBER, List.of()),
+                        att("frequencyHighHz", "Tần số cao nhất (Hz)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        // % (khuyến nghị có)
+                        att("thdPercent", "Độ méo tiếng tổng THD (%)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        // ====== OPTIONAL CHO HƯỚNG PHỦ ÂM (nếu có data hãng) ======
+                        att("dispersionHorizontalDeg", "Góc phủ âm ngang (độ)", CategoryAttributeDataType.NUMBER, List.of()),
+                        att("dispersionVerticalDeg", "Góc phủ âm dọc (độ)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        // ====== MÔ TẢ / FILTER (KHÔNG BẮT BUỘC CHO TÍNH TOÁN) ======
+                        att("driverConfiguration", "Cấu hình loa", CategoryAttributeDataType.STRING,
+                                List.of("1 đường tiếng", "2 đường tiếng", "3 đường tiếng", "4 đường tiếng", "Đồng trục")),
+
+                        // inch (user nhập số, ví dụ 6.5)
+                        att("driverSizeInch", "Kích thước củ loa (inch)", CategoryAttributeDataType.NUMBER, List.of()),
 
                         att("enclosureType", "Loại thùng loa", CategoryAttributeDataType.STRING,
-                                List.of("Closed", "Ported", "Bass-reflex", "Open-back",
-                                        "Sealed", "Bandpass", "Transmission Line")),
+                                List.of("Thùng kín", "Thùng hở", "Bass reflex", "Bandpass", "Transmission Line")),
 
-                        att("coveragePattern", "Góc phủ âm", CategoryAttributeDataType.STRING,
-                                List.of("60°", "75°", "90°", "120°", "180°", "360°")),
-
-                        att("crossoverFrequency", "Tần cắt", CategoryAttributeDataType.STRING, List.of())
+                        // Hz
+                        att("crossoverFrequencyHz", "Tần số cắt (Hz)", CategoryAttributeDataType.NUMBER, List.of())
                 )
         );
 
@@ -172,43 +189,107 @@ public class CategoryInitializer {
         );
 
         // =====================================================
-        // 6) DAC / MIXER / SOUNDCARD
-        // =====================================================
+// 6A) DAC (Digital to Analog Converter)
+// =====================================================
         createCategory(
-                "DAC / Mixer / Soundcard",
+                "DAC",
                 List.of(
                         att("dacChipset", "Chip DAC", CategoryAttributeDataType.STRING,
                                 List.of("ESS Sabre", "AKM Velvet Sound", "Cirrus Logic",
                                         "Burr-Brown", "Wolfson")),
 
-                        att("sampleRate", "Tần mẫu", CategoryAttributeDataType.STRING,
-                                List.of("44.1 kHz", "48 kHz", "96 kHz", "192 kHz",
-                                        "384 kHz", "768 kHz")),
+                        att("sampleRate", "Tần số lấy mẫu tối đa (kHz)", CategoryAttributeDataType.NUMBER, List.of()),
 
-                        att("bitDepth", "Độ sâu bit", CategoryAttributeDataType.STRING,
-                                List.of("16-bit", "24-bit", "32-bit")),
-
-                        att("balancedOutput", "Output cân bằng (XLR)", CategoryAttributeDataType.BOOLEAN, List.of()),
+                        att("bitDepth", "Độ sâu bit", CategoryAttributeDataType.NUMBER,
+                                List.of("16", "24", "32")),
 
                         att("inputInterface", "Cổng input", CategoryAttributeDataType.STRING,
-                                List.of("USB", "USB-C", "Optical", "Coaxial",
-                                        "XLR", "TRS", "RCA")),
+                                List.of("USB", "USB-C", "Optical", "Coaxial", "AES/EBU")),
 
                         att("outputInterface", "Cổng output", CategoryAttributeDataType.STRING,
-                                List.of("RCA", "XLR", "TRS", "6.35mm", "3.5mm")),
+                                List.of("RCA", "XLR", "6.35mm", "3.5mm")),
+
+                        att("balancedOutput", "Output cân bằng (Balanced)", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("headphoneAmp", "Tích hợp amp tai nghe", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("supportedFormat", "Định dạng hỗ trợ", CategoryAttributeDataType.STRING,
+                                List.of("PCM", "DSD", "MQA")),
+
+                        att("powerType", "Nguồn cấp", CategoryAttributeDataType.STRING,
+                                List.of("USB Powered", "Adapter", "Linear PSU"))
+                )
+        );
+
+        // =====================================================
+// 6B) MIXER
+// =====================================================
+        createCategory(
+                "Mixer",
+                List.of(
+                        att("mixerType", "Loại mixer", CategoryAttributeDataType.STRING,
+                                List.of("Analog", "Digital")),
 
                         att("channelCount", "Số kênh", CategoryAttributeDataType.NUMBER,
-                                List.of("1", "2", "4", "6", "8", "12", "16", "24")),
+                                List.of("2", "4", "6", "8", "12", "16", "24")),
+
+                        att("inputType", "Cổng input", CategoryAttributeDataType.STRING,
+                                List.of("XLR", "TRS", "Combo XLR/TRS", "RCA")),
+
+                        att("outputType", "Cổng output", CategoryAttributeDataType.STRING,
+                                List.of("XLR", "TRS", "RCA", "Monitor Out")),
 
                         att("hasPhantomPower", "Nguồn phantom +48V", CategoryAttributeDataType.BOOLEAN, List.of()),
 
-                        att("eqBands", "Dải EQ", CategoryAttributeDataType.STRING,
-                                List.of("2-band", "3-band", "5-band", "7-band", "10-band")),
+                        att("eqBands", "Số dải EQ", CategoryAttributeDataType.NUMBER,
+                                List.of("2", "3", "4", "5", "7", "10")),
+
+                        att("hasEffects", "Tích hợp effect", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("effectTypes", "Loại effect", CategoryAttributeDataType.STRING,
+                                List.of("Reverb", "Echo", "Delay", "Chorus")),
 
                         att("faderType", "Loại fader", CategoryAttributeDataType.STRING,
-                                List.of("Linear Fader", "Rotary Fader", "Crossfader"))
+                                List.of("Linear Fader", "Rotary Fader", "Motorized Fader")),
+
+                        att("usbAudio", "Kết nối USB Audio", CategoryAttributeDataType.BOOLEAN, List.of())
                 )
         );
+
+
+        // =====================================================
+// 6C) SOUNDCARD / AUDIO INTERFACE
+// =====================================================
+        createCategory(
+                "Soundcard / Audio Interface",
+                List.of(
+                        att("inputCount", "Số input", CategoryAttributeDataType.NUMBER,
+                                List.of("1", "2", "4", "8")),
+
+                        att("outputCount", "Số output", CategoryAttributeDataType.NUMBER,
+                                List.of("2", "4", "6")),
+
+                        att("micPreamp", "Mic preamp chất lượng cao", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("hasPhantomPower", "Nguồn phantom +48V", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("sampleRate", "Tần số lấy mẫu tối đa (kHz)", CategoryAttributeDataType.NUMBER, List.of()),
+
+                        att("bitDepth", "Độ sâu bit", CategoryAttributeDataType.NUMBER,
+                                List.of("16", "24", "32")),
+
+                        att("connection", "Chuẩn kết nối", CategoryAttributeDataType.STRING,
+                                List.of("USB", "USB-C", "Thunderbolt")),
+
+                        att("lowLatency", "Độ trễ thấp", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("directMonitoring", "Direct Monitoring", CategoryAttributeDataType.BOOLEAN, List.of()),
+
+                        att("compatibleOS", "Hệ điều hành hỗ trợ", CategoryAttributeDataType.STRING,
+                                List.of("Windows", "macOS", "Linux"))
+                )
+        );
+
 
         log.info("🎉 Default Categories initialized successfully!");
     }

@@ -13,9 +13,8 @@ import org.example.audio_ecommerce.dto.request.DepositTransferRequest;
 import org.example.audio_ecommerce.dto.request.WithdrawDepositToDefaultRequest;
 import org.example.audio_ecommerce.dto.request.WithdrawRequest;
 import org.example.audio_ecommerce.dto.response.*;
-import org.example.audio_ecommerce.entity.Enum.DebtComponentType;
-import org.example.audio_ecommerce.entity.Enum.StoreWalletBucket;
-import org.example.audio_ecommerce.entity.Enum.StoreWalletTransactionType;
+import org.example.audio_ecommerce.entity.Enum.*;
+import org.example.audio_ecommerce.service.PlatformWalletService;
 import org.example.audio_ecommerce.service.StoreWalletQueryService;
 import org.example.audio_ecommerce.service.StoreWalletService;
 import org.example.audio_ecommerce.util.SecurityUtils;
@@ -39,6 +38,7 @@ public class StoreWalletController {
 
     // ✅ NEW: service chuyên dùng cho phần thống kê theo từng order item
     private final StoreWalletQueryService storeWalletQueryService;
+    private final PlatformWalletService platformWalletService;
 
     // =============================================================
     // 🏦 1️⃣ Lấy thông tin ví cửa hàng hiện tại
@@ -73,17 +73,35 @@ public class StoreWalletController {
             @ApiResponse(responseCode = "200", description = "Lấy danh sách giao dịch thành công")
     })
     @GetMapping("/transactions")
-    public ResponseEntity<BaseResponse> getMyWalletTransactions(
-            @Parameter(description = "Trang hiện tại (mặc định = 0)")
+    public ResponseEntity<BaseResponse> filterTransactions(
+            @RequestParam(required = false) UUID walletId,
+            @RequestParam(required = false) UUID storeId,
+            @RequestParam(required = false) UUID customerId,
+            @RequestParam(required = false) UUID orderId,
+            @RequestParam(required = false) UUID payoutRequestId,
+
+            @RequestParam(required = false) TransactionStatus status,
+            @RequestParam(required = false) TransactionType type,          // ✅ lọc theo từng loại tran
+            @RequestParam(required = false) WalletBucket bucket,
+            @RequestParam(required = false) TxDirection direction,
+            @RequestParam(required = false) PaymentChannel channel,
+
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+
             @RequestParam(defaultValue = "0") int page,
-
-            @Parameter(description = "Số lượng giao dịch mỗi trang (mặc định = 10)")
-            @RequestParam(defaultValue = "10") int size,
-
-            @Parameter(description = "Loại giao dịch (tùy chọn)")
-            @RequestParam(required = false) String type
+            @RequestParam(defaultValue = "20") int size
     ) {
-        return storeWalletService.getMyWalletTransactions(page, size, type);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<PlatformTransactionResponse> result =
+                platformWalletService.filterFlatWalletTransactions(
+                        storeId, customerId, orderId, payoutRequestId,
+                        status, type, bucket, direction, channel,
+                        from, to, pageable
+                );
+
+        return ResponseEntity.ok(new BaseResponse<>(200, "✅ Lấy danh sách giao dịch platform thành công", result));
     }
 
     // =============================================================

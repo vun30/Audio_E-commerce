@@ -11,6 +11,7 @@ import org.example.audio_ecommerce.email.EmailService;
 import org.example.audio_ecommerce.email.EmailTemplateType;
 import org.example.audio_ecommerce.email.dto.StoreStatusChangedData;
 import org.example.audio_ecommerce.entity.Account;
+import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.entity.StoreAddressEntity;
@@ -436,49 +437,87 @@ public ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus 
     @Transactional
     public ResponseEntity<BaseResponse> shopToggleStoreStatus(UUID storeId, StoreStatus newStatus) {
 
-        // 1. Lấy store theo storeId truyền vào
         Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new RuntimeException("Store not found"));
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy cửa hàng"));
 
         StoreStatus current = store.getStatus();
 
-        // 2. Chỉ cho phép ACTIVE ↔ PAUSED
-        if (!(current == StoreStatus.ACTIVE || current == StoreStatus.PAUSED)) {
+        // ✅ Chỉ cho phép ACTIVE <-> PAUSED
+        if (current != StoreStatus.ACTIVE && current != StoreStatus.PAUSED) {
             return ResponseEntity.badRequest().body(
-                    BaseResponse.error("Shop chỉ có thể đổi giữa ACTIVE và PAUSED")
+                    BaseResponse.error("""
+                    ❌ Không thể thay đổi trạng thái cửa hàng.
+                    👉 Chỉ thao tác khi cửa hàng đang ở:
+                       - ACTIVE
+                       - PAUSED
+                    👉 Trạng thái hiện tại: %s
+                    """.formatted(current))
             );
         }
 
-        // 3. Không cho phép đổi sang trạng thái khác
-        if (!(newStatus == StoreStatus.ACTIVE || newStatus == StoreStatus.PAUSED)) {
+        if (newStatus != StoreStatus.ACTIVE && newStatus != StoreStatus.PAUSED) {
             return ResponseEntity.badRequest().body(
-                    BaseResponse.error("Shop không được phép đổi sang trạng thái này")
+                    BaseResponse.error("""
+                    ❌ Trạng thái yêu cầu không hợp lệ.
+                    👉 Chỉ cho phép:
+                       - ACTIVE
+                       - PAUSED
+                    👉 newStatus: %s
+                    """.formatted(newStatus))
             );
         }
 
-        // 4. Không cho đổi trùng trạng thái
         if (current == newStatus) {
             return ResponseEntity.badRequest().body(
-                    BaseResponse.error("Cửa hàng đã đang ở trạng thái " + newStatus)
+                    BaseResponse.error("❌ Cửa hàng đã ở trạng thái " + current)
             );
         }
 
-        // 5. Update trạng thái store
+        if (newStatus == StoreStatus.PAUSED && current != StoreStatus.ACTIVE) {
+            return ResponseEntity.badRequest().body(
+                    BaseResponse.error("❌ Chỉ được PAUSED khi store đang ACTIVE")
+            );
+        }
+
+        if (newStatus == StoreStatus.ACTIVE && current != StoreStatus.PAUSED) {
+            return ResponseEntity.badRequest().body(
+                    BaseResponse.error("❌ Chỉ được ACTIVE khi store đang PAUSED")
+            );
+        }
+
+        // =====================================================
+        // 1️⃣ Update store
+        // =====================================================
         store.setStatus(newStatus);
         storeRepository.save(store);
 
         int affected = 0;
 
-        // ⭐ ACTIVE → ACTIVE sản phẩm
-        if (newStatus == StoreStatus.ACTIVE) {
-            affected = productRepository.activateAllProductsByStore(storeId);
+        // =====================================================
+        // 2️⃣ Swap product ACTIVE <-> INACTIVE
+        // =====================================================
+        if (newStatus == StoreStatus.PAUSED) {
+
+            // ACTIVE -> INACTIVE
+            affected = productRepository.updateProductStatusByStore(
+                    storeId,
+                    ProductStatus.ACTIVE,
+                    ProductStatus.INACTIVE
+            );
+
+        } else if (newStatus == StoreStatus.ACTIVE) {
+
+            // INACTIVE -> ACTIVE
+            affected = productRepository.updateProductStatusByStore(
+                    storeId,
+                    ProductStatus.INACTIVE,
+                    ProductStatus.ACTIVE
+            );
         }
 
-        // ⭐ PAUSED → UNLISTED sản phẩm
-        else if (newStatus == StoreStatus.PAUSED) {
-            affected = productRepository.unlistAllProductsByStore(storeId);
-        }
-
+        // =====================================================
+        // 3️⃣ Response
+        // =====================================================
         Map<String, Object> result = new HashMap<>();
         result.put("storeId", storeId);
         result.put("oldStatus", current);
@@ -486,7 +525,7 @@ public ResponseEntity<BaseResponse> updateStoreStatus(UUID storeId, StoreStatus 
         result.put("productsUpdated", affected);
 
         return ResponseEntity.ok(
-                BaseResponse.success("Thay đổi trạng thái cửa hàng thành công", result)
+                BaseResponse.success("✅ Thay đổi trạng thái cửa hàng thành công", result)
         );
     }
 

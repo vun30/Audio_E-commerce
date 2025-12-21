@@ -80,7 +80,7 @@ public class StoreOrderItem {
     private BigDecimal finalUnitPrice;
 
     @Column(name = "final_line_total")
-    private BigDecimal finalLineTotal; // sau tất cả chiết khấu  là giá finalLineTotal = finalUnitPrice * quantity -  all chiết khấu
+    private BigDecimal finalLineTotal; // sau tất cả chiết khấu  là giá finalLineTotal = finalUnitPrice * quantity -  all chiết khấu  ( khng tính phí ship)
 
     @Column(name = "amount_charged")
     private BigDecimal amountCharged;
@@ -93,7 +93,7 @@ public class StoreOrderItem {
     private BigDecimal costPrice = BigDecimal.ZERO;
 
     @Column(nullable = false)
-    private BigDecimal lineTotal;
+    private BigDecimal lineTotal; //
 
     @Column(nullable = true)
     private LocalDateTime deliveredAt;
