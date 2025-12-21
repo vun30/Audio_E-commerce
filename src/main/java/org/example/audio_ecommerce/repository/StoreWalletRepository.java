@@ -6,8 +6,10 @@ import org.example.audio_ecommerce.entity.StoreWalletTransaction;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,5 +22,10 @@ public interface StoreWalletRepository extends JpaRepository<StoreWallet, UUID> 
     // 🔍 Kiểm tra xem ví đã tồn tại cho store hay chưa
     boolean existsByStore_StoreId(UUID storeId);
 
+    @Query("""
+select coalesce(sum(w.debtBalance), 0)
+from StoreWallet w
+""")
+    BigDecimal sumAllStoreDebtBalance();
 
 }

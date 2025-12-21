@@ -6,14 +6,16 @@ import io.swagger.v3.oas.annotations.media.*;
 import io.swagger.v3.oas.annotations.responses.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.response.PlatformTransactionResponse;
-import org.example.audio_ecommerce.dto.response.PlatformWalletResponse;
+import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.Enum.TransactionStatus;
 import org.example.audio_ecommerce.entity.Enum.TransactionType;
 import org.example.audio_ecommerce.service.PlatformWalletService;
+import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.example.audio_ecommerce.dto.response.BaseResponse;
+import org.example.audio_ecommerce.dto.response.FlatGhnOverviewResponse;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +35,7 @@ import java.util.UUID;
 public class PlatformWalletController {
 
     private final PlatformWalletService walletService;
+    private final PlatformWalletService platformWalletService;
 
     // ==============================
     // 🪙 LẤY DANH SÁCH TẤT CẢ VÍ
@@ -130,11 +133,11 @@ public class PlatformWalletController {
     @Operation(
             summary = "Lấy ví của Platform (hệ thống)",
             description = """
-                - API trả về ví duy nhất của nền tảng.  
-                - Ví Platform giữ tiền khách thanh toán online (HOLD),  
-                  sau đó phân phối cho shop khi đủ điều kiện.  
-                - Dữ liệu bao gồm số dư tổng, pending, done và lịch sử giao dịch.
-                """
+                    - API trả về ví duy nhất của nền tảng.  
+                    - Ví Platform giữ tiền khách thanh toán online (HOLD),  
+                      sau đó phân phối cho shop khi đủ điều kiện.  
+                    - Dữ liệu bao gồm số dư tổng, pending, done và lịch sử giao dịch.
+                    """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Lấy ví platform thành công",
@@ -152,11 +155,11 @@ public class PlatformWalletController {
     @Operation(
             summary = "Lấy tổng quan ví Platform (Overview)",
             description = """
-                - API trả về thông tin tổng quan ví Platform.
-                - Bao gồm: tổng tiền nạp, tiền pending, tiền done, phí commission, etc.
-                - Hữu ích cho dashboard admin theo dõi trạng thái ví nền tảng.
-                - Hiển thị số lượng order pending và done.
-                """
+                    - API trả về thông tin tổng quan ví Platform.
+                    - Bao gồm: tổng tiền nạp, tiền pending, tiền done, phí commission, etc.
+                    - Hữu ích cho dashboard admin theo dõi trạng thái ví nền tảng.
+                    - Hiển thị số lượng order pending và done.
+                    """
     )
     @ApiResponses({
             @ApiResponse(
@@ -177,4 +180,105 @@ public class PlatformWalletController {
         );
     }
 
+    // ==============================
+// 📜 GIAO DỊCH VÍ PLATFORM (FLAT WALLET)
+// Chỉ filter theo type/status/khoảng ngày + paging
+// ==============================
+    @Operation(
+            summary = "Lấy giao dịch ví Platform (flat wallet) - phân trang",
+            description = """
+                    Trả về danh sách giao dịch thuộc ví Platform (ví tổng duy nhất).
+                    
+                    ✅ Bộ lọc hỗ trợ:
+                    - type: loại giao dịch (HOLD, RELEASE, WITHDRAW, PAYOUT_STORE, ...). null = tất cả
+                    - status: trạng thái giao dịch. null = tất cả
+                    - from/to: lọc theo createdAt. null = không giới hạn
+                    
+                    ✅ Có phân trang.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy giao dịch thành công",
+                    content = @Content(schema = @Schema(implementation = org.springframework.data.domain.Page.class)))
+    })
+    @GetMapping("/platform/transactions")
+    public ResponseEntity<org.example.audio_ecommerce.dto.response.BaseResponse<Page<PlatformTransactionResponse>>> getPlatformTransactions(
+            @RequestParam(required = false) TransactionType type,
+            @RequestParam(required = false) TransactionStatus status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        var pageable = org.springframework.data.domain.PageRequest.of(
+                page, size, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt")
+        );
+
+        Page<PlatformTransactionResponse> result =
+                walletService.getFlatWalletTransactions(type, status, from, to, pageable);
+
+        return ResponseEntity.ok(
+                org.example.audio_ecommerce.dto.response.BaseResponse.success("Danh sách giao dịch ví platform", result)
+        );
+
+    }
+
+
+
+    @Operation(
+            summary = "Tổng quan GHN của ví tổng (Flat) - nợ GHN, ship khách trả, nợ shop",
+            description = """
+                API trả về các số liệu tài chính liên quan đến GHN và nghĩa vụ thanh toán của ví tổng (Flat).
+
+                ✅ 1) flatDebtShipToGHN (Flat nợ GHN - theo phí ship thực tế):
+                - Chỉ tính các đơn thỏa điều kiện phát sinh nợ GHN:
+                  • shippingFeeReal > 0
+                  • status KHÔNG thuộc: UNPAID, CONFIRMED, AWAITING_SHIPMENT, EXCEPTION, CANCELLED
+                  • và thuộc 1 trong 2 case:
+                    (A) deliveredAt != null  → nợ = shippingFeeReal
+                    (B) deliveredAt == null & status = RETURNING → nợ = shippingFeeReal * 1.5
+                - Ý nghĩa: Tổng tiền ship GHN mà Flat phải thanh toán cho GHN.
+
+                ✅ 2) customerShipPaid (Khách đã trả ship):
+                - Chỉ cộng shippingFee của các đơn đã deliveredAt != null.
+                - Ý nghĩa: Tổng tiền ship khách đã thanh toán (phần ship thu từ khách) cho các đơn giao thành công.
+
+                ✅ 3) storeDebtOutstandingToFlat (Shop còn nợ Flat - snapshot ví shop):
+                - Tính bằng SUM(store_wallets.debt_balance) của toàn hệ thống.
+                - Ý nghĩa: Tổng số nợ hiện tại các shop còn đang nợ Flat (không phụ thuộc from/to nếu bạn để from/to null).
+
+                ✅ 4) storeDebtPaidToFlat (Shop đã trả Flat - dựa trên StoreOrder):
+                - Tính từ các đơn thỏa điều kiện nợ GHN ở mục (1) và có paidByShop = true.
+                - Giá trị mỗi đơn được tính theo cùng rule nợ GHN:
+                  delivered → shippingFeeReal
+                  returning-not-delivered → shippingFeeReal * 1.5
+                - Ý nghĩa: Tổng số tiền shop đã thanh toán hoàn lại cho Flat (để Flat trả GHN) theo đơn hàng.
+
+                ✅ 5) storeDebtTotalToFlat:
+                - storeDebtTotalToFlat = storeDebtPaidToFlat + storeDebtOutstandingToFlat
+                - Ý nghĩa: Tổng nghĩa vụ nợ shop đối với Flat (đã trả + còn nợ).
+
+                🔎 Bộ lọc thời gian:
+                - from/to (optional): nếu truyền thì lọc theo createdAt của StoreOrder trong khoảng thời gian.
+                - Nếu không truyền: thống kê toàn bộ dữ liệu.
+                
+                Gợi ý UI: dùng cho dashboard admin theo dõi nợ GHN & tình trạng shop trả nợ.
+                """
+    )
+    @GetMapping("/ghn/overview")
+    public ResponseEntity<BaseResponse<FlatGhnOverviewResponse>> getFlatGhnOverview(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime from,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime to
+    ) {
+        FlatGhnOverviewResponse data = walletService.getFlatGhnOverview(from, to);
+
+        return ResponseEntity.ok(
+                BaseResponse.success("Lấy tổng quan GHN (Flat) thành công", data)
+        );
+    }
 }
