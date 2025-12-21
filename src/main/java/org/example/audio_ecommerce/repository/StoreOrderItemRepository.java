@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.repository;
 
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 import org.example.audio_ecommerce.entity.StoreOrderItem;
+import org.example.audio_ecommerce.service.Projection.PlatformRevenueAgg;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -506,4 +507,70 @@ public interface StoreOrderItemRepository extends JpaRepository<StoreOrderItem, 
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
+
+    @Query("""
+        select
+            count(i.id) as deliveredItemCount,
+            coalesce(sum(i.finalLineTotal), 0) as totalItemRevenue,
+            coalesce(sum(i.finalLineTotal * i.platformFeePercentage / 100), 0) as platformFeeRevenue
+        from StoreOrderItem i
+        where i.deliveredAt is not null
+          and i.eligibleForPayout = true
+    """)
+    PlatformRevenueAgg aggregateDeliveredEligibleItems();
+
+
+    // ===== CHART: REVENUE BY MONTH =====
+    @Query("""
+        select
+            year(i.deliveredAt),
+            month(i.deliveredAt),
+            coalesce(sum(i.finalLineTotal * i.platformFeePercentage / 100), 0)
+        from StoreOrderItem i
+        where i.deliveredAt is not null
+          and i.eligibleForPayout = true
+        group by year(i.deliveredAt), month(i.deliveredAt)
+        order by year(i.deliveredAt), month(i.deliveredAt)
+    """)
+    List<Object[]> revenueByMonth();
+
+    // ===== SUPPORT: COUNT DELIVERED ITEMS BY MONTH =====
+    @Query("""
+        select count(i.id)
+        from StoreOrderItem i
+        where i.deliveredAt is not null
+          and year(i.deliveredAt) = :year
+          and month(i.deliveredAt) = :month
+    """)
+    long countDeliveredItems(
+            @Param("year") int year,
+            @Param("month") int month
+    );
+
+
+    // ===============================
+// 📈 PLATFORM REVENUE BY YEAR
+// ===============================
+    @Query("""
+    select
+        year(i.deliveredAt),
+        coalesce(sum(i.finalLineTotal * i.platformFeePercentage / 100), 0)
+    from StoreOrderItem i
+    where i.deliveredAt is not null
+      and i.eligibleForPayout = true
+    group by year(i.deliveredAt)
+    order by year(i.deliveredAt)
+""")
+    List<Object[]> revenueByYear();
+
+    // ===============================
+// 📦 COUNT DELIVERED ITEMS BY YEAR
+// ===============================
+    @Query("""
+    select count(i.id)
+    from StoreOrderItem i
+    where i.deliveredAt is not null
+      and year(i.deliveredAt) = :year
+""")
+    long countDeliveredItemsByYear(@Param("year") int year);
 }
