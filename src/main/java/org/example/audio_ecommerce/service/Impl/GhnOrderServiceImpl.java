@@ -36,9 +36,9 @@ public class GhnOrderServiceImpl implements GhnOrderService {
 
         entity = repo.save(entity);
 
-storeOrderRepo.findById(req.getStoreOrderId()).ifPresent(storeOrder -> {
+        storeOrderRepo.findById(req.getStoreOrderId()).ifPresent(storeOrder -> {
             storeOrder.setShippingFeeReal(req.getTotalFee() != null ? req.getTotalFee() : BigDecimal.ZERO);
-storeOrderRepo.save(storeOrder);
+            storeOrderRepo.save(storeOrder);
         });
         return toResp(entity);
     }

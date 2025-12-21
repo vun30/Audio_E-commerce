@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface PlatformTransactionRepository extends JpaRepository<PlatformTransaction, UUID> {
@@ -70,5 +71,6 @@ public interface PlatformTransactionRepository extends JpaRepository<PlatformTra
 
     // ✅ Check trùng transaction theo idempotencyKey
     boolean existsByIdempotencyKey(String idempotencyKey);
+    Optional<PlatformTransaction> findByIdempotencyKey(String idempotencyKey);
 
 }
