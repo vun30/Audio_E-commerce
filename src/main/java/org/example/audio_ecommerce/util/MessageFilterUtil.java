@@ -124,7 +124,7 @@ public class MessageFilterUtil {
         }
         
         if (containsSensitiveContent(content)) {
-            throw new IllegalArgumentException("Message contains sensitive content (phone numbers or social media links) and cannot be sent.");
+            throw new IllegalArgumentException("Tin nhắn này chứa nội dung nhạy cảm (số điện thoại hoặc liên kết mạng xã hội) và không thể gửi đi.");
         }
     }
 }

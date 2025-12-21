@@ -2,18 +2,20 @@ package org.example.audio_ecommerce.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.example.audio_ecommerce.entity.CustomerOrder;
-import org.example.audio_ecommerce.entity.Store;
-import org.example.audio_ecommerce.entity.StoreOrder;
+import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
+import org.example.audio_ecommerce.repository.ProductRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Component
@@ -22,7 +24,7 @@ public class LegalPointScheduler {
 
     private final StoreOrderRepository storeOrderRepository;
     private final CustomerOrderRepository customerOrderRepository;
-
+    private final ProductRepository productRepository;
     /**
      * Chạy mỗi 5 phút
      * - StoreOrder DELIVERED  -> +1 legalPoint cho Store
@@ -34,6 +36,7 @@ public class LegalPointScheduler {
         rewardStoreForDeliveredOrders();
         rewardCustomerForDeliveredOrders();
         penalizeCustomerForReturningOrders();
+        increaseSellCountForDeliveredOrders();
     }
 
     /**
@@ -122,6 +125,58 @@ public class LegalPointScheduler {
         }
     }
 
+    /**
+     * ✅ NEW: DELIVERY_SUCCESS -> +sellCount theo quantity bán (mỗi StoreOrder chỉ cộng 1 lần)
+     */
+    private void increaseSellCountForDeliveredOrders() {
+        List<StoreOrder> orders =
+                storeOrderRepository.findByStatusAndSellCountUpdatedFalse(OrderStatus.DELIVERY_SUCCESS);
+
+        if (orders.isEmpty()) return;
+
+        for (StoreOrder so : orders) {
+            // TODO: tuỳ entity của bạn, lấy danh sách item của StoreOrder
+            // giả sử: so.getItems() trả List<StoreOrderItem>
+            if (so.getItems() == null || so.getItems().isEmpty()) {
+                so.setSellCountUpdated(true);
+                continue;
+            }
+
+            // 1) gom productId -> totalQty
+            Map<UUID, Integer> qtyByProductId = new HashMap<>();
+            for (StoreOrderItem item : so.getItems()) {
+                UUID productId = item.getRefId();     // hoặc item.getRefId() nếu refId là productId
+                int qty = item.getQuantity();
+
+                if (productId == null || qty <= 0) continue;
+                qtyByProductId.merge(productId, qty, Integer::sum);
+            }
+
+            if (!qtyByProductId.isEmpty()) {
+                // 2) load products 1 lần
+                List<Product> products = productRepository.findAllById(qtyByProductId.keySet());
+
+                // 3) + sellCount
+                for (Product p : products) {
+                    int oldCount = nvlInt(p.getSellCount());
+                    int add = nvlInt(qtyByProductId.get(p.getProductId()));
+                    p.setSellCount(oldCount + add);
+
+                    log.info("[SELL_COUNT][+{}] productId={} old={} new={} storeOrderId={}",
+                            add, p.getProductId(), oldCount, p.getSellCount(), so.getId());
+                }
+
+                productRepository.saveAll(products);
+            }
+
+            // 4) đánh dấu đã cộng để cron không cộng lại
+            so.setSellCountUpdated(true);
+        }
+    }
+
+    private int nvlInt(Integer v) {
+        return v == null ? 0 : v;
+    }
 
     private BigDecimal nvl(BigDecimal v) {
         return v != null ? v : BigDecimal.ZERO;
