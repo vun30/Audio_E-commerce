@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 public class OAuth2AuthenticationFailureHandler implements AuthenticationFailureHandler {
 
     @Value("${app.oauth2.authorized-redirect-uri}")
-    private String redirectUri;
+    private String defaultRedirectUri;
 
     @Override
     public void onAuthenticationFailure(
@@ -23,7 +23,22 @@ public class OAuth2AuthenticationFailureHandler implements AuthenticationFailure
             HttpServletResponse response,
             AuthenticationException exception   // ✅ đúng kiểu yêu cầu
     ) throws IOException {
-        String url = redirectUri + "?error=" + URLEncoder.encode(exception.getMessage(), StandardCharsets.UTF_8);
+        String platform = request.getParameter("platform");
+        String redirectUri = request.getParameter("redirect_uri");
+        String errorMessage = URLEncoder.encode(exception.getMessage(), StandardCharsets.UTF_8);
+        
+        String url;
+        
+        // 🔹 MOBILE: Redirect to deep link with error
+        if ("mobile".equalsIgnoreCase(platform) || 
+            (redirectUri != null && redirectUri.startsWith("mobdoan://"))) {
+            url = "mobdoan://oauth2/success?error=" + errorMessage;
+        }
+        // 🔹 WEB: Redirect to web error page
+        else {
+            url = defaultRedirectUri + "?error=" + errorMessage;
+        }
+        
         response.setStatus(302);
         response.setHeader("Location", url);
     }
