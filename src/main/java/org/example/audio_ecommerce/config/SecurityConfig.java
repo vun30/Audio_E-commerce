@@ -47,39 +47,34 @@ public class SecurityConfig {
                     corsConfiguration.setAllowedOrigins(List.of(
                             "http://localhost:3000",
                             "http://localhost:5173",
-                            "https://humorous-appreciation-production-8b47.up.railway.app",
-                            "https://sep-490-audio-wep-app.vercel.app",
-                            "https://conicboulevard.pro.vn",
-                            "https://www.conicboulevard.pro.vn",
-                            "https://conicboulevard.vercel.app",
-                            "https://manager.conicboulevard.pro.vn",
-                            "http://localhost:8081",
                             "https://audioe-commerce-production.up.railway.app"
                     ));
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
                 }))
-                // IMPORTANT: Chat AI needs HttpSession (JDBC) in prod, so cannot be STATELESS
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+
+                // ✅ CHO PHÉP TẠO SESSION KHI CẦN (AI, OAuth2, chat memory...)
+                .sessionManagement(sm ->
+                        sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                )
+
                 .authorizeHttpRequests(auth -> auth
+                        // ✅ THẢ TOÀN BỘ API
+                        .requestMatchers("/api/**").permitAll()
+
+                        // swagger, oauth, webhook...
                         .requestMatchers(
-                                "/api/payos/webhook",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/api/account/register/**",
-                                "/api/account/login/**",
                                 "/oauth2/**",
                                 "/login/oauth2/**",
                                 "/loaderio-*"
                         ).permitAll()
 
-                        // AI endpoints: require valid JWT (CUSTOMER/STORE/ADMIN...) so token must be accepted
-                        .requestMatchers("/api/ai/**").authenticated()
-
-                        .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
-                        .anyRequest().authenticated()
+                        // ❗ còn lại cũng cho qua
+                        .anyRequest().permitAll()
                 )
+
                 .oauth2Login(oauth -> oauth
                         .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization"))
                         .redirectionEndpoint(re -> re.baseUri("/login/oauth2/code/*"))
@@ -88,15 +83,13 @@ public class SecurityConfig {
                         .failureHandler(oAuth2FailureHandler)
                 )
 
+                // ✅ JWT filter vẫn chạy (nếu có token thì set SecurityContext)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(restAuthEntryPoint())
-                        .accessDeniedHandler((req, res, e) -> {
-                            res.setStatus(403);
-                            res.setContentType("application/json");
-                            res.getWriter().write("{\"status\":403,\"message\":\"Forbidden\"}");
-                        })
                 );
+
         return http.build();
     }
 
