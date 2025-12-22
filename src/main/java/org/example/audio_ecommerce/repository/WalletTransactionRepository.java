@@ -33,4 +33,5 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
                                         @Param("type") WalletTransactionType type,
                                         @Param("from") LocalDateTime from,
                                         @Param("to") LocalDateTime to);
+    boolean existsByExternalRef(String externalRef);
 }

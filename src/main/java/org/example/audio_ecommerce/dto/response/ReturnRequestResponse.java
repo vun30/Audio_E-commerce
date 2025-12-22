@@ -23,6 +23,13 @@ public class ReturnRequestResponse {
     private String productName;
     private BigDecimal itemPrice;
 
+    // ===== NEW =====
+    private String customerName;
+    private String storeName;
+    private BigDecimal customerLegalPoint;
+    private BigDecimal storeLegalPoint;
+    // =================
+
     private ReturnReasonType reasonType;
     private String reason;
 
@@ -44,3 +51,4 @@ public class ReturnRequestResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
+

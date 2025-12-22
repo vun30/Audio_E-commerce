@@ -5,13 +5,12 @@ import org.example.audio_ecommerce.dto.response.PagedResult;
 import org.example.audio_ecommerce.dto.response.StoreOrderDetailResponse;
 import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
 import org.example.audio_ecommerce.dto.response.StoreOrderResponse;
-import org.example.audio_ecommerce.entity.Customer;
-import org.example.audio_ecommerce.entity.CustomerOrder;
-import org.example.audio_ecommerce.entity.StoreOrder;
-import org.example.audio_ecommerce.entity.StoreOrderItem;
+import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.repository.CustomerOrderRepository;
-import org.example.audio_ecommerce.repository.StoreOrderRepository;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
+import org.example.audio_ecommerce.entity.Enum.WalletTransactionStatus;
+import org.example.audio_ecommerce.entity.Enum.WalletTransactionType;
+import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.StoreOrderService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +35,9 @@ public class StoreOrderServiceImpl implements StoreOrderService {
 
     private final StoreOrderRepository storeOrderRepository;
     private final CustomerOrderRepository customerOrderRepository;
+    private final WalletRepository walletRepository;
+    private final WalletTransactionRepository walletTransactionRepository;
+    private final StoreRepository storeRepository;
 
     @Override
     @Transactional
@@ -168,6 +170,160 @@ public class StoreOrderServiceImpl implements StoreOrderService {
         }
 
         return toDetailResponse(order);
+    }
+
+    @Override
+    @Transactional
+    public StoreOrderDetailResponse cancelNewOrder(UUID storeId, UUID orderId, String reason) {
+        StoreOrder order = storeOrderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Order not found: " + orderId));
+
+        if (order.getStore() == null || order.getStore().getStoreId() == null) {
+            throw new IllegalStateException("Order missing store info");
+        }
+
+        if (!order.getStore().getStoreId().equals(storeId)) {
+            throw new IllegalArgumentException("Store does not own this order");
+        }
+
+        // 1) Chỉ cho huỷ khi “mới nhận”
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new IllegalStateException("Only PENDING orders can be cancelled by store");
+        }
+
+        // 2) Lấy CustomerOrder + payment method
+        // ✅ Nếu StoreOrder của bạn có relation: order.getCustomerOrder() thì dùng luôn.
+        // ❗ Nếu không có relation, bạn phải query theo customerOrderId.
+        CustomerOrder co = null;
+
+        // --- OPTION A: có quan hệ trực tiếp ---
+        // co = order.getCustomerOrder();
+
+        // --- OPTION B: không có quan hệ, có field customerOrderId ---
+        // co = customerOrderRepository.findById(order.getCustomerOrderId())
+        //         .orElseThrow(() -> new NoSuchElementException("CustomerOrder not found"));
+
+        // --- OPTION C: nếu StoreOrder có field customerOrder (nhưng bạn chưa chắc) ---
+        // cứ thử lấy qua getter, nếu compile fail thì bạn dùng OPTION B ở trên
+        try {
+            co = order.getCustomerOrder();
+        } catch (Exception ignore) {
+            // ignore
+        }
+
+        if (co == null) {
+            throw new IllegalStateException("Cannot resolve CustomerOrder from StoreOrder. Please map relation or query by customerOrderId.");
+        }
+
+        PaymentMethod paymentMethod = co.getPaymentMethod();
+        // Nếu paymentMethod của bạn là String thì thay bằng:
+        // String paymentMethod = co.getPaymentMethod();
+
+        // 3) Set CANCELLED + sync CustomerOrder bằng logic sẵn có
+        updateOrderStatus(storeId, orderId, OrderStatus.CANCELLED);
+
+        // 4) Nhánh COD vs ONLINE
+        if (paymentMethod == PaymentMethod.COD) {
+            // COD: trừ legalPoint bình thường (không âm)
+            minusLegalPointNonNegative(order.getStore(), 1);
+            storeRepository.save(order.getStore());
+        } else {
+            // ONLINE: hoàn tiền về ví khách
+            refundToCustomerWalletForStoreCancel(co, reason);
+        }
+
+        return getOrderDetailForStore(storeId, orderId);
+    }
+
+    /**
+     * Refund tiền về ví khách (Wallet.balance) + lưu WalletTransaction.
+     * Có idempotency để chống hoàn trùng bằng externalRef.
+     */
+    private void refundToCustomerWalletForStoreCancel(CustomerOrder co, String reason) {
+
+        // 1) xác định customerId
+        UUID customerId = null;
+
+        // OPTION A: co.getCustomer().getId()
+        if (co.getCustomer() != null) {
+            customerId = co.getCustomer().getId();
+        }
+
+        // OPTION B: nếu bạn có co.getCustomerId()
+        // customerId = co.getCustomerId();
+
+        if (customerId == null) {
+            throw new IllegalStateException("Cannot resolve customerId for refund");
+        }
+
+        // 2) xác định số tiền refund
+        // ✅ Bạn cần chọn field đúng của bạn:
+        // - Nếu online thu đúng tổng tiền: dùng co.getGrandTotal()
+        // - Hoặc dùng co.getPaidAmount() nếu bạn có field này
+        BigDecimal refundAmount = co.getGrandTotal();
+        // BigDecimal refundAmount = co.getPaidAmount();
+
+        if (refundAmount == null || refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return; // không có gì để refund
+        }
+
+        // 3) idempotency key chống refund trùng
+        // (1 order chỉ refund 1 lần cho action STORE_CANCEL)
+        String externalRef = "REFUND:STORE_CANCEL:" + co.getId();
+
+        boolean existed = walletTransactionRepository.existsByExternalRef(externalRef);
+        if (existed) {
+            return; // đã refund rồi
+        }
+
+        // 4) lấy ví khách (nếu muốn chống race condition, bạn nên lock row)
+        Wallet wallet = walletRepository.findByCustomer_Id(customerId)
+                .orElseThrow(() -> new NoSuchElementException("Wallet not found for customer"));
+
+        BigDecimal before = wallet.getBalance() != null ? wallet.getBalance() : BigDecimal.ZERO;
+        BigDecimal after = before.add(refundAmount);
+
+        wallet.setBalance(after);
+        wallet.setLastTransactionAt(LocalDateTime.now());
+        walletRepository.save(wallet);
+
+        // 5) lưu transaction
+        WalletTransaction tx = WalletTransaction.builder()
+                .wallet(wallet)
+                .amount(refundAmount)
+                .transactionType(WalletTransactionType.REFUND)
+                .status(WalletTransactionStatus.SUCCESS)
+                .description(buildRefundDescription(co.getId(), reason))
+                .balanceBefore(before)
+                .balanceAfter(after)
+                .orderId(co.getId())
+                .externalRef(externalRef)
+                .build();
+
+        walletTransactionRepository.save(tx);
+    }
+
+    private String buildRefundDescription(UUID orderId, String reason) {
+        String base = "Refund for store-cancelled order " + orderId;
+        if (reason == null || reason.isBlank()) return base;
+        return base + " | reason=" + reason;
+    }
+
+    /**
+     * Trừ legalPoint nhưng không bao giờ âm.
+     */
+    private void minusLegalPointNonNegative(Store store, int point) {
+        if (store == null) return;
+
+        BigDecimal current = store.getLegalPoint();
+        if (current == null) current = BigDecimal.ZERO;
+
+        if (current.compareTo(BigDecimal.ZERO) <= 0) return;
+
+        BigDecimal next = current.subtract(BigDecimal.valueOf(point));
+        if (next.compareTo(BigDecimal.ZERO) < 0) next = BigDecimal.ZERO;
+
+        store.setLegalPoint(next);
     }
 
 

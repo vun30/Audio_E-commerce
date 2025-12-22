@@ -2,10 +2,13 @@ package org.example.audio_ecommerce.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.request.CreateGhnOrderRequest;
+import org.example.audio_ecommerce.dto.request.UpdateGhnStatusRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.GhnOrderResponse;
+import org.example.audio_ecommerce.entity.GhnOrder;
 import org.example.audio_ecommerce.service.GhnOrderService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -34,5 +37,16 @@ public class GhnOrderController {
     ) {
         GhnOrderResponse resp = ghnOrderService.getByStoreOrderId(storeOrderId);
         return ResponseEntity.ok(BaseResponse.success("Lấy danh sách thành công",resp));
+    }
+
+    @Operation(summary = "Chỉnh trạng thái đơn GHN")
+    @PatchMapping("/{ghnOrderId}/status")
+    public ResponseEntity<GhnOrder> updateStatus(
+            @PathVariable UUID ghnOrderId,
+            @RequestBody @Valid UpdateGhnStatusRequest req
+    ) {
+        return ResponseEntity.ok(
+                ghnOrderService.updateStatus(ghnOrderId, req.getStatus())
+        );
     }
 }

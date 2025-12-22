@@ -259,17 +259,29 @@ public class SettlementService {
                     .build());
 
             // ===== 3.8 Giao dịch Platform: chỉ tạo PAYOUT_STORE (không có PLATFORM_FEE / SHIPPING_FEE_ADJUST) =====
-            platformTxRepo.save(PlatformTransaction.builder()
-                    .wallet(plat)
-                    .orderId(order.getId())
-                    .storeId(storeId)
-                    .amount(batchNetPayout)
-                    .type(TransactionType.PAYOUT_STORE)
-                    .status(TransactionStatus.DONE)
-                    .description("Payout to store (partial, full product amount) | storeOrder=" + so.getId())
-                    .createdAt(now)
-                    .updatedAt(now)
-                    .build());
+            BigDecimal beforeTotal = nz(plat.getTotalBalance());
+            BigDecimal afterTotal  = beforeTotal; // nếu payout chỉ là “log”, chưa trừ totalBalance thì để same
+
+            platformTxRepo.save(buildPlatformTx(
+                    plat,
+                    order.getId(),
+                    storeId,
+                    null,
+                    batchNetPayout,
+                    TransactionType.PAYOUT_STORE,
+                    TransactionStatus.DONE,
+                    PaymentChannel.INTERNAL,
+                    WalletBucket.PAYABLE_TO_STORE,
+                    TxDirection.OUT,
+                    beforeTotal,
+                    afterTotal,
+                    "Payout to store (partial, full product amount) | storeOrder=" + so.getId(),
+                    "PAYOUT:STORE_ORDER:" + so.getId() + ":BATCH:" + now,
+                    null,
+                    null,
+                    null
+            ));
+
 
             // ===== 3.9 Ghi doanh thu cho batch =====
             // Lưu doanh thu cửa hàng (platformFee = 0, shippingDiff = 0)
@@ -374,17 +386,30 @@ public class SettlementService {
         plat.setUpdatedAt(java.time.LocalDateTime.now());
         platformWalletRepo.save(plat);
 
-        PlatformTransaction ptx = PlatformTransaction.builder()
-                .wallet(plat)
-                .orderId(order.getId())
-                .amount(refundAmount) // ✅ ghi nhận refund đúng số KH được hoàn (grand total)
-                .type(TransactionType.REFUND)
-                .status(TransactionStatus.DONE)
-                .description("Refund entire order (grand total) to customer")
-                .createdAt(java.time.LocalDateTime.now())
-                .updatedAt(java.time.LocalDateTime.now())
-                .build();
+        BigDecimal beforeTotal = nz(oldTotal);                 // oldTotal bạn đã lấy ở trên
+        BigDecimal afterTotal  = nz(plat.getTotalBalance());   // sau khi update ví
+
+        PlatformTransaction ptx = buildPlatformTx(
+                plat,
+                order.getId(),
+                null,
+                order.getCustomer().getId(),
+                refundAmount,
+                TransactionType.REFUND,
+                TransactionStatus.DONE,
+                PaymentChannel.PAYOS,              // vì bạn đang refund ONLINE
+                WalletBucket.PENDING,              // tiền hoàn đến từ tiền đang hold
+                TxDirection.OUT,
+                beforeTotal,
+                afterTotal,
+                "Refund entire order (grand total) to customer",
+                "REFUND:ORDER:" + order.getId(),   // ✅ idempotent
+                null,
+                null,
+                null
+        );
         platformTxRepo.save(ptx);
+
 
         // 2) Gỡ pending từng shop (nếu đã allocate) – chỉ gỡ phần tiền hàng
         var storeTotals = order.getItems().stream()
@@ -495,17 +520,30 @@ public class SettlementService {
         plat.setUpdatedAt(LocalDateTime.now());
         platformWalletRepo.save(plat);
 
-        PlatformTransaction ptx = PlatformTransaction.builder()
-                .wallet(plat)
-                .orderId(order.getId())
-                .amount(refundAmount) // ✅ đúng số tiền hoàn lại cho KH
-                .type(TransactionType.REFUND)
-                .status(TransactionStatus.DONE)
-                .description("Partial refund (grand total share) for storeOrder " + storeOrder.getId())
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
-                .build();
+        BigDecimal beforeTotal = nz(oldTotal);
+        BigDecimal afterTotal  = nz(plat.getTotalBalance());
+
+        PlatformTransaction ptx = buildPlatformTx(
+                plat,
+                order.getId(),
+                storeOrder.getStore().getStoreId(),
+                order.getCustomer().getId(),
+                refundAmount,
+                TransactionType.REFUND,
+                TransactionStatus.DONE,
+                PaymentChannel.PAYOS,
+                WalletBucket.PENDING,
+                TxDirection.OUT,
+                beforeTotal,
+                afterTotal,
+                "Partial refund (grand total share) for storeOrder " + storeOrder.getId(),
+                "REFUND:STORE_ORDER:" + storeOrder.getId(),  // ✅ idempotent
+                null,
+                null,
+                null
+        );
         platformTxRepo.save(ptx);
+
 
         // 2) Gỡ hold của shop tương ứng – chỉ gỡ phần tiền hàng
         StoreWallet sw = storeWalletRepo.findByStore_StoreId(storeOrder.getStore().getStoreId())
@@ -608,6 +646,54 @@ public class SettlementService {
 
         log.info("[Settlement] recordCodDeliverySuccess DONE | orderId={} | productsTotal={}",
                 order.getId(), productsTotal);
+    }
+
+    private PlatformTransaction buildPlatformTx(
+            PlatformWallet wallet,
+            UUID orderId,
+            UUID storeId,
+            UUID customerId,
+            BigDecimal amount,
+            TransactionType type,
+            TransactionStatus status,
+            PaymentChannel channel,
+            WalletBucket bucket,
+            TxDirection direction,
+            BigDecimal balanceBefore,
+            BigDecimal balanceAfter,
+            String description,
+            String idempotencyKey,
+            String externalRefId,
+            String externalRefCode,
+            String metadataJson
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+
+        return PlatformTransaction.builder()
+                .wallet(wallet)
+                .orderId(orderId)
+                .storeId(storeId)
+                .customerId(customerId)
+                .amount(amount)
+                .type(type)
+                .status(status)
+                .channel(channel)           // ✅ NOT NULL
+                .bucket(bucket)             // ✅ NOT NULL
+                .direction(direction)       // ✅ NOT NULL
+                .balanceBefore(balanceBefore) // ✅ NOT NULL
+                .balanceAfter(balanceAfter)   // ✅ NOT NULL
+                .description(description)
+                .idempotencyKey(idempotencyKey)
+                .externalRefId(externalRefId)
+                .externalRefCode(externalRefCode)
+                .metadataJson(metadataJson)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
     }
 
 }

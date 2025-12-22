@@ -96,6 +96,10 @@ public class ProductReviewServiceImpl implements ProductReviewService {
 
         ProductReview saved = reviewRepo.save(review);
 
+        Product productToUpdate = saved.getProduct();
+        int current = nvlInt(productToUpdate.getReviewCount());
+        productToUpdate.setReviewCount(current + 1);
+        productRepo.save(productToUpdate);
         // 🔔 Thông báo cho STORE có review mới
         try {
             notificationCreatorService.createAndSend(
@@ -162,6 +166,16 @@ public class ProductReviewServiceImpl implements ProductReviewService {
 
         if (!review.getCustomer().getId().equals(currentCustomerId)) {
             throw new IllegalStateException("Không thể xoá review của người khác");
+        }
+
+        // chỉ trừ khi đang VISIBLE
+        if (review.getStatus() == ReviewStatus.VISIBLE) {
+            Product product = review.getProduct();
+            int current = nvlInt(product.getReviewCount());
+
+            // không cho âm
+            product.setReviewCount(Math.max(0, current - 1));
+            productRepo.save(product);
         }
 
         review.setStatus(ReviewStatus.DELETED);
@@ -299,6 +313,12 @@ public class ProductReviewServiceImpl implements ProductReviewService {
         }
 
         ProductReview saved = reviewRepo.save(review);
+
+        Product productToUpdate = saved.getProduct();
+        int current = nvlInt(productToUpdate.getReviewCount());
+        productToUpdate.setReviewCount(current + 1);
+        productRepo.save(productToUpdate);
+
         return toResponse(saved);
     }
 
@@ -376,4 +396,9 @@ public class ProductReviewServiceImpl implements ProductReviewService {
                         .collect(Collectors.toList()))
                 .build();
     }
+
+    private int nvlInt(Integer v) {
+        return v == null ? 0 : v;
+    }
+
 }
