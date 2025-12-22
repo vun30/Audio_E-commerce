@@ -3,11 +3,11 @@ package org.example.audio_ecommerce.LangChain4J;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
+import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -15,7 +15,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AiChatMemoryService {
 
-    private final AiChatHistoryRepository repo;
+    private final HttpSession session;
+
+    public static final String SESSION_CHAT_HISTORY_PREFIX = "CHAT_HISTORY_";
 
     /**
      * Nén danh sách sản phẩm để AI nhớ nhưng không tốn token
@@ -41,52 +43,84 @@ public class AiChatMemoryService {
     /**
      * Load 20 tin nhắn gần nhất theo đúng thứ tự cũ -> mới
      */
+    @SuppressWarnings("unchecked")
     public List<ChatMessage> loadMemory(String userId) {
+        String sessionKey = SESSION_CHAT_HISTORY_PREFIX + userId;
+        List<ChatMessage> history = (List<ChatMessage>) session.getAttribute(sessionKey);
 
-        List<AiChatHistory> records =
-                repo.findTop3ByUserIdOrderByCreatedAtDesc(userId);
+        if (history == null) {
+            return new ArrayList<>();
+        }
 
-        // Đảo thứ tự từ CŨ -> MỚI
-        Collections.reverse(records);
-
-        return records.stream()
-                .map(h -> {
-                    if ("user".equals(h.getRole())) {
-                        return UserMessage.from(h.getContent());
-                    } else {
-                        return AiMessage.from(h.getContent());
-                    }
-                })
-                .toList();
+        return new ArrayList<>(history); // Trả về bản sao để tránh sửa đổi trực tiếp
     }
 
     /**
-     * Lưu tin nhắn từ user
+     * Lưu tin nhắn của người dùng vào HttpSession
      */
     public void saveUserMessage(String userId, String content) {
-        repo.save(new AiChatHistory(null, userId, "user", content, LocalDateTime.now()));
+        String sessionKey = SESSION_CHAT_HISTORY_PREFIX + userId;
+        List<ChatMessage> history = (List<ChatMessage>) session.getAttribute(sessionKey);
+
+        if (history == null) {
+            history = new ArrayList<>();
+        }
+
+        history.add(UserMessage.from(content));
+        session.setAttribute(sessionKey, history);
     }
 
     /**
-     * Lưu tin nhắn từ assistant
+     * Lưu tin nhắn của AI vào HttpSession
      */
     public void saveAssistantMessage(String userId, String content) {
-        repo.save(new AiChatHistory(null, userId, "assistant", content, LocalDateTime.now()));
+        String sessionKey = SESSION_CHAT_HISTORY_PREFIX + userId;
+        List<ChatMessage> history = (List<ChatMessage>) session.getAttribute(sessionKey);
+
+        if (history == null) {
+            history = new ArrayList<>();
+        }
+
+        history.add(AiMessage.from(content));
+        session.setAttribute(sessionKey, history);
     }
 
     /**
      * Lưu summary sản phẩm (role = assistant)
      */
     public void saveSearchSummary(String userId, List<Map<String, Object>> items) {
-
         String compressed = compressProductSummary(items);
+        saveMessage(userId, AiMessage.from(compressed));
+    }
 
-        repo.save(new AiChatHistory(
-                null,
-                userId,
-                "assistant",
-                compressed,
-                LocalDateTime.now()
-        ));
+    @SuppressWarnings("unchecked")
+    private void saveMessage(String userId, ChatMessage message) {
+        String sessionKey = SESSION_CHAT_HISTORY_PREFIX + userId;
+        List<ChatMessage> history = (List<ChatMessage>) session.getAttribute(sessionKey);
+
+        if (history == null) {
+            history = new ArrayList<>();
+        }
+
+        history.add(message);
+
+        // Giới hạn số lượng tin nhắn trong lịch sử (ví dụ: 20 tin nhắn)
+        if (history.size() > 20) {
+            history = history.subList(history.size() - 20, history.size());
+        }
+
+        session.setAttribute(sessionKey, history);
+    }
+
+    /**
+     * Xóa lịch sử hội thoại sau 10 phút
+     */
+    public void clearSessionAfterTimeout(String userId) {
+        String sessionKey = SESSION_CHAT_HISTORY_PREFIX + userId;
+        session.removeAttribute(sessionKey);
+    }
+
+    public HttpSession getSession() {
+        return session;
     }
 }
