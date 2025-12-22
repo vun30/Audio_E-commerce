@@ -72,6 +72,15 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         if (r.getCustomerId() != null) {
             customer = customerRepo.findById(r.getCustomerId()).orElse(null);
         }
+
+        String orderCode = null;
+
+        if (r.getOrderItemId() != null) {
+            CustomerOrderItem item = customerOrderItemRepo.findById(r.getOrderItemId()).orElse(null);
+            if (item != null && item.getCustomerOrder() != null) {
+                orderCode = item.getCustomerOrder().getOrderCode(); // ✅ mã đơn hệ thống
+            }
+        }
         return ReturnRequestResponse.builder()
                 .id(r.getId())
                 .customerId(r.getCustomerId())
@@ -84,6 +93,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .storeLegalPoint(store != null ? store.getLegalPoint() : BigDecimal.ZERO)
                 .customerName(customer != null ? customer.getFullName() : null)
                 .customerLegalPoint(customer != null ? customer.getLegalPoint() : BigDecimal.ZERO)
+                .orderCode(orderCode)
                 .reasonType(r.getReasonType())
                 .reason(r.getReason())
                 .customerImageUrls(r.getCustomerImageUrls())
