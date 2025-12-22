@@ -47,49 +47,50 @@ public class SecurityConfig {
                     corsConfiguration.setAllowedOrigins(List.of(
                             "http://localhost:3000",
                             "http://localhost:5173",
+                            "https://humorous-appreciation-production-8b47.up.railway.app",
+                            "https://sep-490-audio-wep-app.vercel.app",
+                            "https://conicboulevard.pro.vn",
+                            "https://www.conicboulevard.pro.vn",
+                            "https://conicboulevard.vercel.app",
+                            "https://manager.conicboulevard.pro.vn",
+                            "http://localhost:8081",
                             "https://audioe-commerce-production.up.railway.app"
                     ));
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
                 }))
-
-                // ✅ CHO PHÉP TẠO SESSION KHI CẦN (AI, OAuth2, chat memory...)
-                .sessionManagement(sm ->
-                        sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                )
-
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // ✅ THẢ TOÀN BỘ API
-                        .requestMatchers("/api/**").permitAll()
-
-                        // swagger, oauth, webhook...
-                        .requestMatchers(
+                        .requestMatchers("/api/payos/webhook",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
+                                "/api/account/register/**",
+                                "/api/account/login/**",
+                                "/api/**",
                                 "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/loaderio-*"
-                        ).permitAll()
-
-                        // ❗ còn lại cũng cho qua
-                        .anyRequest().permitAll()
+                                "/login/oauth2/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
+                        .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
+                        .requestMatchers("/loaderio-*").permitAll()
+                        .anyRequest().authenticated()
                 )
-
                 .oauth2Login(oauth -> oauth
-                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization"))
+                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization")) // => /oauth2/authorization/google
                         .redirectionEndpoint(re -> re.baseUri("/login/oauth2/code/*"))
                         .userInfoEndpoint(ui -> ui.userService(oAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
                         .failureHandler(oAuth2FailureHandler)
                 )
 
-                // ✅ JWT filter vẫn chạy (nếu có token thì set SecurityContext)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
-
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(restAuthEntryPoint())
+                        .accessDeniedHandler((req, res, e) -> {
+                            res.setStatus(403);
+                            res.setContentType("application/json");
+                            res.getWriter().write("{\"status\":403,\"message\":\"Forbidden\"}");
+                        })
                 );
-
         return http.build();
     }
 
