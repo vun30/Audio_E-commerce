@@ -72,6 +72,8 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         return toCustomerOrderDetail(order);
     }
 
+
+
     @Override
     @Transactional
     public void confirmReceivedByCustomerOrder(UUID customerId, UUID customerOrderId) {

@@ -11,8 +11,16 @@ import java.util.UUID;
 @Builder
 public class WithdrawResult {
     private UUID storeId;
+
     private BigDecimal withdrawAmount;
-    private BigDecimal balanceAfter;
     private LocalDateTime withdrawAt;
-    private UUID transactionId;
+    private UUID transactionId; // storeWalletTxId
+
+    // ✅ trả về rõ ràng trước/sau rút cho shop
+    private BigDecimal storeBalanceBefore;
+    private BigDecimal storeBalanceAfter;
+
+    // ✅ nếu UI admin/platform cần thì có luôn cash trước/sau
+    private BigDecimal platformCashBefore;
+    private BigDecimal platformCashAfter;
 }

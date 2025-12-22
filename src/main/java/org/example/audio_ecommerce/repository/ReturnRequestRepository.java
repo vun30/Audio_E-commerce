@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UUID> {
@@ -28,4 +29,63 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
     Optional<ReturnRequest> findTopByOrderItemIdOrderByCreatedAtDesc(UUID orderItemId);
     List<ReturnRequest> findAllByStatus(ReturnStatus status);
 
+
+    @Query("""
+        select count(r)
+        from ReturnRequest r
+        where r.shopId = :storeId
+          and r.status not in :excluded
+          and r.createdAt >= :from
+          and r.createdAt <= :to
+    """)
+    long countValidReturns(
+            @Param("storeId") UUID storeId,
+            @Param("excluded") Set<ReturnStatus> excluded,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+        select r.productId, count(r)
+        from ReturnRequest r
+        where r.shopId = :storeId
+          and r.status not in :excluded
+          and r.createdAt >= :from
+          and r.createdAt <= :to
+        group by r.productId
+        order by count(r) desc
+    """)
+    List<Object[]> topReturnedProducts(
+            @Param("storeId") UUID storeId,
+            @Param("excluded") Set<ReturnStatus> excluded,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+        select
+            year(r.createdAt),
+            month(r.createdAt),
+            count(r.id)
+        from ReturnRequest r
+        where r.status not in ('PENDING','CANCELLED','CANCELED','REJECTED')
+        group by year(r.createdAt), month(r.createdAt)
+        order by year(r.createdAt), month(r.createdAt)
+    """)
+    List<Object[]> returnCountByMonth();
+
+
+    // ===============================
+// 🔁 RETURN COUNT BY YEAR
+// ===============================
+    @Query("""
+    select
+        year(r.createdAt),
+        count(r.id)
+    from ReturnRequest r
+    where r.status not in ('PENDING','CANCELLED','CANCELED','REJECTED')
+    group by year(r.createdAt)
+    order by year(r.createdAt)
+""")
+    List<Object[]> returnCountByYear();
 }

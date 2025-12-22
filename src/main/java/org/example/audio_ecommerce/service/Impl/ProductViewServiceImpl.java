@@ -5,10 +5,12 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.CampaignType;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
+import org.example.audio_ecommerce.entity.Enum.ShopVoucherScopeType;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
 import org.example.audio_ecommerce.repository.PlatformCampaignProductRepository;
 import org.example.audio_ecommerce.repository.ProductRepository;
 import org.example.audio_ecommerce.repository.ShopVoucherProductRepository;
+import org.example.audio_ecommerce.repository.ShopVoucherRepository;
 import org.example.audio_ecommerce.service.ProductViewService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +29,7 @@ public class ProductViewServiceImpl implements ProductViewService {
     private final ProductRepository productRepo;
     private final ShopVoucherProductRepository shopVoucherProductRepo;
     private final PlatformCampaignProductRepository platformCampaignProductRepo;
+    private final ShopVoucherRepository shopVoucherRepository;
 
     // =========================================================
     // 1) LIST THUMBNAIL VIEW + FILTER
@@ -43,6 +46,9 @@ public ResponseEntity<BaseResponse> getThumbnailView(
         BigDecimal minPrice,
         BigDecimal maxPrice,
         BigDecimal minRating,
+        Integer minReviewCount,
+        Integer minViewCount,
+        Integer minSellCount,
         Pageable pageable,
         String sortBy,
         String sortDir
@@ -109,6 +115,15 @@ public ResponseEntity<BaseResponse> getThumbnailView(
             )
 
             // ======================================================
+            // 🔥 FILTER COUNTS
+            // ======================================================
+            .filter(p ->
+                    (minReviewCount == null || (p.getReviewCount() != null && p.getReviewCount() >= minReviewCount))
+                            && (minViewCount == null || (p.getViewCount() != null && p.getViewCount() >= minViewCount))
+                            && (minSellCount == null || (p.getSellCount() != null && p.getSellCount() >= minSellCount))
+            )
+
+            // ======================================================
             // 🔥 FUZZY SEARCH (Name + Brand + Desc)
             // ======================================================
             .filter(p -> {
@@ -125,7 +140,9 @@ public ResponseEntity<BaseResponse> getThumbnailView(
     // ======================================================
     Comparator<Product> comparator;
 
-    switch (sortBy.toLowerCase()) {
+    String safeSortBy = sortBy != null ? sortBy.toLowerCase() : "name";
+
+    switch (safeSortBy) {
         case "price" -> {
             comparator = Comparator.comparing(p -> {
                 BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
@@ -137,8 +154,16 @@ public ResponseEntity<BaseResponse> getThumbnailView(
                             .orElse(basePrice);
                 }
                 return basePrice;
-            });
+            }, Comparator.nullsLast(BigDecimal::compareTo));
         }
+        case "view", "viewcount" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getViewCount()).orElse(0));
+        case "review", "reviewcount" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getReviewCount()).orElse(0));
+        case "rating", "ratingaverage" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getRatingAverage()).orElse(BigDecimal.ZERO));
+        case "sell", "sellcount" ->
+                comparator = Comparator.comparing(p -> Optional.ofNullable(p.getSellCount()).orElse(0));
         default -> comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
     }
 
@@ -297,7 +322,7 @@ public ResponseEntity<BaseResponse> getThumbnailView(
     @Override
     public ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType) {
 
-        final LocalDateTime now = LocalDateTime.now();
+        final LocalDateTime now = LocalDateTime.now(); // nếu bạn đang lưu time bị -7h thì cân nhắc now.minusHours(7)
 
         // ✅ type là BẮT BUỘC
         if (type == null || type.isBlank()) {
@@ -389,34 +414,65 @@ public ResponseEntity<BaseResponse> getThumbnailView(
         // ======================================================
         Map<String, Object> voucherMap = new LinkedHashMap<>();
 
-        // ---------- SHOP ----------
+        // ---------- SHOP (GET CẢ 2 LOẠI: PRODUCT + ALL_SHOP) ----------
         if ("ALL".equals(safeType) || "SHOP".equals(safeType)) {
+
+            UUID storeId = product.getStore().getStoreId();
+
+            List<Map<String, Object>> shopVouchers = new ArrayList<>();
+
+            // (1) Voucher gắn theo product (qua ShopVoucherProduct)
             shopVoucherProductRepo.findActiveShopVoucherProduct(product.getProductId(), now)
                     .ifPresent(svp -> {
                         var v = svp.getVoucher();
                         if (v != null && v.getStatus() == VoucherStatus.ACTIVE) {
-                            Map<String, Object> shopVoucher = new LinkedHashMap<>();
-                            shopVoucher.put("source", "SHOP");
-                            shopVoucher.put("shopVoucherId", v.getId());
-                            shopVoucher.put("shopVoucherProductId", svp.getId());
-                            shopVoucher.put("code", v.getCode());
-                            shopVoucher.put("title", v.getTitle());
-                            shopVoucher.put("discountValue", v.getDiscountValue());
-                            shopVoucher.put("discountPercent", v.getDiscountPercent());
-                            shopVoucher.put("maxDiscountValue", v.getMaxDiscountValue());
-                            shopVoucher.put("minOrderValue", v.getMinOrderValue());
-                            shopVoucher.put("startTime", v.getStartTime());
-                            shopVoucher.put("endTime", v.getEndTime());
-
-                            voucherMap.put("shopVoucher", shopVoucher);
+                            Map<String, Object> m = new LinkedHashMap<>();
+                            m.put("source", "SHOP");
+                            m.put("scopeType", v.getScopeType()); // PRODUCT_VOUCHER
+                            m.put("shopVoucherId", v.getId());
+                            m.put("shopVoucherProductId", svp.getId());
+                            m.put("code", v.getCode());
+                            m.put("title", v.getTitle());
+                            m.put("discountValue", v.getDiscountValue());
+                            m.put("discountPercent", v.getDiscountPercent());
+                            m.put("maxDiscountValue", v.getMaxDiscountValue());
+                            m.put("minOrderValue", v.getMinOrderValue());
+                            m.put("startTime", v.getStartTime());
+                            m.put("endTime", v.getEndTime());
+                            shopVouchers.add(m);
                         }
                     });
+
+            // (2) Voucher toàn shop (không cần mapping product)
+            // ⚠️ shopVoucherRepo là ShopVoucherRepository (đặt đúng tên bean của bạn)
+            List<ShopVoucher> activeShopWide = shopVoucherRepository.findAllActiveByStore(storeId, now);
+
+            for (ShopVoucher v : activeShopWide) {
+                if (v.getScopeType() != ShopVoucherScopeType.ALL_SHOP_VOUCHER) continue; // chỉ lấy voucher toàn shop
+
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("source", "SHOP");
+                m.put("scopeType", v.getScopeType()); // ALL_SHOP_VOUCHER
+                m.put("shopVoucherId", v.getId());
+                m.put("code", v.getCode());
+                m.put("title", v.getTitle());
+                m.put("discountValue", v.getDiscountValue());
+                m.put("discountPercent", v.getDiscountPercent());
+                m.put("maxDiscountValue", v.getMaxDiscountValue());
+                m.put("minOrderValue", v.getMinOrderValue());
+                m.put("startTime", v.getStartTime());
+                m.put("endTime", v.getEndTime());
+                shopVouchers.add(m);
+            }
+
+            if (!shopVouchers.isEmpty()) {
+                voucherMap.put("shopVouchers", shopVouchers);
+            }
         }
 
         // ---------- PLATFORM (GIỐNG GET ALL: chỉ lấy status ACTIVE) ----------
         if ("ALL".equals(safeType) || "PLATFORM".equals(safeType)) {
 
-            // ✅ đổi từ findAllActiveByProduct(...) -> findAllActiveOnlyStatus(...)
             final List<PlatformCampaignProduct> activeMappings =
                     platformCampaignProductRepo.findAllActiveOnlyStatus(product.getProductId());
 
@@ -469,16 +525,10 @@ public ResponseEntity<BaseResponse> getThumbnailView(
             }
         }
 
-        // ✅ chọn 1 trong 2 cách:
-        // C1: luôn trả vouchers (kể cả rỗng)  -> giống response bạn đang thấy "vouchers": {}
         p.put("vouchers", voucherMap);
-
-        // (C2: nếu muốn giống GET ALL hơn: chỉ trả khi có voucher, thì dùng dòng dưới và XÓA dòng C1)
-        // if (!voucherMap.isEmpty()) p.put("vouchers", voucherMap);
 
         return ResponseEntity.ok(BaseResponse.success("✅ Product fetched with active vouchers", p));
     }
-
 
     // =========================================================
     // BUILD VARIANTS

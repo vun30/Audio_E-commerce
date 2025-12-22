@@ -150,5 +150,28 @@ Page<Product> findAllWithAdvancedFilters(
             @Param("toStatus") ProductStatus toStatus
     );
 
+    @Modifying
+    @Query("""
+    update Product p
+       set p.status = org.example.audio_ecommerce.entity.Enum.ProductStatus.INACTIVE,
+           p.updatedAt = CURRENT_TIMESTAMP
+     where p.store.storeId = :storeId
+       and p.status = org.example.audio_ecommerce.entity.Enum.ProductStatus.ACTIVE
+""")
+    int inactivateOnlyActiveProductsByStore(@Param("storeId") UUID storeId);
+
+    @Modifying
+    @Query("""
+UPDATE Product p
+SET p.status = :toStatus
+WHERE p.store.id = :storeId
+  AND p.status = :fromStatus
+""")
+    int updateProductStatusByStore(
+            @Param("storeId") UUID storeId,
+            @Param("fromStatus") ProductStatus fromStatus,
+            @Param("toStatus") ProductStatus toStatus
+    );
+
 
 }

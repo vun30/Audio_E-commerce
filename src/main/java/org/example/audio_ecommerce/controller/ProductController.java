@@ -227,5 +227,18 @@ public ResponseEntity<BaseResponse> approveProduct(
     return productService.approveProduct(productId, req);
 }
 
+    @Operation(
+            summary = "👁ADMIN Toggle trạng thái Suspend sản phẩm",
+            description = """
+                    • Nếu sản phẩm đang ở trạng thái SUSPENDED thì chuyển về ACTIVE.
+                    • Nếu sản phẩm đang ở trạng thái khác ACTIVE thì chuyển về SUSPENDED.
+                    • Chỉ Admin mới có quyền gọi API này.
+                    """
+    )
+
+    @PatchMapping("/{id}/suspend-toggle")
+    public ResponseEntity<BaseResponse> toggleSuspend(@PathVariable("id") UUID productId) {
+        return productService.adminToggleSuspendProduct(productId);
+    }
 
 }

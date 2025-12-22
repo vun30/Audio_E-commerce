@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -51,6 +52,49 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
 
     List<ReturnShippingFee> findByStoreIdAndPayerIgnoreCaseAndPaidByShopFalse(UUID storeId, String payer);
 
+    @Query("""
+        select coalesce(sum(r.chargedToShop), 0)
+        from ReturnShippingFee r
+        where r.payer = 'SHOP'
+          and r.paidByShop = false
+          and (:from is null or r.createdAt >= :from)
+          and (:to   is null or r.createdAt <= :to)
+    """)
+    BigDecimal sumUnpaidReturnByRange(@Param("from") LocalDateTime from,
+                                      @Param("to") LocalDateTime to);
 
+    @Query("""
+        select coalesce(sum(r.chargedToShop), 0)
+        from ReturnShippingFee r
+        where r.payer = 'SHOP'
+          and r.paidByShop = true
+          and (:from is null or r.createdAt >= :from)
+          and (:to   is null or r.createdAt <= :to)
+    """)
+    BigDecimal sumPaidReturnByRange(@Param("from") LocalDateTime from,
+                                    @Param("to") LocalDateTime to);
+
+
+    @Query("""
+    select coalesce(sum(r.chargedToShop), 0)
+    from ReturnShippingFee r
+    where r.payer = 'SHOP'
+      and r.ghnDebtFinalized = true
+      and (:from is null or r.createdAt >= :from)
+      and (:to is null or r.createdAt <= :to)
+""")
+    BigDecimal sumReturnFinalizedByRange(@Param("from") LocalDateTime from,
+                                         @Param("to") LocalDateTime to);
+
+    @Query("""
+    select coalesce(sum(r.chargedToShop), 0)
+    from ReturnShippingFee r
+    where r.payer = 'SHOP'
+      and r.ghnDebtFinalized = false
+      and (:from is null or r.createdAt >= :from)
+      and (:to is null or r.createdAt <= :to)
+""")
+    BigDecimal sumReturnNotFinalizedByRange(@Param("from") LocalDateTime from,
+                                            @Param("to") LocalDateTime to);
 
 }
