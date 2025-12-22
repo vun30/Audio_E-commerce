@@ -28,6 +28,7 @@ public class ReturnRequestResponse {
     private String storeName;
     private BigDecimal customerLegalPoint;
     private BigDecimal storeLegalPoint;
+    private String orderCode;
     // =================
 
     private ReturnReasonType reasonType;

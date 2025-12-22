@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -88,10 +89,17 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         StoreOrder so = storeOrderRepository.findFirstByCustomerOrder_Id(customerOrderId)
                 .orElseThrow(() -> new NoSuchElementException("StoreOrder not found for this CustomerOrder"));
 
+        // chỉ confirm khi GHN đã báo DELIVERY_SUCCESS
         if (so.getStatus() != OrderStatus.DELIVERY_SUCCESS) {
             if (so.getStatus() == OrderStatus.COMPLETED) return; // idempotent
             throw new IllegalStateException("Only DELIVERY_SUCCESS can be confirmed received");
         }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // ✅ set deliveredAt cho cả 2 bên (nếu trước đó chưa có)
+        if (so.getDeliveredAt() == null) so.setDeliveredAt(now);
+        if (co.getDeliveredAt() == null) co.setDeliveredAt(now);
 
         so.setStatus(OrderStatus.COMPLETED);
         storeOrderRepository.save(so);
@@ -99,6 +107,7 @@ public class CustomerOrderServiceImpl implements CustomerOrderService {
         co.setStatus(OrderStatus.COMPLETED);
         customerOrderRepository.save(co);
     }
+
 
 
     private CustomerOrderDetailResponse toCustomerOrderDetail(CustomerOrder order) {
