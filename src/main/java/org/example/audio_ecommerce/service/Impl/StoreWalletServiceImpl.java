@@ -175,14 +175,22 @@ public class StoreWalletServiceImpl implements StoreWalletService {
                 .transactionId(tx.getTransactionId())
                 .walletId(tx.getWallet().getWalletId())
                 .orderId(tx.getOrderId())
+
                 .amount(tx.getAmount())
+                .balanceBefore(tx.getBalanceBefore())     // ✅ thêm
                 .balanceAfter(tx.getBalanceAfter())
+
                 .description(tx.getDescription())
                 .createdAt(tx.getCreatedAt())
-                .type(tx.getType()) // ✅ Giữ Enum
-                .displayType(getDisplayName(tx.getType())) // ✅ Thêm tên thân thiện
+
+                .type(tx.getType())
+                .displayType(getDisplayName(tx.getType()))
+
+                .status(tx.getStatus())                   // ✅ thêm
+                .externalRef(tx.getExternalRef())         // ✅ thêm
                 .build();
     }
+
 
     /**
      * 🧩 Hàm helper hiển thị text dễ đọc cho FE
