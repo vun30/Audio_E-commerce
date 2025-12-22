@@ -9,6 +9,7 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.CheckoutOnlineResponse;
 import org.example.audio_ecommerce.dto.response.WalletTopupResponse;
 import org.example.audio_ecommerce.service.CartService;
+import org.example.audio_ecommerce.service.Impl.PayOSEcomServiceImpl;
 import org.example.audio_ecommerce.service.PayOSEcomService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -30,7 +31,7 @@ public class PayOSEcomController {
     private final CartService cartService;
     private final PayOSEcomService payOSEcomService;
     private final PayOS payOS; // dùng SDK để verify webhook
-
+    private final PayOSEcomServiceImpl Service;
     @PostMapping("/checkout")
     public ResponseEntity<BaseResponse<CheckoutOnlineResponse>> checkoutOnline(
             @RequestParam UUID customerId,
@@ -110,5 +111,20 @@ public class PayOSEcomController {
         return ResponseEntity.ok(
                 BaseResponse.success("✅ Tạo link PayOS để nạp ví", resp)
         );
+    }
+
+    @PostMapping("/wallet-topup/cancel")
+    public void cancelWalletTopup(@RequestParam String externalRef) {
+        Service.cancelWalletTopup(externalRef);
+    }
+
+    @PostMapping("/store-wallet-topup/cancel")
+    public void cancelStoreWalletTopup(@RequestParam String externalRef) {
+        Service.cancelStoreWalletTopup(externalRef);
+    }
+
+    @PostMapping("/ecom/cancel")
+    public void cancelEcomBatch(@RequestParam Long batchCode) {
+        Service.cancelOnlineOrderByBatchCode(batchCode);
     }
 }
