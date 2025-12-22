@@ -1,7 +1,6 @@
 package org.example.audio_ecommerce.LangChain4J;
 
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -19,32 +18,47 @@ public class ProductQueryIntentDetector {
                         You are an INTENT CLASSIFIER for an AUDIO ASSISTANT.
                         Always output ONLY ONE of the following labels:
 
+                        SEARCH
                         ADVICE
                         NONE
 
                         ===========================
+                        OUTPUT "SEARCH" IF:
+                        ===========================
+                        User clearly wants to FIND / BUY a product:
+                        - tìm loa, tìm amply, tìm dac, tìm sub
+                        - mua loa, mua amply, mua dac
+                        - budget, giá bao nhiêu
+                        - gợi ý sản phẩm
+                        - combo karaoke, dàn xem phim, dàn nghe nhạc (khi yêu cầu có từ 'mua', 'tìm')
+                        - "loa nào tốt", "amply nào hợp", "dac nào hợp"
+
+                        ===========================
                         OUTPUT "ADVICE" IF:
                         ===========================
-                        User is asking about audio / speakers / amply / dac / subwoofer or audio setup.
-                        This includes questions that previously looked like "SEARCH".
+                        User is ASKING for AUDIO SETUP / MATCHING / EXPERT ADVICE:
+                        - setup phòng nghe, phòng xem phim
+                        - ghép loa + amply, matching
+                        - chọn sub diện tích
+                        - build dàn 2.1 / 5.1 / Atmos
+                        - kỹ thuật âm học
+                        - phối ghép DAC + ampli + loa
+                        - tư vấn theo nhu cầu
 
                         ===========================
                         OUTPUT "NONE" IF:
                         ===========================
-                        User asks unrelated topics.
+                        User asks unrelated topics:
+                        - IT, crypto, coding, shipping, chính sách...
+                        - hỏi linh tinh / xã giao
 
                         RULES:
-                        - Must output EXACTLY one of: ADVICE / NONE
+                        - Must output EXACTLY one of: SEARCH / ADVICE / NONE
                         - No explanation.
                         """),
                 UserMessage.from(userMessage)
         );
 
-        String intent = response.content().text() == null ? "" : response.content().text().trim().toUpperCase();
-        if (!"ADVICE".equals(intent) && !"NONE".equals(intent)) {
-            // hard fallback
-            return "ADVICE";
-        }
-        return intent;
+        return response.content().text().trim().toUpperCase();
     }
 }

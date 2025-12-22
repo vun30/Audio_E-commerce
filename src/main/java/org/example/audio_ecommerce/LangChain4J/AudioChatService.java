@@ -22,12 +22,11 @@ public class AudioChatService {
 
         // Save user message
         memoryService.saveUserMessage(userId, message);
-        memoryService.touchTtl(userId);
 
         // Load user-specific memory (tạo list mutable)
         List<ChatMessage> history = new java.util.ArrayList<>(memoryService.loadMemory(userId));
 
-        // System rules
+        // Thêm system định hướng AI ở đầu
         history.add(0, SystemMessage.from("""
             You are an AUDIO CONSULTING ASSISTANT.
             You only answer questions related to:
@@ -35,33 +34,35 @@ public class AudioChatService {
             - home cinema, karaoke, hi-fi audio
             - pairing, matching, room setup
             Do NOT answer outside the audio domain.
-
-            PRODUCT RULE (STRICT):
-            - If product information is provided below as "LAST_PRODUCT", you MUST ONLY use that product.
-            - Do NOT use older chat history to infer other products.
-            - If there is no LAST_PRODUCT and the user asks about "the product", ask them to provide a productId or send product information first.
         """));
 
-        // Inject ONLY last product info (not scanning full history)
-        String lastProduct = memoryService.loadLastProductInfo(userId);
-        if (lastProduct != null && !lastProduct.isBlank()) {
-            history.add(1, SystemMessage.from("LAST_PRODUCT:\n" + lastProduct));
+        // Kiểm tra xem có thông tin sản phẩm trong bộ nhớ không
+        List<ChatMessage> productInfo = history.stream()
+            .filter(msg -> msg instanceof AiMessage && msg.toString().contains("productId"))
+            .toList();
+
+        if (!productInfo.isEmpty()) {
+            // Thêm thông tin sản phẩm vào lịch sử để AI sử dụng
+            history.add(1, SystemMessage.from("Thông tin sản phẩm đã lưu: \n" + productInfo.get(productInfo.size() - 1).toString()));
         }
 
         var response = chatModel.generate(history);
         String reply = response.content().text();
 
         memoryService.saveAssistantMessage(userId, reply);
-        memoryService.touchTtl(userId);
 
         return reply;
     }
 
-    /**
-     * Deprecated: không dùng nữa. Giữ lại để tránh breaking nhưng chuyển sang saveLastProductInfo.
-     */
-    @Deprecated
     public void saveProductInfo(String userId, Map<String, Object> productData) {
-        memoryService.saveLastProductInfo(userId, productData == null ? null : productData.toString());
+        String sessionKey = AiChatMemoryService.SESSION_CHAT_HISTORY_PREFIX + userId;
+        List<ChatMessage> history = (List<ChatMessage>) memoryService.getSession().getAttribute(sessionKey);
+
+        if (history == null) {
+            history = new ArrayList<>();
+        }
+
+        history.add(SystemMessage.from("Thông tin sản phẩm: \n" + productData.toString()));
+        memoryService.getSession().setAttribute(sessionKey, history);
     }
 }

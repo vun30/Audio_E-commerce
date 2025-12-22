@@ -26,7 +26,6 @@ public class ProductAiQueryService {
 
         // (1) Save user question
         memoryService.saveUserMessage(userId, naturalQuestion);
-        memoryService.touchTtl(userId);
 
         // Load last messages (DISABLED CONTEXT)
         // List<ChatMessage> history = memoryService.loadMemory(userId);
@@ -82,7 +81,7 @@ public class ProductAiQueryService {
             return Map.of(
                 "count", 0,
                 "message", "Không tìm thấy sản phẩm phù hợp.",
-                "warnings", List.of("Không có sản phẩm phù hợp với yêu cầu hiện tại."),
+                "warnings", List.of("Không có sản phẩm đúng với lịch sử và yêu cầu hiện tại."),
                 "items", List.of()
             );
         }
@@ -113,9 +112,29 @@ public class ProductAiQueryService {
                 .map(this::buildSummary)
                 .toList();
 
-        // IMPORTANT: Không lưu search summary vào memory nữa để tránh "tìm theo ngữ cảnh".
-        // Nếu muốn tìm lại, user phải search lại hoặc gửi productId.
-        memoryService.touchTtl(userId);
+        // ================================
+        // (2) SAVE AI MEMORY — NEW VERSION
+        // ================================
+        StringBuilder memory = new StringBuilder();
+        memory.append("Kết quả tìm kiếm lần này (").append(productIds.size()).append(" sản phẩm):\n");
+
+        int index = 1;
+        for (Map<String, Object> s : summaries) {
+            memory.append(index++)
+                  .append(". ")
+                  .append(s.get("brand"))
+                  .append(" - ")
+                  .append(s.get("name"))
+                  .append(" | Giá: ").append(s.get("effectivePrice"))
+                  .append("\n");
+        }
+
+        memory.append("Hãy dùng số thứ tự để tham chiếu lại ở lần chat sau.");
+
+        memoryService.saveAssistantMessage(userId, memory.toString());
+
+        // Clear session after 10 minutes
+        memoryService.clearSessionAfterTimeout(userId);
 
         return Map.of(
             "count", productIds.size(),
@@ -172,7 +191,7 @@ public class ProductAiQueryService {
     }
 
     /**
-     * Tìm kiếm thông tin sản phẩm dựa trên productId và lưu làm LAST_PRODUCT
+     * Tìm kiếm thông tin sản phẩm dựa trên productId và lưu vào AI
      */
     public Optional<Product> findAndAdviseProduct(String userId, String productId) {
         try {
@@ -182,38 +201,38 @@ public class ProductAiQueryService {
             if (productOpt.isPresent()) {
                 Product product = productOpt.get();
 
-                StringBuilder productInfo = new StringBuilder();
-                productInfo.append("productId: ").append(product.getProductId()).append("\n")
-                        .append("name: ").append(nullToEmpty(product.getName())).append("\n")
-                        .append("brand: ").append(nullToEmpty(product.getBrandName())).append("\n")
-                        .append("price: ").append(product.getFinalPrice() != null ? product.getFinalPrice() : product.getPrice()).append("\n")
-                        .append("description: ").append(nullToEmpty(product.getDescription()));
+                // Xây dựng thông tin sản phẩm để lưu vào AI
+                String productInfo = "Thông tin sản phẩm:\n" +
+                        "Tên: " + product.getName() + "\n" +
+                        "Thương hiệu: " + product.getBrandName() + "\n" +
+                        "Giá: " + (product.getFinalPrice() != null ? product.getFinalPrice() : product.getPrice()) + "\n" +
+                        "Mô tả: " + product.getDescription();
 
+                // Thêm thông tin thuộc tính (attributes)
                 if (product.getAttributeValues() != null && !product.getAttributeValues().isEmpty()) {
-                    productInfo.append("\nattributes:\n");
+                    StringBuilder attributesInfo = new StringBuilder("\nThuộc tính sản phẩm:\n");
                     for (var attributeValue : product.getAttributeValues()) {
                         if (attributeValue.getAttribute() != null) {
-                            productInfo.append("- ")
-                                    .append(attributeValue.getAttribute().getAttributeName())
-                                    .append(": ")
-                                    .append(attributeValue.getValue())
-                                    .append("\n");
+                            attributesInfo.append("- ")
+                                         .append(attributeValue.getAttribute().getAttributeName())
+                                         .append(": ")
+                                         .append(attributeValue.getValue())
+                                         .append("\n");
                         }
                     }
+                    productInfo += attributesInfo.toString();
                 }
 
-                memoryService.saveLastProductInfo(userId, productInfo.toString().trim());
+                // Lưu thông tin vào AI
+                memoryService.saveAssistantMessage(userId, productInfo);
 
                 return Optional.of(product);
             }
         } catch (IllegalArgumentException e) {
-            memoryService.saveLastProductInfo(userId, "productId không hợp lệ: " + productId);
+            // Không hợp lệ nếu productId không phải UUID
+            memoryService.saveAssistantMessage(userId, "ProductId không hợp lệ: " + productId);
         }
 
         return Optional.empty();
-    }
-
-    private static String nullToEmpty(String s) {
-        return s == null ? "" : s;
     }
 }

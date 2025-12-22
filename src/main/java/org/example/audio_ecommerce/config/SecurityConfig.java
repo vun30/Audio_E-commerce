@@ -59,29 +59,23 @@ public class SecurityConfig {
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
                 }))
-                // IMPORTANT: Chat AI needs HttpSession (JDBC) in prod, so cannot be STATELESS
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/api/payos/webhook",
+                        .requestMatchers("/api/payos/webhook",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/api/account/register/**",
                                 "/api/account/login/**",
+                                "/api/**",
                                 "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/loaderio-*"
-                        ).permitAll()
-
-                        // AI endpoints: require valid JWT (CUSTOMER/STORE/ADMIN...) so token must be accepted
-                        .requestMatchers("/api/ai/**").authenticated()
-
+                                "/login/oauth2/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
                         .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
+                        .requestMatchers("/loaderio-*").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth -> oauth
-                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization"))
+                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization")) // => /oauth2/authorization/google
                         .redirectionEndpoint(re -> re.baseUri("/login/oauth2/code/*"))
                         .userInfoEndpoint(ui -> ui.userService(oAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)

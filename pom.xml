@@ -51,6 +51,17 @@
             <groupId>org.springframework</groupId>
             <artifactId>spring-jdbc</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+            <version>0.28.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>0.28.0</version>
+        </dependency>
 
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -237,13 +248,6 @@
             <artifactId>google-auth-library-oauth2-http</artifactId>
             <version>1.19.0</version>
         </dependency>
-
-        <!-- Persist HttpSession in MySQL (Railway) -->
-        <dependency>
-            <groupId>org.springframework.session</groupId>
-            <artifactId>spring-session-jdbc</artifactId>
-        </dependency>
-
 
     </dependencies>
 
