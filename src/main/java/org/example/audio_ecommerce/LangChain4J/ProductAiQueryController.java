@@ -146,4 +146,13 @@ public class ProductAiQueryController {
             ));
         }
     }
+
+    /**
+     * Compatibility route: some clients accidentally call /api/ai/products/api/products/advise (double prefix).
+     * Keep this to avoid 404 and forward to the correct advise handler.
+     */
+    @PostMapping("/api/products/advise")
+    public ResponseEntity<?> adviseProductCompat(@RequestParam String userId, @RequestParam String productId) {
+        return adviseProduct(userId, productId);
+    }
 }
