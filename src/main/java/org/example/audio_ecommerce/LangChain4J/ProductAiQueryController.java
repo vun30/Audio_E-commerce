@@ -36,6 +36,7 @@ public class ProductAiQueryController {
                 Map<String, Object> productData = Map.of(
                     "productId", product.getProductId(),
                     "name", product.getName(),
+                    "description", product.getDescription(),
                     "brandName", product.getBrandName(),
                     "categories", product.getCategories().stream().map(category -> Map.of(
                         "categoryId", category.getCategoryId(),
@@ -52,7 +53,7 @@ public class ProductAiQueryController {
 
 
                 return ResponseEntity.ok(Map.of(
-                        "message", "Thông tin sản phẩm đã được lưu vào bộ nhớ AI.",
+                        "message", "Thông tin sản phẩm đã được lưu làm LAST_PRODUCT để AI tư vấn.",
                         "product", productData
                 ));
             } else {
@@ -65,7 +66,17 @@ public class ProductAiQueryController {
         // Nếu không có ID sản phẩm, tiếp tục xử lý câu hỏi bình thường
         String intent = intentDetector.detectIntent(question);
 
+        // Product SEARCH mode is disabled.
         switch (intent) {
+            case "NONE" -> {
+                String reply = audioChatService.chat(userId, question);
+                return ResponseEntity.ok(Map.of(
+                        "mode", "none",
+                        "question", question,
+                        "reply", reply
+                ));
+            }
+
             case "ADVICE" -> {
                 String reply = audioChatService.chat(userId, question);
                 return ResponseEntity.ok(Map.of(
@@ -75,19 +86,11 @@ public class ProductAiQueryController {
                 ));
             }
 
-            case "SEARCH" -> {
-                Map<String, Object> result = aiService.searchProduct(userId, question);
-                return ResponseEntity.ok(Map.of(
-                        "mode", "product_search",
-                        "question", question,
-                        "result", result
-                ));
-            }
-
             default -> {
+                // fallback to advice
                 String reply = audioChatService.chat(userId, question);
                 return ResponseEntity.ok(Map.of(
-                        "mode", "none",
+                        "mode", "advice",
                         "question", question,
                         "reply", reply
                 ));
@@ -109,7 +112,7 @@ public class ProductAiQueryController {
         return null;
     }
 
-    @PostMapping("/api/products/advise")
+    @PostMapping("/advise")
     public ResponseEntity<?> adviseProduct(@RequestParam String userId, @RequestParam String productId) {
         Optional<Product> productOpt = aiService.findAndAdviseProduct(userId, productId);
 
@@ -118,6 +121,7 @@ public class ProductAiQueryController {
             Map<String, Object> productData = Map.of(
                 "productId", product.getProductId(),
                 "name", product.getName(),
+                "description", product.getDescription(),
                 "brandName", product.getBrandName(),
                 "categories", product.getCategories().stream().map(category -> Map.of(
                     "categoryId", category.getCategoryId(),
@@ -133,7 +137,7 @@ public class ProductAiQueryController {
             );
 
             return ResponseEntity.ok(Map.of(
-                    "message", "Thông tin sản phẩm đã được lưu vào bộ nhớ AI.",
+                    "message", "Thông tin sản phẩm đã được lưu làm LAST_PRODUCT để AI tư vấn.",
                     "product", productData
             ));
         } else {
