@@ -41,4 +41,11 @@ boolean existsByCategory(@Param("category") Category category);
 
 boolean existsByNameIgnoreCase(String name);
 
+    @Query("""
+        select c.categoryId
+        from Category c
+        where c.name = :name
+    """)
+    Optional<UUID> findIdByName(@Param("name") String name);
+
 }

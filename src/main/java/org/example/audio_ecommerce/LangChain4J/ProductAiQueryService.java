@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -28,26 +27,20 @@ public class ProductAiQueryService {
         // (1) Save user question
         memoryService.saveUserMessage(userId, naturalQuestion);
 
-        // Load last messages
-        List<ChatMessage> history = memoryService.loadMemory(userId);
-        StringBuilder historyText = new StringBuilder();
+        // Load last messages (DISABLED CONTEXT)
+        // List<ChatMessage> history = memoryService.loadMemory(userId);
+        // StringBuilder historyText = new StringBuilder();
+        // for (ChatMessage msg : history) {
+        //     if (msg instanceof UserMessage) {
+        //         historyText.append("User: ").append(msg).append("\n");
+        //     } else if (msg instanceof AiMessage) {
+        //         historyText.append("Assistant: ").append(msg).append("\n");
+        //     }
+        // }
 
-        for (ChatMessage msg : history) {
-            if (msg instanceof UserMessage) {
-                historyText.append("User: ").append(((UserMessage) msg).text()).append("\n");
-            } else if (msg instanceof AiMessage) {
-                historyText.append("Assistant: ").append(((AiMessage) msg).text()).append("\n");
-            }
-        }
-
-        // Build prompt
+        // Build prompt (WITHOUT CONTEXT)
         String fullPrompt = """
             You are an expert SQL generator for an Audio E-Commerce platform.
-
-            ===========================
-            CONVERSATION HISTORY
-            ===========================
-            %s
 
             ===========================
             USER REQUEST
@@ -58,22 +51,25 @@ public class ProductAiQueryService {
             SCHEMA
             ===========================
             %s
-            """.formatted(historyText, naturalQuestion, schemaLoader.loadSchema());
+            """.formatted(naturalQuestion, schemaLoader.loadSchema());
 
-        // Generate SQL
-        String sql = agent.generateSql(fullPrompt);
+        // Generate SQL (DISABLED)
+        // String sql = agent.generateSql(fullPrompt);
 
-        List<Map<String, Object>> rows;
-        try {
-            rows = sqlExecutor.runSelect(sql);
-        } catch (Exception e) {
-            return Map.of(
-                "count", 0,
-                "error", e.getMessage(),
-                "sql", sql,
-                "message", "AI generate SQL error"
-            );
-        }
+        // List<Map<String, Object>> rows;
+        // try {
+        //     rows = sqlExecutor.runSelect(sql);
+        // } catch (Exception e) {
+        //     return Map.of(
+        //         "count", 0,
+        //         "error", e.getMessage(),
+        //         "sql", sql,
+        //         "message", "AI generate SQL error"
+        //     );
+        // }
+
+        // Convert to product IDs (DISABLED)
+        List<Map<String, Object>> rows = new ArrayList<>();
 
         // Convert to product IDs
         List<UUID> productIds = rows.stream()
@@ -114,13 +110,13 @@ public class ProductAiQueryService {
         // Build summaries
         List<Map<String, Object>> summaries = products.stream()
                 .map(this::buildSummary)
-                .collect(Collectors.toList());
+                .toList();
 
         // ================================
         // (2) SAVE AI MEMORY — NEW VERSION
         // ================================
         StringBuilder memory = new StringBuilder();
-        memory.append("Kết quả tìm kiếm lần này (" + productIds.size() + " sản phẩm):\n");
+        memory.append("Kết quả tìm kiếm lần này (").append(productIds.size()).append(" sản phẩm):\n");
 
         int index = 1;
         for (Map<String, Object> s : summaries) {
@@ -136,6 +132,9 @@ public class ProductAiQueryService {
         memory.append("Hãy dùng số thứ tự để tham chiếu lại ở lần chat sau.");
 
         memoryService.saveAssistantMessage(userId, memory.toString());
+
+        // Clear session after 10 minutes
+        memoryService.clearSessionAfterTimeout(userId);
 
         return Map.of(
             "count", productIds.size(),
@@ -169,7 +168,8 @@ public class ProductAiQueryService {
                 "brand", p.getBrandName(),
                 "rating", rating,
                 "effectivePrice", priceStr,
-                "summary", p.getBrandName() + " " + p.getName() + " – giá " + priceStr + ", đánh giá " + rating
+                "summary", p.getBrandName() + " " + p.getName() + " – giá " + priceStr + ", đánh giá " + rating,
+                "description", p.getDescription() // Thêm mô tả sản phẩm
         );
     }
 
@@ -188,5 +188,51 @@ public class ProductAiQueryService {
             }
         }
         return grouped;
+    }
+
+    /**
+     * Tìm kiếm thông tin sản phẩm dựa trên productId và lưu vào AI
+     */
+    public Optional<Product> findAndAdviseProduct(String userId, String productId) {
+        try {
+            UUID productUUID = UUID.fromString(productId);
+            Optional<Product> productOpt = productRepository.findById(productUUID);
+
+            if (productOpt.isPresent()) {
+                Product product = productOpt.get();
+
+                // Xây dựng thông tin sản phẩm để lưu vào AI
+                String productInfo = "Thông tin sản phẩm:\n" +
+                        "Tên: " + product.getName() + "\n" +
+                        "Thương hiệu: " + product.getBrandName() + "\n" +
+                        "Giá: " + (product.getFinalPrice() != null ? product.getFinalPrice() : product.getPrice()) + "\n" +
+                        "Mô tả: " + product.getDescription();
+
+                // Thêm thông tin thuộc tính (attributes)
+                if (product.getAttributeValues() != null && !product.getAttributeValues().isEmpty()) {
+                    StringBuilder attributesInfo = new StringBuilder("\nThuộc tính sản phẩm:\n");
+                    for (var attributeValue : product.getAttributeValues()) {
+                        if (attributeValue.getAttribute() != null) {
+                            attributesInfo.append("- ")
+                                         .append(attributeValue.getAttribute().getAttributeName())
+                                         .append(": ")
+                                         .append(attributeValue.getValue())
+                                         .append("\n");
+                        }
+                    }
+                    productInfo += attributesInfo.toString();
+                }
+
+                // Lưu thông tin vào AI
+                memoryService.saveAssistantMessage(userId, productInfo);
+
+                return Optional.of(product);
+            }
+        } catch (IllegalArgumentException e) {
+            // Không hợp lệ nếu productId không phải UUID
+            memoryService.saveAssistantMessage(userId, "ProductId không hợp lệ: " + productId);
+        }
+
+        return Optional.empty();
     }
 }
