@@ -428,20 +428,30 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
 
         if (success) {
             for (CustomerOrder order : orders) {
+
                 BigDecimal amount = order.getGrandTotal() != null ? order.getGrandTotal() : order.getTotalAmount();
                 if (amount == null) amount = BigDecimal.ZERO;
                 amount = amount.setScale(0, java.math.RoundingMode.DOWN);
 
+                // (Tuỳ bạn) vẫn có thể giữ recordCustomerQrPayment nếu nó CHỈ set trạng thái đã thanh toán
+                // Nếu recordCustomerQrPayment đang tạo HOLD/PENDING thì nên bỏ luôn.
                 settlementService.recordCustomerQrPayment(order.getCustomer().getId(), order.getId(), amount);
-                boolean existsHolding = !platformTransactionRepository
-                        .findAllByOrderIdAndStatus(order.getId(), TransactionStatus.PENDING)
-                        .isEmpty();
-                if (!existsHolding) {
-                    settlementService.moveToPlatformHold(order.getId(), amount);
-                }
-                settlementService.allocateToStoresPending(order);
 
-                order.setStatus(OrderStatus.PENDING);
+                // ✅ NEW: ONLINE PAY -> chỉ CASH IN vào PlatformWallet.cashBalance
+                // Idempotent theo orderId (tránh webhook bắn lại cộng tiền 2 lần)
+                String idemKey = "PAYOS:ECOM:CASHIN:" + order.getId();
+                boolean existed = platformTransactionRepository
+                        .findByIdempotencyKey(idemKey)
+                        .isPresent();
+                if (!existed) {
+                    cashInToPlatformForOnlineOrder(order, amount, idemKey);
+                }
+
+                // ❌ BỎ 2 dòng này (vì nó đẩy tiền qua pending platform + pending store)
+                // settlementService.moveToPlatformHold(order.getId(), amount);
+                // settlementService.allocateToStoresPending(order);
+
+                order.setStatus(OrderStatus.PENDING); // hoặc PAID nếu bạn có enum
                 order.setCreatedAt(LocalDateTime.now());
                 customerOrderRepository.save(order);
 
@@ -450,6 +460,7 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
             log.info("[PayOS Webhook][ECOM] SUCCESS processed batch={} orders={}", batchCode, orders.size());
             return;
         }
+
 
         for (CustomerOrder order : orders) {
             order.setStatus(OrderStatus.UNPAID);
@@ -602,6 +613,52 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
 
         log.info("[PayOS Webhook][STORE_WALLET] SUCCESS topup walletId={} amount={} before={} after={}",
                 wallet.getWalletId(), txn.getAmount(), before, after);
+    }
+
+    //helper lưu vào cashblance
+    private void cashInToPlatformForOnlineOrder(CustomerOrder order,
+                                                BigDecimal amount,
+                                                String idempotencyKey) {
+
+        PlatformWallet platform = platformWalletRepository.getPlatformMainWallet();
+
+        BigDecimal cashBefore = platform.getCashBalance() != null ? platform.getCashBalance() : BigDecimal.ZERO;
+        BigDecimal cashAfter  = cashBefore.add(amount);
+
+        platform.setCashBalance(cashAfter);
+
+        // bạn đang có receivedTotal trong PlatformWallet -> cộng luôn cho đúng nghĩa "tiền đã nhận"
+        platform.setReceivedTotal(
+                (platform.getReceivedTotal() != null ? platform.getReceivedTotal() : BigDecimal.ZERO)
+                        .add(amount)
+        );
+
+        platform.setUpdatedAt(LocalDateTime.now());
+        platformWalletRepository.save(platform);
+
+        // ✅ lưu ledger platform_transaction (bucket=CASH)
+        PlatformTransaction pTxn = PlatformTransaction.builder()
+                .wallet(platform)
+                .orderId(order.getId())
+                .storeId(null) // online multi-store, store payout xử lý sau (khi delivered/settlement)
+                .customerId(order.getCustomer() != null ? order.getCustomer().getId() : null)
+                .amount(amount)
+                .type(TransactionType.HOLD)       // đổi đúng enum của bạn (vd: PAYMENT/ORDER_PAYMENT)
+                .status(TransactionStatus.DONE)      // vì CASH đã vào platform
+                .description("PayOS online payment cash-in, orderId=" + order.getId())
+                .idempotencyKey(idempotencyKey)
+                .channel(PaymentChannel.PAYOS)
+                .externalRefId(null)
+                .externalRefCode(order.getExternalOrderCode()) // hoặc batchCode tuỳ bạn muốn trace
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .bucket(WalletBucket.CASH)
+                .direction(TxDirection.IN)
+                .balanceBefore(cashBefore)
+                .balanceAfter(cashAfter)
+                .build();
+
+        platformTransactionRepository.save(pTxn);
     }
 
 }

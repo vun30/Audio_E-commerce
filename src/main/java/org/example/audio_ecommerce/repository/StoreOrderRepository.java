@@ -195,6 +195,7 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             @Param("year") int year
     );
 
+    List<StoreOrder> findByStatusAndSellCountUpdatedFalse(OrderStatus status);
     @Query(value = """
         select
             year(o.delivered_at) as y,

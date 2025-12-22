@@ -48,6 +48,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final CustomerOrderRepository customerOrderRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final LegalPointService legalPointService;
+    private final CustomerRepository customerRepo;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -60,6 +61,17 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     // ================== Helper ==================
 
     private ReturnRequestResponse toResponse(ReturnRequest r) {
+        // ===== STORE =====
+        Store store = null;
+        if (r.getShopId() != null) {
+            store = storeRepo.findById(r.getShopId()).orElse(null);
+        }
+
+        // ===== CUSTOMER =====
+        Customer customer = null;
+        if (r.getCustomerId() != null) {
+            customer = customerRepo.findById(r.getCustomerId()).orElse(null);
+        }
         return ReturnRequestResponse.builder()
                 .id(r.getId())
                 .customerId(r.getCustomerId())
@@ -68,6 +80,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .productId(r.getProductId())
                 .productName(r.getProductName())
                 .itemPrice(r.getItemPrice())
+                .storeName(store != null ? store.getStoreName() : null)
+                .storeLegalPoint(store != null ? store.getLegalPoint() : BigDecimal.ZERO)
+                .customerName(customer != null ? customer.getFullName() : null)
+                .customerLegalPoint(customer != null ? customer.getLegalPoint() : BigDecimal.ZERO)
                 .reasonType(r.getReasonType())
                 .reason(r.getReason())
                 .customerImageUrls(r.getCustomerImageUrls())
@@ -505,12 +521,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         body.setCod_amount(0);
         body.setContent("Return hàng đơn: " + r.getId());
 
-        // Ai trả phí: CUSTOMER_FAULT → customer trả; ngược lại shop trả
-        String payer = payerFromReasonType(r.getReasonType());
-
-        // GHN payment_type_id: 2 = người gửi trả (CUSTOMER), 1 = shop trả
-        int paymentTypeId = "CUSTOMER".equals(payer) ? 2 : 1;
-        body.setPayment_type_id(paymentTypeId);
+        String payer = "SHOP";
+        body.setPayment_type_id(1);
 
 
         // Service & kích thước
