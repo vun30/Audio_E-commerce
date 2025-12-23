@@ -53,7 +53,7 @@
 
 
                     return ResponseEntity.ok(Map.of(
-                            "message", "Thông tin sản phẩm đã được lưu làm LAST_PRODUCT để AI tư vấn.",
+                            "message", "Mình đã nhận được thông tin sản phẩm bạn đang quan tâm, nếu có yêu cầu gì cứ nói cho mình nhé !!!!!.",
                             "product", productData
                     ));
                 } else {
