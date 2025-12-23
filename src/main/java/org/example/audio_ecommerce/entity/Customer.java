@@ -151,12 +151,6 @@ public class Customer extends BaseEntity {
     @Column(name = "buyable", nullable = false)
     @Builder.Default
     private boolean buyable = true; // hoặc false tuỳ logic của bạn
-  
-    @Column(name = "buyable", nullable = false)
-    @Builder.Default
-    private boolean buyable = true; // true = được mua hàng, false = bị admin chặn mua
-
-
 
     // ===== Helpers =====
     public void addAddress(CustomerAddress addr, boolean makeDefault) {
