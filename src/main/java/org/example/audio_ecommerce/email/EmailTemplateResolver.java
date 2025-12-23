@@ -1,10 +1,7 @@
 package org.example.audio_ecommerce.email;
 
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.email.dto.KycApprovedData;
-import org.example.audio_ecommerce.email.dto.KycRejectedData;
-import org.example.audio_ecommerce.email.dto.KycSubmittedData;
-import org.example.audio_ecommerce.email.dto.StoreStatusChangedData;
+import org.example.audio_ecommerce.email.dto.*;
 import org.springframework.stereotype.Component;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -20,6 +17,9 @@ public class EmailTemplateResolver {
     // =========================================
     public EmailTemplate resolve(EmailTemplateType type, Object data) {
         return switch (type) {
+
+            case ACCOUNT_VERIFY -> accountVerify((AccountVerifyData) data); // ✅ thêm
+
             case ACCOUNT_CREATED -> accountCreated((AccountData) data);
             case ACCOUNT_WELCOME -> accountWelcome((AccountData) data);
             case KYC_SUBMITTED -> kycSubmitted((KycSubmittedData) data);
@@ -27,8 +27,6 @@ public class EmailTemplateResolver {
             case KYC_REJECTED -> kycRejected((KycRejectedData) data);
             case ORDER_CONFIRMED -> orderConfirmed((OrderData) data);
             case RESET_PASSWORD -> resetPassword((AccountData) data);
-
-            // ⭐⭐ CASE MỚI CHO SHOP STATUS ⭐⭐
             case STORE_STATUS_UPDATED -> storeStatusUpdated((StoreStatusChangedData) data);
 
             default -> throw new IllegalArgumentException("❌ Template chưa được định nghĩa: " + type);
@@ -189,4 +187,22 @@ public class EmailTemplateResolver {
                 .content(html)
                 .build();
     }
+    // ==================== ACCOUNT VERIFY (NEW) ====================
+    private EmailTemplate accountVerify(AccountVerifyData data) {
+        Context ctx = new Context();
+        ctx.setVariable("name", data.getName());
+        ctx.setVariable("role", data.getRole());
+        ctx.setVariable("verifyLink", data.getVerifyLink());
+        ctx.setVariable("siteUrl", data.getSiteUrl());
+
+        String html = templateEngine.process("email/account_verify", ctx);
+
+        return EmailTemplate.builder()
+                .to(data.getEmail())
+                .subject("✅ Xác nhận email để kích hoạt tài khoản")
+                .content(html)
+                .build();
+    }
+
+
 }
