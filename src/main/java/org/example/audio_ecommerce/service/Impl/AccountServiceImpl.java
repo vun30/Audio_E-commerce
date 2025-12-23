@@ -47,7 +47,7 @@ public class AccountServiceImpl implements AccountService {
 
     private final EmailService emailService;
 
-    @Value("${app.frontend.url:http://localhost:5173/verrify-register-account}")
+    @Value("${app.frontend.url:https://sep-490-audio-wep-app.vercel.app/verrify-register-account}")
     private String frontendUrl;
 
     // =====================================================
