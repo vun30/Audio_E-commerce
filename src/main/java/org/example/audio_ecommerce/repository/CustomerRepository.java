@@ -40,4 +40,18 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
      Optional<Customer> findByAccount_Email(String email);
     Optional<Customer> findByAccount(Account account);
+    @Query(value = """
+        select count(*)
+        from customers c
+        where c.created_at >= :from and c.created_at < :to
+    """, nativeQuery = true)
+    long countNewCustomersInRange(@Param("from") String from, @Param("to") String to);
+
+    @Query(value = """
+        select month(c.created_at) as m, count(*) as cnt
+        from customers c
+        where year(c.created_at) = :year
+        group by month(c.created_at)
+    """, nativeQuery = true)
+    java.util.List<Object[]> countNewCustomersByMonth(@Param("year") int year);
 }

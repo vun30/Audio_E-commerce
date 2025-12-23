@@ -149,11 +149,11 @@ public class GhnStatusSyncService {
             return;
         }
 
-        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
-            log.info("⛔ [GHN Sync] GHN orderCode={} đang PICKED trong DB → bỏ qua, không update sang {}",
-                    orderCode, newStatus);
-            return;
-        }
+//        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
+//            log.info("⛔ [GHN Sync] GHN orderCode={} đang PICKED trong DB → bỏ qua, không update sang {}",
+//                    orderCode, newStatus);
+//            return;
+//        }
         // 1️⃣ Cập nhật GhnOrder
         updateGhnOrderEntity(ghnOrder, detail, newStatus);
 
@@ -164,11 +164,11 @@ public class GhnStatusSyncService {
     private void updateGhnOrderEntity(GhnOrder ghnOrder,
                                       GhnOrderDetail detail,
                                       GhnStatus newStatus) {
-        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
-            log.info("⛔ [GHN Sync] GHN order {} đang PICKED trong DB → không update sang {}",
-                    ghnOrder.getOrderGhn(), newStatus);
-            return;
-        }
+//        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
+//            log.info("⛔ [GHN Sync] GHN order {} đang PICKED trong DB → không update sang {}",
+//                    ghnOrder.getOrderGhn(), newStatus);
+//            return;
+//        }
 
         ghnOrder.setStatus(newStatus);
 

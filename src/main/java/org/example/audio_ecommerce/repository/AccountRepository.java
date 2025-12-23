@@ -19,4 +19,9 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     Optional<Account> findByResetPasswordToken(String token);
     Optional<Account> findByPhone(String phone);
 
+    long countByRole(RoleEnum role);
+
+    Optional<Account> findByEmailVerifyToken(String token);
+
+
 }

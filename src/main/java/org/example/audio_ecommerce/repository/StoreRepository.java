@@ -66,4 +66,19 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
     List<Store> findStoresWithWalletByStatuses(@Param("statuses") List<StoreStatus> statuses);
     List<Store> findByStatus(StoreStatus status);
 
+    @Query(value = """
+        select count(*)
+        from stores s
+        where s.created_at >= :from and s.created_at < :to
+    """, nativeQuery = true)
+    long countNewStoresInRange(@Param("from") String from, @Param("to") String to);
+
+    @Query(value = """
+        select month(s.created_at) as m, count(*) as cnt
+        from stores s
+        where year(s.created_at) = :year
+        group by month(s.created_at)
+    """, nativeQuery = true)
+    java.util.List<Object[]> countNewStoresByMonth(@Param("year") int year);
+
 }

@@ -48,4 +48,8 @@ public interface AccountService {
     //firebase login
     ResponseEntity<BaseResponse> loginByPhoneFirebase(LoginByPhoneFirebaseRequest request);
 
+    ResponseEntity<BaseResponse> verifyEmail(String token);
+
+    ResponseEntity<BaseResponse> resendVerifyEmail(ResendVerifyEmailRequest request);
+
 }

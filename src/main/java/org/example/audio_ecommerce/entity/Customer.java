@@ -147,9 +147,15 @@ public class Customer extends BaseEntity {
     @Column(name = "legal_point", precision = 18, scale = 2, nullable = false)
     private BigDecimal legalPoint = BigDecimal.ZERO;
 
+
+    @Column(name = "buyable", nullable = false)
+    @Builder.Default
+    private boolean buyable = true; // hoặc false tuỳ logic của bạn
+  
     @Column(name = "buyable", nullable = false)
     @Builder.Default
     private boolean buyable = true; // true = được mua hàng, false = bị admin chặn mua
+
 
 
     // ===== Helpers =====
