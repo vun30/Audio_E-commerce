@@ -625,17 +625,31 @@ public class SettlementService {
         plat.setUpdatedAt(now);
         platformWalletRepo.save(plat);
 
-        PlatformTransaction holdTx = PlatformTransaction.builder()
-                .wallet(plat)
-                .orderId(order.getId())
-                .amount(productsTotal)
-                .type(TransactionType.HOLD)
-                .status(TransactionStatus.PENDING)
-                .description("COD collected – holding 7 days")
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        BigDecimal beforeTotal = nz(plat.getTotalBalance().subtract(productsTotal));
+        BigDecimal afterTotal  = nz(plat.getTotalBalance());
+
+        PlatformTransaction holdTx = buildPlatformTx(
+                plat,
+                order.getId(),
+                null,                       // storeId
+                order.getCustomer().getId(),
+                productsTotal,
+                TransactionType.HOLD,
+                TransactionStatus.PENDING,
+                PaymentChannel.COD,         // hoặc INTERNAL
+                WalletBucket.PENDING,       // ✅ FIX NULL BUCKET
+                TxDirection.IN,
+                beforeTotal,
+                afterTotal,
+                "COD collected – holding 7 days",
+                "HOLD:COD:" + order.getId(), // idempotent
+                null,
+                null,
+                null
+        );
+
         platformTxRepo.save(holdTx);
+
 
         // ===== 3) Allocate sang pending của từng store (giống online) =====
         allocateToStoresPending(order);
