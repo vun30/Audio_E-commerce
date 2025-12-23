@@ -140,10 +140,10 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
         if (req.getDescription() != null) campaign.setDescription(req.getDescription());
         //// === FIX TIMEZONE WHEN UPDATING ===
         if (req.getStartTime() != null)
-            campaign.setStartTime(req.getStartTime().minusHours(7));
+            campaign.setStartTime(req.getStartTime());
 
         if (req.getEndTime() != null)
-            campaign.setEndTime(req.getEndTime().minusHours(7));
+            campaign.setEndTime(req.getEndTime());
 //// ==================================
 
         if (req.getAllowRegistration() != null) campaign.setAllowRegistration(req.getAllowRegistration());
@@ -1036,7 +1036,7 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
         try {
             target = VoucherStatus.valueOf(newStatus.toUpperCase());
         } catch (Exception e) {
-            throw new RuntimeException("❌ Invalid status: {DRAFT,ONOPEN,DISABLED}");
+            throw new RuntimeException("❌ Invalid status: {ONOPEN,DISABLED}");
         }
 
         VoucherStatus old = campaign.getStatus();
@@ -1056,8 +1056,14 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
         if (old == VoucherStatus.DRAFT && target == VoucherStatus.ONOPEN) {
             campaign.setStatus(VoucherStatus.ONOPEN);
         }
-        // 4) Cho phép admin disable campaign bất cứ lúc nào
+        // 4) DISABLED chỉ cho phép nếu campaign đang ở DRAFT hoặc ONOPEN
         else if (target == VoucherStatus.DISABLED) {
+            if (old == VoucherStatus.EXPIRED) {
+                throw new RuntimeException("⚠️ Không thể DISABLED campaign đã hết hạn (EXPIRED).");
+            }
+            if (old != VoucherStatus.DRAFT && old != VoucherStatus.ONOPEN) {
+                throw new RuntimeException("⚠️ Không thể DISABLED campaign khi đang ở trạng thái: " + old + ". Chỉ cho phép khi DRAFT hoặc ONOPEN.");
+            }
             campaign.setStatus(VoucherStatus.DISABLED);
         } else {
             throw new RuntimeException("⚠️ Transition not allowed: " + old + " → " + target);
@@ -1466,9 +1472,4 @@ public ResponseEntity<BaseResponse> withdrawCampaignProduct(UUID campaignProduct
 
 
 }
-
-
-
-
-
 
