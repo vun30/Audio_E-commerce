@@ -461,7 +461,9 @@ public class CartServiceImpl implements CartService {
         if (cart.getItems() == null || cart.getItems().isEmpty()) {
             throw new IllegalStateException("Cart is empty");
         }
-
+        if (!customer.isBuyable()) {
+            throw new IllegalStateException("Customer is not allowed to buy (buyable=false)");
+        }
         // 1) Map request -> CartItem
         List<CartItem> itemsToCheckout = new ArrayList<>();
         for (CheckoutItemRequest req : Optional.ofNullable(itemsReq).orElse(List.of())) {

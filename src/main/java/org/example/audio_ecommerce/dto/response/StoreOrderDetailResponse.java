@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
+import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -42,4 +43,8 @@ public class StoreOrderDetailResponse {
     private String shipPostalCode;
     private String shipNote;
     private List<StoreOrderItemResponse> items;
+    private List<ShopVoucherAppliedResponse> shopVouchers;
+    private PaymentMethod paymentMethod;
+    // ✅ voucher shop đã apply
+
 }

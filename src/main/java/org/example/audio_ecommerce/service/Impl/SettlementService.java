@@ -376,14 +376,12 @@ public class SettlementService {
 
         // Giả định: HOLD chỉ chứa tiền hàng (productsTotal)
         // → hạ pending theo productsTotal, nhưng totalBalance/refundedTotal theo refundAmount (grand total)
-        BigDecimal oldPending = plat.getPendingBalance();
         BigDecimal oldTotal = plat.getTotalBalance();
-        BigDecimal oldRefunded = plat.getRefundedTotal();
+        BigDecimal before = nz(plat.getCashBalance());
+        BigDecimal after  = before.subtract(refundAmount).max(BigDecimal.ZERO);
 
-        plat.setPendingBalance(oldPending.subtract(productsTotal).max(java.math.BigDecimal.ZERO));
-        plat.setTotalBalance(oldTotal.subtract(refundAmount));
-        plat.setRefundedTotal(oldRefunded.add(refundAmount));
-        plat.setUpdatedAt(java.time.LocalDateTime.now());
+        plat.setCashBalance(after);
+        plat.setUpdatedAt(LocalDateTime.now());
         platformWalletRepo.save(plat);
 
         BigDecimal beforeTotal = nz(oldTotal);                 // oldTotal bạn đã lấy ở trên
@@ -509,14 +507,12 @@ public class SettlementService {
         PlatformWallet plat = platformWalletRepo.findFirstByOwnerType(WalletOwnerType.PLATFORM)
                 .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
-        BigDecimal oldPending = plat.getPendingBalance();
         BigDecimal oldTotal = plat.getTotalBalance();
-        BigDecimal oldRefunded = plat.getRefundedTotal();
+        BigDecimal before = nz(plat.getCashBalance());
+        BigDecimal after  = before.subtract(refundAmount).max(BigDecimal.ZERO);
 
         // Giả định HOLD chỉ giữ productsTotal
-        plat.setPendingBalance(oldPending.subtract(productsTotal).max(BigDecimal.ZERO));
-        plat.setTotalBalance(oldTotal.subtract(refundAmount));
-        plat.setRefundedTotal(oldRefunded.add(refundAmount));
+        plat.setCashBalance(after);
         plat.setUpdatedAt(LocalDateTime.now());
         platformWalletRepo.save(plat);
 

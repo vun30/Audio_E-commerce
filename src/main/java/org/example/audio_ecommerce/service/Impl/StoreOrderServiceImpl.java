@@ -1,10 +1,9 @@
 package org.example.audio_ecommerce.service.Impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.example.audio_ecommerce.dto.response.PagedResult;
-import org.example.audio_ecommerce.dto.response.StoreOrderDetailResponse;
-import org.example.audio_ecommerce.dto.response.StoreOrderItemResponse;
-import org.example.audio_ecommerce.dto.response.StoreOrderResponse;
+import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
@@ -38,6 +37,7 @@ public class StoreOrderServiceImpl implements StoreOrderService {
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final StoreRepository storeRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -58,7 +58,7 @@ public class StoreOrderServiceImpl implements StoreOrderService {
         }
 
         storeOrderRepository.save(order);
-        storeOrderRepository.flush();
+//        storeOrderRepository.flush();
 
         // ====== Đồng bộ trạng thái & deliveredAt cho CustomerOrder ======
         CustomerOrder customerOrder = order.getCustomerOrder();
@@ -326,7 +326,6 @@ public class StoreOrderServiceImpl implements StoreOrderService {
         store.setLegalPoint(next);
     }
 
-
     private StoreOrderDetailResponse toDetailResponse(StoreOrder order) {
         CustomerOrder customerOrder = order.getCustomerOrder();
         Customer customer = customerOrder != null ? customerOrder.getCustomer() : null;
@@ -342,6 +341,8 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .discountTotal(defaultBigDecimal(order.getDiscountTotal()))
                 .shippingFee(defaultBigDecimal(order.getShippingFee()))
                 .grandTotal(defaultBigDecimal(order.getGrandTotal()))
+                .shopVouchers(parseShopVouchers(order))
+                .paymentMethod(order.getPaymentMethod())
                 .customerOrderId(customerOrder != null ? customerOrder.getId() : null)
                 .customerId(customer != null ? customer.getId() : null)
                 .customerName(customer != null ? customer.getFullName() : null)
@@ -406,4 +407,65 @@ public class StoreOrderServiceImpl implements StoreOrderService {
     private BigDecimal defaultBigDecimal(BigDecimal value) {
         return value != null ? value : BigDecimal.ZERO;
     }
+
+    private List<ShopVoucherAppliedResponse> parseShopVouchers(StoreOrder order) {
+        if (order == null) return Collections.emptyList();
+
+        String json = order.getStoreVoucherDetailJson();
+        BigDecimal totalDiscount = order.getStoreVoucherDiscount(); // tổng: 18600
+
+        if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+            // không có detail json, chỉ có tổng (nếu có)
+            if (totalDiscount == null || totalDiscount.compareTo(BigDecimal.ZERO) <= 0) {
+                return Collections.emptyList();
+            }
+            return List.of(ShopVoucherAppliedResponse.builder()
+                    .code(null)
+                    .discount(defaultBigDecimal(totalDiscount))
+                    .build());
+        }
+
+        try {
+            JsonNode node = objectMapper.readTree(json);
+
+            // ✅ Case map: {"CODE1":6000,"CODE2":12600}
+            if (node != null && node.isObject()) {
+                List<ShopVoucherAppliedResponse> list = new java.util.ArrayList<>();
+
+                node.fields().forEachRemaining(entry -> {
+                    String code = entry.getKey();
+                    JsonNode v = entry.getValue();
+
+                    BigDecimal amount = BigDecimal.ZERO;
+                    if (v != null && v.isNumber()) amount = v.decimalValue();
+                    else if (v != null && v.isTextual()) {
+                        try { amount = new BigDecimal(v.asText()); } catch (Exception ignore) {}
+                    }
+
+                    list.add(ShopVoucherAppliedResponse.builder()
+                            .code(code)
+                            .discount(amount)
+                            .build());
+                });
+
+                // (tuỳ chọn) nếu muốn đảm bảo sum(list) == storeVoucherDiscount thì có thể normalize
+                return list;
+            }
+
+            // ✅ Nếu sau này bạn đổi format thành array/object khác thì xử lý thêm ở đây.
+
+        } catch (Exception ignore) {
+            // ignore
+        }
+
+        // fallback: nếu parse fail thì vẫn trả tổng discount
+        if (totalDiscount == null || totalDiscount.compareTo(BigDecimal.ZERO) <= 0) {
+            return Collections.emptyList();
+        }
+        return List.of(ShopVoucherAppliedResponse.builder()
+                .discount(defaultBigDecimal(totalDiscount))
+                .build());
+    }
+
+
 }

@@ -661,4 +661,47 @@ public class PayOSEcomServiceImpl implements PayOSEcomService {
         platformTransactionRepository.save(pTxn);
     }
 
+    @Transactional
+    public void cancelWalletTopup(String externalRef) {
+
+        WalletTransaction txn = walletTransactionRepository
+                .findByExternalRef(externalRef)
+                .orElseThrow(() -> new NoSuchElementException("WalletTransaction not found"));
+
+        if (txn.getStatus() != WalletTransactionStatus.PENDING) return;
+
+        txn.setStatus(WalletTransactionStatus.CANCELLED);
+        txn.setUpdatedAt(LocalDateTime.now());
+        walletTransactionRepository.save(txn);
+    }
+
+    @Transactional
+    public void cancelStoreWalletTopup(String externalRef) {
+
+        StoreWalletTransaction txn = storeWalletTransactionRepository
+                .findByExternalRef(externalRef)
+                .orElseThrow(() -> new NoSuchElementException("StoreWalletTransaction not found"));
+
+        if (txn.getStatus() != StoreWalletTransactionStatus.PENDING) return;
+
+        txn.setStatus(StoreWalletTransactionStatus.CANCELLED);
+        txn.setCreatedAt(LocalDateTime.now());
+        storeWalletTransactionRepository.save(txn);
+    }
+
+    @Transactional
+    public void cancelOnlineOrderByBatchCode(Long batchCode) {
+
+        List<CustomerOrder> orders = customerOrderRepository.findAll();
+        for (CustomerOrder o : orders) {
+            if (!o.getPlatformVoucherDetailJson().contains(batchCode.toString())) continue;
+
+            if (o.getStatus() == OrderStatus.PENDING) {
+                o.setStatus(OrderStatus.CANCELLED);
+                o.setCreatedAt(LocalDateTime.now());
+                customerOrderRepository.save(o);
+            }
+        }
+    }
+
 }
