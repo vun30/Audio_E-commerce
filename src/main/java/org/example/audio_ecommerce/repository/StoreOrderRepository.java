@@ -38,22 +38,22 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
 
     // ❗ SHIPPING FEE CHƯA TRẢ (paid_by_shop = false OR NULL)
     @Query("""
-                SELECT o FROM StoreOrder o
-                WHERE o.store.storeId = :storeId
-                AND o.shippingFeeForStore IS NOT NULL
-                AND o.shippingFeeForStore <> 0
-                AND (o.paidByShop = false OR o.paidByShop IS NULL)
-            """)
+        SELECT o FROM StoreOrder o
+        WHERE o.store.storeId = :storeId
+        AND o.shippingFeeForStore IS NOT NULL
+        AND o.shippingFeeForStore <> 0
+        AND (o.paidByShop = false OR o.paidByShop IS NULL)
+    """)
     List<StoreOrder> findPendingShippingOrders(UUID storeId);
 
     Optional<StoreOrder> findFirstByCustomerOrder_Id(UUID customerOrderId);
 
     @Query("""
-                select so
-                from StoreOrder so
-                where so.status = :status
-                  and so.storeScored = false
-            """)
+        select so
+        from StoreOrder so
+        where so.status = :status
+          and so.storeScored = false
+    """)
     List<StoreOrder> findDeliverySuccessNotScored(
             @Param("status") OrderStatus status
     );
@@ -121,22 +121,21 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     List<StoreOrder> findAllWithItemsFetch();
 
     List<StoreOrder> findByStatusAndStoreScoredFalse(OrderStatus status);
-
     @Query("""
-                select o from StoreOrder o
-                where o.paidByShop = false
-                  and o.shippingFeeReal is not null
-                  and o.shippingFeeReal > 0
-            """)
+    select o from StoreOrder o
+    where o.paidByShop = false
+      and o.shippingFeeReal is not null
+      and o.shippingFeeReal > 0
+""")
     List<StoreOrder> findOrdersForDebtCron();
 
     @Query("""
-                select o.store.storeId, coalesce(sum(o.totalDebtOrder), 0)
-                from StoreOrder o
-                where o.paidByShop = false
-                  and o.totalDebtOrder > 0
-                group by o.store.storeId
-            """)
+    select o.store.storeId, coalesce(sum(o.totalDebtOrder), 0)
+    from StoreOrder o
+    where o.paidByShop = false
+      and o.totalDebtOrder > 0
+    group by o.store.storeId
+""")
     List<Object[]> sumDebtFromOrdersByStore();
 
     List<StoreOrder> findByStore_StoreIdAndPaidByShopFalse(UUID storeId);
@@ -145,11 +144,11 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             UUID storeId, LocalDateTime from, LocalDateTime to);
 
     @Query("""
-               select o from StoreOrder o
-               where o.store.storeId = :storeId
-                 and o.paidByShop = false
-                 and (o.deliveredAt is not null or o.returnChargeApplied = true)
-            """)
+   select o from StoreOrder o
+   where o.store.storeId = :storeId
+     and o.paidByShop = false
+     and (o.deliveredAt is not null or o.returnChargeApplied = true)
+""")
     List<StoreOrder> findUnpaidFinalOrdersOfStore(@Param("storeId") UUID storeId);
 
     List<StoreOrder> findByStatusAndReturnChargeApplied(
@@ -158,21 +157,21 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     );
 
     @Query("""
-                select distinct s
-                from Store s
-                join fetch s.wallet w
-                where s.status in :statuses
-            """)
+    select distinct s
+    from Store s
+    join fetch s.wallet w
+    where s.status in :statuses
+""")
     List<Store> findStoresWithWalletByStatuses(@Param("statuses") List<StoreStatus> statuses);
 
     @Query("""
-                select count(o)
-                from StoreOrder o
-                where o.store.storeId = :storeId
-                  and o.deliveredAt is not null
-                  and o.deliveredAt >= :from
-                  and o.deliveredAt <= :to
-            """)
+        select count(o)
+        from StoreOrder o
+        where o.store.storeId = :storeId
+          and o.deliveredAt is not null
+          and o.deliveredAt >= :from
+          and o.deliveredAt <= :to
+    """)
     long countDeliveredOrders(
             @Param("storeId") UUID storeId,
             @Param("from") LocalDateTime from,
@@ -180,35 +179,34 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     );
 
     @Query(value = """
-                select
-                    year(o.delivered_at) as y,
-                    month(o.delivered_at) as m,
-                    count(*) as deliveredOrders
-                from store_order o
-                where o.store_id = :storeId
-                  and o.delivered_at is not null
-                  and year(o.delivered_at) = :year
-                group by year(o.delivered_at), month(o.delivered_at)
-                order by y asc, m asc
-            """, nativeQuery = true)
+        select
+            year(o.delivered_at) as y,
+            month(o.delivered_at) as m,
+            count(*) as deliveredOrders
+        from store_order o
+        where o.store_id = :storeId
+          and o.delivered_at is not null
+          and year(o.delivered_at) = :year
+        group by year(o.delivered_at), month(o.delivered_at)
+        order by y asc, m asc
+    """, nativeQuery = true)
     List<Object[]> deliveredOrdersByMonth(
             @Param("storeId") UUID storeId,
             @Param("year") int year
     );
 
     List<StoreOrder> findByStatusAndSellCountUpdatedFalse(OrderStatus status);
-
     @Query(value = """
-                select
-                    year(o.delivered_at) as y,
-                    count(*) as deliveredOrders
-                from store_order o
-                where o.store_id = :storeId
-                  and o.delivered_at is not null
-                  and year(o.delivered_at) between :fromYear and :toYear
-                group by year(o.delivered_at)
-                order by y asc
-            """, nativeQuery = true)
+        select
+            year(o.delivered_at) as y,
+            count(*) as deliveredOrders
+        from store_order o
+        where o.store_id = :storeId
+          and o.delivered_at is not null
+          and year(o.delivered_at) between :fromYear and :toYear
+        group by year(o.delivered_at)
+        order by y asc
+    """, nativeQuery = true)
     List<Object[]> deliveredOrdersByYear(
             @Param("storeId") UUID storeId,
             @Param("fromYear") int fromYear,
@@ -224,24 +222,24 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
      * Không tính các status: UNPAID, CONFIRMED, AWAITING_SHIPMENT, CANCELLED, PENDING
      */
     @Query(value = """
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN (:from IS NULL OR so.created_at >= :from)
-                         AND (:to   IS NULL OR so.created_at <= :to)
-                        THEN
-                            CASE
-                                WHEN so.delivered_at IS NOT NULL
-                                    THEN COALESCE(so.shipping_fee_real, 0)
-                                WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
-                                    THEN COALESCE(so.shipping_fee_real, 0) * 1.5
-                                ELSE 0
-                            END
-                        ELSE 0
-                    END
-                ), 0)
-                FROM store_order so
-                WHERE so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
-            """, nativeQuery = true)
+    SELECT COALESCE(SUM(
+        CASE
+            WHEN (:from IS NULL OR so.created_at >= :from)
+             AND (:to   IS NULL OR so.created_at <= :to)
+            THEN
+                CASE
+                    WHEN so.delivered_at IS NOT NULL
+                        THEN COALESCE(so.shipping_fee_real, 0)
+                    WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
+                        THEN COALESCE(so.shipping_fee_real, 0) * 1.5
+                    ELSE 0
+                END
+            ELSE 0
+        END
+    ), 0)
+    FROM store_order so
+    WHERE so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
+""", nativeQuery = true)
     BigDecimal sumFlatDebtToGHN(@Param("from") LocalDateTime from,
                                 @Param("to") LocalDateTime to);
 
@@ -249,25 +247,25 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
      * 2) Store còn nợ flat (paid_by_shop = 0/false)
      */
     @Query(value = """
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN (:from IS NULL OR so.created_at >= :from)
-                         AND (:to   IS NULL OR so.created_at <= :to)
-                        THEN
-                            CASE
-                                WHEN so.delivered_at IS NOT NULL
-                                    THEN COALESCE(so.shipping_fee_real, 0)
-                                WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
-                                    THEN COALESCE(so.shipping_fee_real, 0) * 1.5
-                                ELSE 0
-                            END
-                        ELSE 0
-                    END
-                ), 0)
-                FROM store_order so
-                WHERE (so.paid_by_shop = 0 OR so.paid_by_shop IS NULL)
-                  AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
-            """, nativeQuery = true)
+    SELECT COALESCE(SUM(
+        CASE
+            WHEN (:from IS NULL OR so.created_at >= :from)
+             AND (:to   IS NULL OR so.created_at <= :to)
+            THEN
+                CASE
+                    WHEN so.delivered_at IS NOT NULL
+                        THEN COALESCE(so.shipping_fee_real, 0)
+                    WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
+                        THEN COALESCE(so.shipping_fee_real, 0) * 1.5
+                    ELSE 0
+                END
+            ELSE 0
+        END
+    ), 0)
+    FROM store_order so
+    WHERE (so.paid_by_shop = 0 OR so.paid_by_shop IS NULL)
+      AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
+""", nativeQuery = true)
     BigDecimal sumStoreDebtOutstandingToFlat(@Param("from") LocalDateTime from,
                                              @Param("to") LocalDateTime to);
 
@@ -275,25 +273,25 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
      * 3) Store đã trả flat (paid_by_shop = 1/true)
      */
     @Query(value = """
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN (:from IS NULL OR so.created_at >= :from)
-                         AND (:to   IS NULL OR so.created_at <= :to)
-                        THEN
-                            CASE
-                                WHEN so.delivered_at IS NOT NULL
-                                    THEN COALESCE(so.shipping_fee_real, 0)
-                                WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
-                                    THEN COALESCE(so.shipping_fee_real, 0) * 1.5
-                                ELSE 0
-                            END
-                        ELSE 0
-                    END
-                ), 0)
-                FROM store_order so
-                WHERE so.paid_by_shop = 1
-                  AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
-            """, nativeQuery = true)
+    SELECT COALESCE(SUM(
+        CASE
+            WHEN (:from IS NULL OR so.created_at >= :from)
+             AND (:to   IS NULL OR so.created_at <= :to)
+            THEN
+                CASE
+                    WHEN so.delivered_at IS NOT NULL
+                        THEN COALESCE(so.shipping_fee_real, 0)
+                    WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
+                        THEN COALESCE(so.shipping_fee_real, 0) * 1.5
+                    ELSE 0
+                END
+            ELSE 0
+        END
+    ), 0)
+    FROM store_order so
+    WHERE so.paid_by_shop = 1
+      AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
+""", nativeQuery = true)
     BigDecimal sumStoreDebtPaidToFlat(@Param("from") LocalDateTime from,
                                       @Param("to") LocalDateTime to);
 
@@ -302,132 +300,135 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
      * Theo bạn: nếu chưa delivered thì chưa tính.
      */
     @Query(value = """
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN (:from IS NULL OR so.created_at >= :from)
-                         AND (:to   IS NULL OR so.created_at <= :to)
-                        THEN
-                            CASE
-                                WHEN so.delivered_at IS NOT NULL
-                                    THEN COALESCE(so.shipping_fee, 0)
-                                ELSE 0
-                            END
-                        ELSE 0
-                    END
-                ), 0)
-                FROM store_order so
-            """, nativeQuery = true)
+    SELECT COALESCE(SUM(
+        CASE
+            WHEN (:from IS NULL OR so.created_at >= :from)
+             AND (:to   IS NULL OR so.created_at <= :to)
+            THEN
+                CASE
+                    WHEN so.delivered_at IS NOT NULL
+                        THEN COALESCE(so.shipping_fee, 0)
+                    ELSE 0
+                END
+            ELSE 0
+        END
+    ), 0)
+    FROM store_order so
+""", nativeQuery = true)
     BigDecimal sumCustomerShipPaidDelivered(@Param("from") LocalDateTime from,
                                             @Param("to") LocalDateTime to);
 
     @Query(value = """
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN (:from IS NULL OR so.created_at >= :from)
-                         AND (:to   IS NULL OR so.created_at <= :to)
-                        THEN
-                            CASE
-                                WHEN so.delivered_at IS NOT NULL
-                                    THEN COALESCE(so.shipping_fee_real, 0)
-                                WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
-                                    THEN COALESCE(so.shipping_fee_real, 0) * 1.5
-                                ELSE 0
-                            END
-                        ELSE 0
-                    END
-                ), 0)
-                FROM store_order so
-                WHERE so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
-            """, nativeQuery = true)
+    SELECT COALESCE(SUM(
+        CASE
+            WHEN (:from IS NULL OR so.created_at >= :from)
+             AND (:to   IS NULL OR so.created_at <= :to)
+            THEN
+                CASE
+                    WHEN so.delivered_at IS NOT NULL
+                        THEN COALESCE(so.shipping_fee_real, 0)
+                    WHEN so.delivered_at IS NULL AND so.status = 'RETURNING'
+                        THEN COALESCE(so.shipping_fee_real, 0) * 1.5
+                    ELSE 0
+                END
+            ELSE 0
+        END
+    ), 0)
+    FROM store_order so
+    WHERE so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
+""", nativeQuery = true)
     BigDecimal sumStoreDebtTotalToFlat(@Param("from") LocalDateTime from,
                                        @Param("to") LocalDateTime to);
 
 
+
+
+
     @Query(value = """
-                SELECT
-                    so.status            AS status,
-                    so.created_at        AS createdAt,
-                    so.delivered_at      AS deliveredAt,
-                    so.shipping_fee_real AS shippingFeeReal,
-                    so.shipping_fee      AS shippingFee,
-                    so.paid_by_shop      AS paidByShop
-                FROM store_order so
-                WHERE (:from IS NULL OR so.created_at >= :from)
-                  AND (:to   IS NULL OR so.created_at <= :to)
-            
-                  -- chỉ lấy order có phát sinh nợ ship
-                  AND so.shipping_fee_real IS NOT NULL
-                  AND so.shipping_fee_real > 0
-            
-                  -- rule tính nợ
-                  AND (
-                        so.delivered_at IS NOT NULL
-                     OR (so.delivered_at IS NULL AND so.status = 'RETURNING')
-                  )
-            
-                  -- loại bỏ trạng thái không tính nợ
-                  AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
-            """, nativeQuery = true)
+    SELECT
+        so.status            AS status,
+        so.created_at        AS createdAt,
+        so.delivered_at      AS deliveredAt,
+        so.shipping_fee_real AS shippingFeeReal,
+        so.shipping_fee      AS shippingFee,
+        so.paid_by_shop      AS paidByShop
+    FROM store_order so
+    WHERE (:from IS NULL OR so.created_at >= :from)
+      AND (:to   IS NULL OR so.created_at <= :to)
+
+      -- chỉ lấy order có phát sinh nợ ship
+      AND so.shipping_fee_real IS NOT NULL
+      AND so.shipping_fee_real > 0
+
+      -- rule tính nợ
+      AND (
+            so.delivered_at IS NOT NULL
+         OR (so.delivered_at IS NULL AND so.status = 'RETURNING')
+      )
+
+      -- loại bỏ trạng thái không tính nợ
+      AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','CANCELLED','PENDING')
+""", nativeQuery = true)
     List<FlatDebtOrderRow> findFlatDebtRows(
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
 
     @Query(value = """
-            SELECT
-              -- (1) Flat nợ GHN theo rule (delivered => shipReal, returning not delivered => shipReal*1.5)
-              COALESCE(SUM(
-                CASE
-                  WHEN so.shipping_fee_real IS NOT NULL
-                   AND so.shipping_fee_real > 0
-                   AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','EXCEPTION','CANCELLED')
-                   AND (
-                        so.delivered_at IS NOT NULL
-                     OR (so.delivered_at IS NULL AND so.status = 'RETURNING')
-                   )
-                  THEN
-                    CASE
-                      WHEN so.delivered_at IS NOT NULL THEN COALESCE(so.shipping_fee_real,0)
-                      ELSE COALESCE(so.shipping_fee_real,0) * 1.5
-                    END
-                  ELSE 0
-                END
-              ),0) AS flatDebtShipToGhn,
-            
-              -- (2) Cus trả ship: chỉ delivered
-              COALESCE(SUM(
-                CASE
-                  WHEN so.delivered_at IS NOT NULL
-                   AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','EXCEPTION','CANCELLED')
-                  THEN COALESCE(so.shipping_fee,0)
-                  ELSE 0
-                END
-              ),0) AS customerShipPaid,
-            
-              -- (3) Store đã trả nợ cho flat: paid_by_shop = true (tính theo cùng rule debt)
-              COALESCE(SUM(
-                CASE
-                  WHEN so.paid_by_shop = 1
-                   AND so.shipping_fee_real IS NOT NULL
-                   AND so.shipping_fee_real > 0
-                   AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','EXCEPTION','CANCELLED')
-                   AND (
-                        so.delivered_at IS NOT NULL
-                     OR (so.delivered_at IS NULL AND so.status = 'RETURNING')
-                   )
-                  THEN
-                    CASE
-                      WHEN so.delivered_at IS NOT NULL THEN COALESCE(so.shipping_fee_real,0)
-                      ELSE COALESCE(so.shipping_fee_real,0) * 1.5
-                    END
-                  ELSE 0
-                END
-              ),0) AS storeDebtPaidToFlat
-            
-            FROM store_order so
-            WHERE (:from IS NULL OR so.created_at >= :from)
-              AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
-            """, nativeQuery = true)
+SELECT
+  -- (1) Flat nợ GHN theo rule (delivered => shipReal, returning not delivered => shipReal*1.5)
+  COALESCE(SUM(
+    CASE
+      WHEN so.shipping_fee_real IS NOT NULL
+       AND so.shipping_fee_real > 0
+       AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','EXCEPTION','CANCELLED')
+       AND (
+            so.delivered_at IS NOT NULL
+         OR (so.delivered_at IS NULL AND so.status = 'RETURNING')
+       )
+      THEN
+        CASE
+          WHEN so.delivered_at IS NOT NULL THEN COALESCE(so.shipping_fee_real,0)
+          ELSE COALESCE(so.shipping_fee_real,0) * 1.5
+        END
+      ELSE 0
+    END
+  ),0) AS flatDebtShipToGhn,
+
+  -- (2) Cus trả ship: chỉ delivered
+  COALESCE(SUM(
+    CASE
+      WHEN so.delivered_at IS NOT NULL
+       AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','EXCEPTION','CANCELLED')
+      THEN COALESCE(so.shipping_fee,0)
+      ELSE 0
+    END
+  ),0) AS customerShipPaid,
+
+  -- (3) Store đã trả nợ cho flat: paid_by_shop = true (tính theo cùng rule debt)
+  COALESCE(SUM(
+    CASE
+      WHEN so.paid_by_shop = 1
+       AND so.shipping_fee_real IS NOT NULL
+       AND so.shipping_fee_real > 0
+       AND so.status NOT IN ('UNPAID','CONFIRMED','AWAITING_SHIPMENT','EXCEPTION','CANCELLED')
+       AND (
+            so.delivered_at IS NOT NULL
+         OR (so.delivered_at IS NULL AND so.status = 'RETURNING')
+       )
+      THEN
+        CASE
+          WHEN so.delivered_at IS NOT NULL THEN COALESCE(so.shipping_fee_real,0)
+          ELSE COALESCE(so.shipping_fee_real,0) * 1.5
+        END
+      ELSE 0
+    END
+  ),0) AS storeDebtPaidToFlat
+
+FROM store_order so
+WHERE (:from IS NULL OR so.created_at >= :from)
+  AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
+""", nativeQuery = true)
     FlatOrderAgg2 aggFlatOverview(@Param("from") LocalDateTime from,
                                   @Param("toExclusive") LocalDateTime toExclusive);
 
@@ -440,6 +441,20 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
       and (o.paidByShop = false or o.paidByShop is null)
 """)
     BigDecimal sumDebtOrdersByStoreId(@Param("storeId") UUID storeId);
+
+    @Query("""
+        select o
+        from StoreOrder o
+        where o.store.storeId = :storeId
+          and o.paidByShop = false
+          and o.totalDebtOrder > 0
+          and o.status in :endStatuses
+        order by o.createdAt desc
+    """)
+    List<StoreOrder> findUnpaidDebtEndOrdersByStore(
+            @Param("storeId") UUID storeId,
+            @Param("endStatuses") List<OrderStatus> endStatuses
+    );
 
     List<StoreOrder> findByStatusAndPaymentMethodAndCodCollectedFalse(
             OrderStatus status,
