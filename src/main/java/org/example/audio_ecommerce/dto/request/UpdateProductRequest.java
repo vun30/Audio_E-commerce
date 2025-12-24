@@ -47,6 +47,12 @@ public class UpdateProductRequest {
     private String dimensions;
     private BigDecimal weight;
 
+    private String warrantyPeriod;
+    // 📝 NOTE: Thời gian bảo hành | Ví dụ: `24 tháng`
+
+    private String warrantyType;
+    // 📝 NOTE: Loại BH | Ví dụ: `1 đổi 1`, `Sửa chữa`
+
     // =========================================================
     // 📸 MEDIA
     // =========================================================
