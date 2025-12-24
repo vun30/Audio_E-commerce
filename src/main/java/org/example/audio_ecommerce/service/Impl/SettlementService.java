@@ -431,16 +431,16 @@ public class SettlementService {
             sw.setUpdatedAt(LocalDateTime.now());
             storeWalletRepo.save(sw);
 
-            StoreWalletTransaction stx = StoreWalletTransaction.builder()
-                    .wallet(sw)
-                    .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn có enum riêng
-                    .amount(amountProducts) // ✅ chỉ log phần pending bị reverse
-                    .balanceAfter(sw.getAvailableBalance())
-                    .description("Reverse pending (products) due to full order cancel " + order.getId())
-                    .orderId(order.getId())
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            storeWalletTxRepo.save(stx);
+//            StoreWalletTransaction stx = StoreWalletTransaction.builder()
+//                    .wallet(sw)
+//                    .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn có enum riêng
+//                    .amount(amountProducts) // ✅ chỉ log phần pending bị reverse
+//                    .balanceAfter(sw.getAvailableBalance())
+//                    .description("Reverse pending (products) due to full order cancel " + order.getId())
+//                    .orderId(order.getId())
+//                    .createdAt(LocalDateTime.now())
+//                    .build();
+//            storeWalletTxRepo.save(stx);
         }
 
         // 3) Cộng ví khách = refundAmount (grand total)
@@ -550,16 +550,16 @@ public class SettlementService {
         sw.setUpdatedAt(LocalDateTime.now());
         storeWalletRepo.save(sw);
 
-        StoreWalletTransaction stx = StoreWalletTransaction.builder()
-                .wallet(sw)
-                .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn tách enum
-                .amount(productsTotal) // ✅ chỉ phần pending bị reverse
-                .balanceAfter(sw.getAvailableBalance())
-                .description("Reverse pending (products) due to cancellation " + storeOrder.getId())
-                .orderId(order.getId())
-                .createdAt(LocalDateTime.now())
-                .build();
-        storeWalletTxRepo.save(stx);
+//        StoreWalletTransaction stx = StoreWalletTransaction.builder()
+//                .wallet(sw)
+//                .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn tách enum
+//                .amount(productsTotal) // ✅ chỉ phần pending bị reverse
+//                .balanceAfter(sw.getAvailableBalance())
+//                .description("Reverse pending (products) due to cancellation " + storeOrder.getId())
+//                .orderId(order.getId())
+//                .createdAt(LocalDateTime.now())
+//                .build();
+//        storeWalletTxRepo.save(stx);
 
         // 3) Cộng ví khách = refundAmount (share của store này)
         Wallet wallet = walletRepo.findByCustomer_Id(order.getCustomer().getId())
