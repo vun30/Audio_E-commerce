@@ -114,6 +114,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .updatedAt(r.getUpdatedAt())
                 .adminForcedContinue(r.isAdminForcedContinue())
                 .finalDecision(r.isFinalDecision())
+                .shopDisputeReason(r.getShopDisputeReason())
                 .build();
     }
 
@@ -390,34 +391,37 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     @Transactional
     public ReturnRequestResponse disputeToAdmin(UUID returnRequestId, ReturnDisputeRequest req) {
+
         ReturnRequest r = returnRepo.findById(returnRequestId)
                 .orElseThrow(() -> new RuntimeException("ReturnRequest not found: " + returnRequestId));
-        if (Boolean.TRUE.equals(r.isFinalDecision())) {
-            throw new IllegalStateException("Admin decided CUSTOMER wins. Shop must continue return flow; dispute is not allowed.");
-        }
-        // ✅ LẤY STORE HIỆN TẠI (GIỐNG CÁC API KHÁC)
-        UUID currentShopId = securityUtils.getCurrentStoreId();
 
+        // ❗ guard này của bạn đang sai message (finalDecision=true là shop thắng/case đóng),
+        // nhưng thôi, giữ nguyên logic chặn nếu bạn muốn.
+        if (Boolean.TRUE.equals(r.isFinalDecision())) {
+            throw new IllegalStateException("Return request is closed by admin decision.");
+        }
+
+        UUID currentShopId = securityUtils.getCurrentStoreId();
         if (!r.getShopId().equals(currentShopId)) {
             throw new AccessDeniedException("Not your return request");
         }
 
-        // ✅ Chỉ dispute khi đang APPROVED hoặc SHIPPING (tuỳ rule bạn muốn)
-//        if (r.getStatus() != ReturnStatus.APPROVED && r.getStatus() != ReturnStatus.SHIPPING) {
-//            throw new IllegalStateException("Cannot dispute in status: " + r.getStatus());
-//        }
-
         // ✅ Set dispute info
         r.setStatus(ReturnStatus.DISPUTE);
-        r.setShopDisputeReason(req.getReason());
-        r.setShopVideoUrl(req.getVideoUrl());
-        r.setShopImageUrls(req.getImageUrls());
+        r.setShopDisputeReason(req != null ? req.getReason() : null);
+
+        // ✅ KHÔNG lấy ảnh/video từ shop nữa → copy từ customer
+        r.setShopVideoUrl(r.getCustomerVideoUrl());
+        r.setShopImageUrls(
+                Optional.ofNullable(r.getCustomerImageUrls()).orElseGet(ArrayList::new)
+        );
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
 
         return toResponse(r);
     }
+
 
 
 
@@ -709,17 +713,21 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             // Hoàn tiền ví cho customer
             refundAndDeductLegalPointIfNeeded(r);
         } else {
-            // ✅ Shop khiếu nại: nói là hàng không đúng mô tả khách trả về
             r.setStatus(ReturnStatus.DISPUTE);
-            r.setShopVideoUrl(req.getShopVideoUrl());
+
+            // ✅ Copy evidence từ customer
+            r.setShopVideoUrl(r.getCustomerVideoUrl());
             r.setShopImageUrls(
-                    Optional.ofNullable(req.getShopImageUrls())
-                            .orElseGet(ArrayList::new)
+                    Optional.ofNullable(r.getCustomerImageUrls()).orElseGet(ArrayList::new)
             );
+
+            // ✅ shop vẫn được nhập lý do
             r.setShopDisputeReason(req.getShopDisputeReason());
+
             r.setUpdatedAt(LocalDateTime.now());
             returnRepo.save(r);
         }
+
 
         return toResponse(r);
     }
@@ -1061,6 +1069,47 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     r.getId());
         }
     }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse shopConfirmReceivedAfterDelivered(UUID returnRequestId) {
+        UUID shopId = securityUtils.getCurrentStoreId();
+
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+
+        if (!Objects.equals(r.getShopId(), shopId)) {
+            throw new AccessDeniedException("Not your return request");
+        }
+
+        // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop)
+        if (r.getStatus() != ReturnStatus.SHIPPING) {
+            throw new IllegalStateException("ReturnRequest must be SHIPPING");
+        }
+
+        // Chỉ confirm khi GHN đã giao trả về shop
+        // tuỳ bạn map trackingStatus, ở code bạn đang dùng "delivered" cho auto refund
+        ReturnStatus tracking = r.getStatus();
+        if (!tracking.equals(ReturnStatus.DELIVERED)) {
+            throw new IllegalStateException("GHN has not delivered return package to shop yet");
+        }
+
+        // Nếu admin đã phán SHOP thắng -> đóng luồng, không cho refund/confirm
+        if (r.isFinalDecision()) {
+            throw new IllegalStateException("Return request is closed by admin decision");
+        }
+
+        // Set trạng thái refunded
+        r.setStatus(ReturnStatus.REFUNDED);
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+
+        // Refund tiền + trừ legal point nếu shop fault (reuse logic hiện có) :contentReference[oaicite:3]{index=3}
+        refundAndDeductLegalPointIfNeeded(r);
+
+        return toResponse(r);
+    }
+
 
     @Override
     @Transactional

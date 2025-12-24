@@ -57,5 +57,6 @@ public class ReturnRequestResponse {
 
     private boolean finalDecision;
     private boolean adminForcedContinue;
+    private String shopDisputeReason;
 }
 

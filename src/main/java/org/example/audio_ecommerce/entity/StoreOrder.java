@@ -218,8 +218,8 @@ public class StoreOrder {
         discountTotal = storeVoucherDiscount.add(platformVoucherDiscount);
 
         grandTotal = totalAmount
-                .subtract(discountTotal)
-                .add(shippingFee);
+                .subtract(discountTotal);
+//                .add(shippingFee);
 
         if (grandTotal.compareTo(BigDecimal.ZERO) < 0) grandTotal = BigDecimal.ZERO;
     }
