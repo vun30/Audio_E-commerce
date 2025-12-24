@@ -87,6 +87,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .shopId(r.getShopId())
                 .escalatedById(r.getStatus() == ReturnStatus.DISPUTE ? r.getShopId() : null)
                 .escalatedByName(r.getStatus() == ReturnStatus.DISPUTE && store != null ? store.getStoreName() : null)
+                .escalatedByRole(r.getStatus() == ReturnStatus.DISPUTE ? "SHOP" : "CUSTOMER")
                 .orderItemId(r.getOrderItemId())
                 .productId(r.getProductId())
                 .productName(r.getProductName())
