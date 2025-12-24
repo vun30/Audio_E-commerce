@@ -864,72 +864,66 @@ public class ProductServiceImpl implements ProductService {
     public ResponseEntity<BaseResponse> adminToggleSuspendProduct(UUID productId) {
         try {
             Product product = productRepository.findById(productId)
-                    .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy sản phẩm"));
+                    .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy sản phẩm: " + productId));
 
             ProductStatus current = product.getStatus();
-
-            // ❌ CHẶN CÁC TRẠNG THÁI KHÔNG ĐƯỢC SUSPEND
-            if (current == ProductStatus.REJECT
-                    || current == ProductStatus.PENDING_APPROVAL
-                    || current == ProductStatus.OUT_OF_STOCK) {
-
-                return ResponseEntity.badRequest().body(
-                        BaseResponse.error("""
-                            ❌ Không thể tạm ngưng (SUSPEND) sản phẩm.
-                            👉 Không được phép thao tác khi sản phẩm đang ở trạng thái:
-                               - REJECT (Bị từ chối)
-                               - PENDING_APPROVAL (Chờ duyệt)
-                               - OUT_OF_STOCK (Hết hàng)
-
-                            👉 Trạng thái hiện tại: %s
-                            """.formatted(current))
-                );
-            }
-
             ProductStatus newStatus;
+            String actionMessage;
 
-            // =========================
-            // CASE 1: BẤM MỞ LẠI
-            // =========================
-            if (current == ProductStatus.SUSPENDED) {
+            // ==========================================================
+            // ✅ ADMIN: CHO PHÉP THAO TÁC VỚI TẤT CẢ TRẠNG THÁI
+            // ==========================================================
+            // Toggle theo rule:
+            // 1) INACTIVE_PAUSE  -> BANNED
+            // 2) BANNED          -> INACTIVE_PAUSE
+            // 3) SUSPENDED       -> ACTIVE
+            // 4) Others          -> SUSPENDED
+            // ==========================================================
 
+            if (current == ProductStatus.INACTIVE_PAUSE) {
+                // Seller đang pause → admin khóa (banned)
+                newStatus = ProductStatus.BANNED;
+                actionMessage = """
+                    ✅ Admin đã khóa sản phẩm (BANNED).
+                    👉 Sản phẩm trước đó đang ở trạng thái INACTIVE_PAUSE (người bán tạm dừng),
+                       nên khi admin suspend sẽ chuyển sang BANNED.
+                    """;
+
+            } else if (current == ProductStatus.BANNED) {
+                // Mở khóa → quay về trạng thái pause của seller
+                newStatus = ProductStatus.INACTIVE_PAUSE;
+                actionMessage = """
+                    ✅ Admin đã mở khóa sản phẩm.
+                    👉 Sản phẩm đang ở BANNED nên khi bấm lại sẽ trở về INACTIVE_PAUSE (người bán tạm dừng).
+                    """;
+
+            } else if (current == ProductStatus.SUSPENDED) {
+                // Mở lại → ACTIVE
                 newStatus = ProductStatus.ACTIVE;
+                actionMessage = """
+                    ✅ Admin đã mở lại sản phẩm (ACTIVE).
+                    👉 Sản phẩm đang ở SUSPENDED nên khi bấm lại sẽ chuyển về ACTIVE.
+                    """;
 
-            } else if (current == ProductStatus.INACTIVE_INACTIVE) {
-
-                newStatus = ProductStatus.INACTIVE;
-
-            }
-
-            // =========================
-            // CASE 2: BẤM SUSPEND
-            // =========================
-            else if (current == ProductStatus.ACTIVE) {
-
+            } else {
+                // Các trạng thái còn lại → SUSPENDED
                 newStatus = ProductStatus.SUSPENDED;
 
-            } else if (current == ProductStatus.INACTIVE) {
-
-                newStatus = ProductStatus.INACTIVE_INACTIVE;
-
-            }
-
-            // =========================
-            // CASE 3: TRẠNG THÁI KHÁC → CHẶN
-            // =========================
-            else {
-                return ResponseEntity.badRequest().body(
-                        BaseResponse.error("""
-                            ❌ Không thể bật/tắt tạm ngưng sản phẩm.
-                            👉 Admin chỉ được thao tác khi sản phẩm đang ở:
-                               - ACTIVE
-                               - INACTIVE
-                               - SUSPENDED
-                               - INACTIVE_INACTIVE
-
-                            👉 Trạng thái hiện tại: %s
-                            """.formatted(current))
-                );
+                // message chi tiết cho dễ hiểu (nhất là ACTIVE)
+                if (current == ProductStatus.ACTIVE) {
+                    actionMessage = """
+                        ✅ Admin đã tạm ngưng sản phẩm (SUSPENDED).
+                        👉 Sản phẩm đang ACTIVE nên khi suspend sẽ chuyển sang SUSPENDED.
+                        👉 Khi bấm mở lại, sản phẩm sẽ trở về ACTIVE.
+                        """;
+                } else {
+                    actionMessage = """
+                        ✅ Admin đã tạm ngưng sản phẩm (SUSPENDED).
+                        👉 Admin được phép suspend mọi trạng thái.
+                        👉 Sản phẩm đang ở trạng thái %s nên sẽ chuyển sang SUSPENDED.
+                        👉 Khi bấm mở lại, sản phẩm sẽ trở về ACTIVE.
+                        """.formatted(current);
+                }
             }
 
             // =========================
@@ -937,15 +931,17 @@ public class ProductServiceImpl implements ProductService {
             // =========================
             product.setStatus(newStatus);
             product.setUpdatedAt(LocalDateTime.now());
-
             productRepository.save(product);
 
             return ResponseEntity.ok(
-                    BaseResponse.success("✅ Cập nhật trạng thái SUSPEND sản phẩm thành công", Map.of(
-                            "productId", productId,
-                            "oldStatus", current,
-                            "newStatus", newStatus
-                    ))
+                    BaseResponse.success(
+                            actionMessage,
+                            Map.of(
+                                    "productId", productId,
+                                    "oldStatus", current.name(),
+                                    "newStatus", newStatus.name()
+                            )
+                    )
             );
 
         } catch (Exception e) {
