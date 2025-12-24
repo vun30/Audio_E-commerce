@@ -111,21 +111,11 @@ public class WalletServiceImpl implements WalletService {
                 .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
 
         // ===== PLATFORM: trừ pendingBalance + totalBalance, tăng refundedTotal =====
-        BigDecimal pfPendingBefore = platformWallet.getPendingBalance();
+        BigDecimal pfPendingBefore = platformWallet.getCashBalance();
         BigDecimal pfPendingAfter = pfPendingBefore.subtract(amount);
         ensureNonNegative(pfPendingAfter, "Platform pending balance cannot be negative");
 
-        BigDecimal pfTotalBefore = platformWallet.getTotalBalance();
-        BigDecimal pfTotalAfter = pfTotalBefore.subtract(amount);
-        ensureNonNegative(pfTotalAfter, "Platform totalBalance cannot be negative");
-
         platformWallet.setPendingBalance(pfPendingAfter);
-        platformWallet.setTotalBalance(pfTotalAfter);
-        platformWallet.setRefundedTotal(
-                platformWallet.getRefundedTotal() == null
-                        ? amount
-                        : platformWallet.getRefundedTotal().add(amount)
-        );
         platformWallet.setUpdatedAt(LocalDateTime.now());
         platformWalletRepo.save(platformWallet);
 
