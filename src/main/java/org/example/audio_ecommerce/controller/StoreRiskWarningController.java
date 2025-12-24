@@ -13,8 +13,10 @@ import org.example.audio_ecommerce.dto.response.StoreRiskWarningResponse;
 import org.example.audio_ecommerce.entity.Enum.DebtComponentType;
 import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.repository.StoreRepository;
+import org.example.audio_ecommerce.service.Impl.StoreDebtQueryService;
 import org.example.audio_ecommerce.service.StoreRiskWarningQueryService;
 import org.example.audio_ecommerce.service.StoreWalletService;
+import org.example.audio_ecommerce.util.SecurityUtils;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,6 +33,8 @@ public class StoreRiskWarningController {
     private final StoreRiskWarningQueryService storeRiskWarningQueryService;
     private final StoreRepository storeRepository;
     private final StoreWalletService storeWalletService;
+    private final SecurityUtils securityUtils;
+    private final StoreDebtQueryService storeDebtQueryService;
 
     @Operation(
             summary = "Lấy cảnh báo rủi ro nợ của shop đang đăng nhập",
@@ -255,6 +259,12 @@ public class StoreRiskWarningController {
         );
     }
 
+    @GetMapping("/unpaid-ended")
+    public ResponseEntity<BaseResponse> getUnpaidEndedDebts() {
+        var storeId = securityUtils.getCurrentStoreId();
+        var data = storeDebtQueryService.getUnpaidEndDebtOrders(storeId);
+        return ResponseEntity.ok(BaseResponse.success("✅ Lấy danh sách nợ cần quyết toán thành công", data));
+    }
 
 //    @PostMapping("/unblock-by-debt")
 //    public ResponseEntity<BaseResponse> unblockMyStoreByDebt() {
