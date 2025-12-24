@@ -165,5 +165,9 @@ public class StoreReturnController {
         return returnService.disputeToAdmin(id, req);
     }
 
+    @PostMapping("/{returnRequestId}/shop-confirm-received")
+    public ReturnRequestResponse shopConfirmReceived(@PathVariable UUID returnRequestId) {
+        return returnService.shopConfirmReceivedAfterDelivered(returnRequestId);
+    }
 
 }

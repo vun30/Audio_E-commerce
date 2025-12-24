@@ -88,4 +88,14 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
     order by year(r.createdAt)
 """)
     List<Object[]> returnCountByYear();
+
+    @Query("""
+        select r from ReturnRequest r
+        where r.status = :status
+          and r.finalDecision = false
+    """)
+    List<ReturnRequest> findAutoRefundCandidates(
+            @Param("status") ReturnStatus status,
+            @Param("cutoff") LocalDateTime cutoff
+    );
 }

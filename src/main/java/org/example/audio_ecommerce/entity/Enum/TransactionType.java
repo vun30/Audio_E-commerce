@@ -13,5 +13,6 @@ public enum TransactionType {
     SHIPPING_FEE_ADJUST,
     REFUND_CUSTOMER_RETURN,
     DEBT_PAYMENT,
-    TOPUP
+    TOPUP,
+    COD_COLLECTED
 }
