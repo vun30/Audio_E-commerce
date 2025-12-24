@@ -8,7 +8,6 @@ import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.GhnStatus;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
-import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetail;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetailWrapper;
 import org.example.audio_ecommerce.repository.CustomerOrderRepository;
@@ -30,7 +29,6 @@ import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -69,8 +67,9 @@ public class GhnStatusSyncService {
             GhnStatus.RETURN,
             GhnStatus.RETURN_TRANSPORTING,
             GhnStatus.RETURN_SORTING,
-            GhnStatus.RETURNING
-            // RETURNED / DELIVERED / CANCEL / LOST / DAMAGE… là trạng thái cuối → không cần spam gọi nữa
+            GhnStatus.RETURNING,
+            GhnStatus.CANCEL  // Thêm CANCEL để đồng bộ trạng thái hủy
+            // RETURNED / DELIVERED / LOST / DAMAGE… là trạng thái cuối → không cần spam gọi nữa
     );
 
     private HttpHeaders createHeaders() {
@@ -163,7 +162,7 @@ public class GhnStatusSyncService {
 //        }
         // 1️⃣ Cập nhật GhnOrder
         updateGhnOrderEntity(ghnOrder, detail, newStatus);
-        updateReturnRequestStatusByGhn(ghnOrder, detail, newStatus);
+
         // 2️⃣ Cập nhật StoreOrder + CustomerOrder
         try {
             // 2) update store + customer
@@ -332,47 +331,59 @@ public class GhnStatusSyncService {
         List<StoreOrder> allStoreOrders =
                 storeOrderRepo.findAllByCustomerOrder(customerOrder);
 
-        boolean allDelivered = allStoreOrders.stream()
-                .allMatch(so -> so.getStatus() == OrderStatus.DELIVERY_SUCCESS);
-
-        if (allDelivered) {
-            // CustomerOrder coi như giao xong toàn bộ
-            customerOrder.setStatus(OrderStatus.DELIVERY_SUCCESS);
-
-            // deliveredAt = max deliveredAt trong các storeOrder
-            LocalDateTime maxDelivered =
-                    allStoreOrders.stream()
-                            .map(StoreOrder::getDeliveredAt)
-                            .filter(Objects::nonNull)
-                            .max(LocalDateTime::compareTo)
-                            .orElse(LocalDateTime.now());
-
-            // cũng chỉ set nếu chưa tồn tại, để giữ "lần đầu giao xong"
-            if (customerOrder.getDeliveredAt() == null) {
-                customerOrder.setDeliveredAt(maxDelivered);
-            }
-
+        // Kiểm tra nếu có bất kỳ store order nào bị hủy -> customer order cũng bị hủy
+        boolean hasCancelledOrder = allStoreOrders.stream()
+                .anyMatch(so -> so.getStatus() == OrderStatus.CANCELLED);
+        
+        if (hasCancelledOrder) {
+            // Nếu có bất kỳ đơn hàng nào bị hủy, toàn bộ customer order bị hủy
+            customerOrder.setStatus(OrderStatus.CANCELLED);
             customerOrderRepo.save(customerOrder);
-
-            log.info("🎉 [GHN Sync] CustomerOrder {} đã DELIVERY_SUCCESS (deliveredAt={})",
-                    customerOrder.getId(), customerOrder.getDeliveredAt());
-
-            if (customerOrder.getPaymentMethod() == PaymentMethod.COD) {
-                try {
-                    settlementService.recordCodDeliverySuccess(customerOrder);
-                } catch (Exception e) {
-                    log.error("❌ [GHN Sync] Lỗi khi record COD settlement cho order {}: {}",
-                            customerOrder.getId(), e.getMessage(), e);
-                }
-            }
+            log.info("🚫 [GHN Sync] CustomerOrder {} → CANCELLED (do có ít nhất 1 store order bị hủy)",
+                    customerOrder.getId());
         } else {
-            // Nếu chưa giao hết: có thể set trạng thái “SHIPPING” (nếu hiện tại chưa phải CANCEL/UNPAID)
-            if (customerOrder.getStatus() != OrderStatus.CANCELLED
-                    && customerOrder.getStatus() != OrderStatus.UNPAID) {
-                customerOrder.setStatus(OrderStatus.SHIPPING);
+            boolean allDelivered = allStoreOrders.stream()
+                    .allMatch(so -> so.getStatus() == OrderStatus.DELIVERY_SUCCESS);
+
+            if (allDelivered) {
+                // CustomerOrder coi như giao xong toàn bộ
+                customerOrder.setStatus(OrderStatus.DELIVERY_SUCCESS);
+
+                // deliveredAt = max deliveredAt trong các storeOrder
+                LocalDateTime maxDelivered =
+                        allStoreOrders.stream()
+                                .map(StoreOrder::getDeliveredAt)
+                                .filter(Objects::nonNull)
+                                .max(LocalDateTime::compareTo)
+                                .orElse(LocalDateTime.now());
+
+                // cũng chỉ set nếu chưa tồn tại, để giữ "lần đầu giao xong"
+                if (customerOrder.getDeliveredAt() == null) {
+                    customerOrder.setDeliveredAt(maxDelivered);
+                }
+
                 customerOrderRepo.save(customerOrder);
-                log.info("ℹ [GHN Sync] CustomerOrder {} → SHIPPING (chưa giao hết store)",
-                        customerOrder.getId());
+
+                log.info("🎉 [GHN Sync] CustomerOrder {} đã DELIVERY_SUCCESS (deliveredAt={})",
+                        customerOrder.getId(), customerOrder.getDeliveredAt());
+
+                if (customerOrder.getPaymentMethod() == PaymentMethod.COD) {
+                    try {
+                        settlementService.recordCodDeliverySuccess(customerOrder);
+                    } catch (Exception e) {
+                        log.error("❌ [GHN Sync] Lỗi khi record COD settlement cho order {}: {}",
+                                customerOrder.getId(), e.getMessage(), e);
+                    }
+                }
+            } else {
+                // Nếu chưa giao hết: có thể set trạng thái "SHIPPING" (nếu hiện tại chưa phải CANCEL/UNPAID)
+                if (customerOrder.getStatus() != OrderStatus.CANCELLED
+                        && customerOrder.getStatus() != OrderStatus.UNPAID) {
+                    customerOrder.setStatus(OrderStatus.SHIPPING);
+                    customerOrderRepo.save(customerOrder);
+                    log.info("ℹ [GHN Sync] CustomerOrder {} → SHIPPING (chưa giao hết store)",
+                            customerOrder.getId());
+                }
             }
         }
     }
@@ -404,70 +415,6 @@ public class GhnStatusSyncService {
 
             log.info("🚚 [RETURN FEE] Mark picked=true for returnRequestId={} | ghnOrderCode={} | shippingFee={}",
                     feeLog.getReturnRequestId(), orderCode, feeLog.getShippingFee());
-        });
-    }
-
-    private void updateReturnRequestStatusByGhn(GhnOrder ghnOrder,
-                                                GhnOrderDetail detail,
-                                                GhnStatus newGhnStatus) {
-
-        String orderCode = ghnOrder.getOrderGhn();
-        if (orderCode == null || orderCode.isBlank()) return;
-
-        // Dựa vào bảng ReturnShippingFee để biết GHN orderCode này thuộc returnRequest nào
-        returnShippingFeeRepo.findByGhnOrderCode(orderCode).ifPresent(feeLog -> {
-
-            UUID returnRequestId = feeLog.getReturnRequestId();
-            ReturnRequest rr = returnRequestRepo.findById(returnRequestId).orElse(null);
-            if (rr == null) return;
-
-            // 1) update tracking fields
-            rr.setGhnOrderCode(orderCode);
-
-            // trackingStatus nên lưu RAW string từ GHN (để match rule check "delivered" của bạn)
-            String raw = detail.getStatus(); // vd: "delivered", "picking", ...
-            rr.setTrackingStatus(raw != null ? raw : newGhnStatus.name());
-
-            // 2) map GHN -> ReturnStatus (tối thiểu, tránh phá flow)
-            // - Khi picked => return đã được lấy hàng => SHIPPING
-            // - Khi delivered => hàng đã về shop => vẫn giữ SHIPPING để shopReceiveOrDispute xử lý
-            //   (vì flow bạn thường cần status SHIPPING + trackingStatus="delivered")
-            switch (newGhnStatus) {
-                case PICKED, PICKING, READY_TO_PICK, READY_PICKUP,
-                     STORING, TRANSPORTING, SORTING, DELIVERING,
-                     MONEY_COLLECT_DELIVERING, MONEY_COLLECT_PICKING,
-                     WAITING_TO_RETURN, RETURN, RETURN_TRANSPORTING, RETURN_SORTING, RETURNING -> {
-
-                    // nếu case đã bị admin đóng thì không auto đổi status nữa
-                    if (!rr.isFinalDecision()) {
-                        rr.setStatus(ReturnStatus.SHIPPING);
-                    }
-                }
-
-                case DELIVERED -> {
-                    // vẫn giữ SHIPPING (để shop bấm receive/dispute hoặc autoRefundForUnresponsiveShop chạy)
-                    if (!rr.isFinalDecision()) {
-                        rr.setStatus(ReturnStatus.SHIPPING);
-                    }
-                }
-
-                case CANCEL -> {
-                    // nếu enum của bạn có CANCELLED thì set, không thì bỏ qua
-                    if (!rr.isFinalDecision()) {
-                        try {
-                            rr.setStatus(ReturnStatus.CANCELLED);
-                        } catch (Exception ignore) {
-                            // nếu ReturnStatus không có CANCELLED thì thôi, chỉ update trackingStatus
-                        }
-                    }
-                }
-
-                default -> {
-                    // không làm gì thêm
-                }
-            }
-
-            returnRequestRepo.save(rr);
         });
     }
 
