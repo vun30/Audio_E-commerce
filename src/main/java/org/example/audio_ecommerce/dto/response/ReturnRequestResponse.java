@@ -25,6 +25,7 @@ public class ReturnRequestResponse {
     private BigDecimal itemPrice;
     private UUID escalatedById;   // shopId
     private String escalatedByName; // storeName
+    private String escalatedByRole;
     // ===== NEW =====
     private String customerName;
     private String storeName;
