@@ -413,8 +413,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // ✅ KHÔNG lấy ảnh/video từ shop nữa → copy từ customer
         r.setShopVideoUrl(r.getCustomerVideoUrl());
         r.setShopImageUrls(
-                Optional.ofNullable(r.getCustomerImageUrls()).orElseGet(ArrayList::new)
+                r.getCustomerImageUrls() == null
+                        ? new ArrayList<>()
+                        : new ArrayList<>(r.getCustomerImageUrls())
         );
+
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
@@ -718,8 +721,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             // ✅ Copy evidence từ customer
             r.setShopVideoUrl(r.getCustomerVideoUrl());
             r.setShopImageUrls(
-                    Optional.ofNullable(r.getCustomerImageUrls()).orElseGet(ArrayList::new)
+                    r.getCustomerImageUrls() == null
+                            ? new ArrayList<>()
+                            : new ArrayList<>(r.getCustomerImageUrls())
             );
+
 
             // ✅ shop vẫn được nhập lý do
             r.setShopDisputeReason(req.getShopDisputeReason());
