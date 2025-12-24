@@ -102,6 +102,9 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
     select coalesce(sum(r.shippingFee), 0)
     from ReturnShippingFee r
     where r.storeId = :storeId
+      and r.paidByShop = false
+      and r.payer = 'SHOP'
+      and r.shippingFee > 0
 """)
     BigDecimal sumDebtReturnFeesByStoreId(@Param("storeId") UUID storeId);
 }
