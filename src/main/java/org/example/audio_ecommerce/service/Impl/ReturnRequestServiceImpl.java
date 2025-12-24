@@ -1089,7 +1089,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop)
-        if (r.getStatus() != ReturnStatus.DELIVERED) {
+        if (r.getStatus() == ReturnStatus.DELIVERED) {
             throw new IllegalStateException("ReturnRequest must be DELIVERED to confirm");
         }
 
