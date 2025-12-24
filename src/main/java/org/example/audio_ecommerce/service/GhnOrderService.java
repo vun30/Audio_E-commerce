@@ -4,6 +4,8 @@ import org.example.audio_ecommerce.dto.request.CreateGhnOrderRequest;
 import org.example.audio_ecommerce.dto.response.GhnOrderResponse;
 import org.example.audio_ecommerce.entity.Enum.GhnStatus;
 import org.example.audio_ecommerce.entity.GhnOrder;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
 
@@ -20,4 +22,12 @@ public interface GhnOrderService {
     GhnOrderResponse getByStoreOrderId(UUID storeOrderId);
 
     GhnOrder updateStatus(UUID ghnOrderId, GhnStatus status);
+
+    Page<GhnOrderResponse> list(
+            UUID storeId,
+            String fromDate,
+            String toDate,
+            Pageable pageable
+    );
+
 }

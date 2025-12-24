@@ -431,16 +431,16 @@ public class SettlementService {
             sw.setUpdatedAt(LocalDateTime.now());
             storeWalletRepo.save(sw);
 
-            StoreWalletTransaction stx = StoreWalletTransaction.builder()
-                    .wallet(sw)
-                    .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn có enum riêng
-                    .amount(amountProducts) // ✅ chỉ log phần pending bị reverse
-                    .balanceAfter(sw.getAvailableBalance())
-                    .description("Reverse pending (products) due to full order cancel " + order.getId())
-                    .orderId(order.getId())
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            storeWalletTxRepo.save(stx);
+//            StoreWalletTransaction stx = StoreWalletTransaction.builder()
+//                    .wallet(sw)
+//                    .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn có enum riêng
+//                    .amount(amountProducts) // ✅ chỉ log phần pending bị reverse
+//                    .balanceAfter(sw.getAvailableBalance())
+//                    .description("Reverse pending (products) due to full order cancel " + order.getId())
+//                    .orderId(order.getId())
+//                    .createdAt(LocalDateTime.now())
+//                    .build();
+//            storeWalletTxRepo.save(stx);
         }
 
         // 3) Cộng ví khách = refundAmount (grand total)
@@ -550,16 +550,16 @@ public class SettlementService {
         sw.setUpdatedAt(LocalDateTime.now());
         storeWalletRepo.save(sw);
 
-        StoreWalletTransaction stx = StoreWalletTransaction.builder()
-                .wallet(sw)
-                .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn tách enum
-                .amount(productsTotal) // ✅ chỉ phần pending bị reverse
-                .balanceAfter(sw.getAvailableBalance())
-                .description("Reverse pending (products) due to cancellation " + storeOrder.getId())
-                .orderId(order.getId())
-                .createdAt(LocalDateTime.now())
-                .build();
-        storeWalletTxRepo.save(stx);
+//        StoreWalletTransaction stx = StoreWalletTransaction.builder()
+//                .wallet(sw)
+//                .type(StoreWalletTransactionType.RELEASE_PENDING) // hoặc PENDING_REVERSED nếu bạn tách enum
+//                .amount(productsTotal) // ✅ chỉ phần pending bị reverse
+//                .balanceAfter(sw.getAvailableBalance())
+//                .description("Reverse pending (products) due to cancellation " + storeOrder.getId())
+//                .orderId(order.getId())
+//                .createdAt(LocalDateTime.now())
+//                .build();
+//        storeWalletTxRepo.save(stx);
 
         // 3) Cộng ví khách = refundAmount (share của store này)
         Wallet wallet = walletRepo.findByCustomer_Id(order.getCustomer().getId())
@@ -625,17 +625,31 @@ public class SettlementService {
         plat.setUpdatedAt(now);
         platformWalletRepo.save(plat);
 
-        PlatformTransaction holdTx = PlatformTransaction.builder()
-                .wallet(plat)
-                .orderId(order.getId())
-                .amount(productsTotal)
-                .type(TransactionType.HOLD)
-                .status(TransactionStatus.PENDING)
-                .description("COD collected – holding 7 days")
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        BigDecimal beforeTotal = nz(plat.getTotalBalance().subtract(productsTotal));
+        BigDecimal afterTotal  = nz(plat.getTotalBalance());
+
+        PlatformTransaction holdTx = buildPlatformTx(
+                plat,
+                order.getId(),
+                null,                       // storeId
+                order.getCustomer().getId(),
+                productsTotal,
+                TransactionType.HOLD,
+                TransactionStatus.PENDING,
+                PaymentChannel.COD,         // hoặc INTERNAL
+                WalletBucket.PENDING,       // ✅ FIX NULL BUCKET
+                TxDirection.IN,
+                beforeTotal,
+                afterTotal,
+                "COD collected – holding 7 days",
+                "HOLD:COD:" + order.getId(), // idempotent
+                null,
+                null,
+                null
+        );
+
         platformTxRepo.save(holdTx);
+
 
         // ===== 3) Allocate sang pending của từng store (giống online) =====
         allocateToStoresPending(order);

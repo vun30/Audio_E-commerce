@@ -10,6 +10,10 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.GhnOrderResponse;
 import org.example.audio_ecommerce.entity.GhnOrder;
 import org.example.audio_ecommerce.service.GhnOrderService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,4 +53,25 @@ public class GhnOrderController {
                 ghnOrderService.updateStatus(ghnOrderId, req.getStatus())
         );
     }
+
+    @GetMapping
+    public ResponseEntity<BaseResponse<Page<GhnOrderResponse>>> getAll(
+            @RequestParam(required = false) UUID storeId,
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir
+    ) {
+        Sort sort = "asc".equalsIgnoreCase(sortDir)
+                ? Sort.by(sortBy).ascending()
+                : Sort.by(sortBy).descending();
+
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        Page<GhnOrderResponse> resp = ghnOrderService.list(storeId, fromDate, toDate, pageable);
+        return ResponseEntity.ok(BaseResponse.success("Lấy danh sách thành công", resp));
+    }
+
 }

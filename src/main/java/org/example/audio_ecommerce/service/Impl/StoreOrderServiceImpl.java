@@ -5,11 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.example.audio_ecommerce.dto.response.*;
 import org.example.audio_ecommerce.entity.*;
-import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
-import org.example.audio_ecommerce.entity.Enum.WalletTransactionStatus;
-import org.example.audio_ecommerce.entity.Enum.WalletTransactionType;
+import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.service.NotificationCreatorService;
 import org.example.audio_ecommerce.service.StoreOrderService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,10 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Collections;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import org.springframework.data.domain.Page;
@@ -38,6 +33,9 @@ public class StoreOrderServiceImpl implements StoreOrderService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final StoreRepository storeRepository;
     private final ObjectMapper objectMapper;
+    private final PlatformWalletRepository platformWalletRepository;
+    private final PlatformTransactionRepository platformTransactionRepository;
+    private final NotificationCreatorService notificationCreatorService;
 
     @Override
     @Transactional
@@ -232,62 +230,115 @@ public class StoreOrderServiceImpl implements StoreOrderService {
             refundToCustomerWalletForStoreCancel(co, reason);
         }
 
+        CustomerOrder customerOrder = order.getCustomerOrder();
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                customerOrder.getCustomer().getId(),
+                NotificationType.ORDER_CANCEL_APPROVED, // gợi ý enum
+                "Đơn hàng " + customerOrder.getOrderCode() + " đã bị huỷ",
+                "Cửa hàng đã huỷ đơn hàng của bạn với lý do" + reason + ". Số tiền tương ứng sẽ được hoàn về ví của bạn.",
+                "/customer/orders/" + customerOrder.getId(),
+                "{\"customerOrderId\":\"" + customerOrder.getId() + "\",\"storeOrderId\":\"" + order.getId() + "\"}",
+                Map.of(
+                        "screen", "ORDER_DETAIL",
+                        "customerOrderId", String.valueOf(customerOrder.getId()),
+                        "storeOrderId", String.valueOf(order.getId())
+                )
+        );
+
         return getOrderDetailForStore(storeId, orderId);
     }
 
     /**
-     * Refund tiền về ví khách (Wallet.balance) + lưu WalletTransaction.
-     * Có idempotency để chống hoàn trùng bằng externalRef.
+     * ONLINE: Refund từ PlatformWallet.cashBalance -> Customer Wallet
+     * + ghi PlatformTransaction + WalletTransaction
+     * Idempotent theo:
+     *  - platform_transaction.idempotencyKey
+     *  - wallet_transactions.external_ref
      */
     private void refundToCustomerWalletForStoreCancel(CustomerOrder co, String reason) {
 
-        // 1) xác định customerId
-        UUID customerId = null;
-
-        // OPTION A: co.getCustomer().getId()
-        if (co.getCustomer() != null) {
-            customerId = co.getCustomer().getId();
-        }
-
-        // OPTION B: nếu bạn có co.getCustomerId()
-        // customerId = co.getCustomerId();
-
-        if (customerId == null) {
+        // 0) customerId
+        if (co.getCustomer() == null || co.getCustomer().getId() == null) {
             throw new IllegalStateException("Cannot resolve customerId for refund");
         }
+        UUID customerId = co.getCustomer().getId();
 
-        // 2) xác định số tiền refund
-        // ✅ Bạn cần chọn field đúng của bạn:
-        // - Nếu online thu đúng tổng tiền: dùng co.getGrandTotal()
-        // - Hoặc dùng co.getPaidAmount() nếu bạn có field này
+        // 1) amount refund (online thu tổng)
         BigDecimal refundAmount = co.getGrandTotal();
-        // BigDecimal refundAmount = co.getPaidAmount();
-
         if (refundAmount == null || refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            return; // không có gì để refund
+            return;
         }
 
-        // 3) idempotency key chống refund trùng
-        // (1 order chỉ refund 1 lần cho action STORE_CANCEL)
-        String externalRef = "REFUND:STORE_CANCEL:" + co.getId();
+        // 2) Idempotency keys
+        String walletExternalRef = "REFUND:STORE_CANCEL:" + co.getId();
+        String platformIdemKey   = "PLAT:REFUND:STORE_CANCEL:" + co.getId();
 
-        boolean existed = walletTransactionRepository.existsByExternalRef(externalRef);
-        if (existed) {
-            return; // đã refund rồi
+        // Nếu đã refund ví khách rồi -> coi như xong (tránh cộng trùng)
+        boolean walletTxExisted = walletTransactionRepository.existsByExternalRef(walletExternalRef);
+        if (walletTxExisted) {
+            return;
         }
 
-        // 4) lấy ví khách (nếu muốn chống race condition, bạn nên lock row)
+        // Nếu đã có platform tx -> cũng coi là xong (tránh trừ cashBalance trùng)
+        // (Bạn cần method existsByIdempotencyKey trong PlatformTransactionRepository)
+        boolean platTxExisted = platformTransactionRepository.existsByIdempotencyKey(platformIdemKey);
+        if (platTxExisted) {
+            return;
+        }
+
+        // 3) Load platform wallet
+        PlatformWallet plat = platformWalletRepository.findFirstByOwnerType(WalletOwnerType.PLATFORM)
+                .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
+
+        // 4) Trừ tiền từ cashBalance (không cho âm)
+        BigDecimal beforeCash = nz(plat.getCashBalance());
+        BigDecimal afterCash  = beforeCash.subtract(refundAmount);
+        if (afterCash.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalStateException("Platform cashBalance is insufficient for refund. cash=" + beforeCash + ", refund=" + refundAmount);
+        }
+
+        plat.setCashBalance(afterCash);
+        // Optional: track total refunded
+        plat.setRefundedTotal(nz(plat.getRefundedTotal()).add(refundAmount));
+        plat.setUpdatedAt(LocalDateTime.now());
+        platformWalletRepository.save(plat);
+
+        // 5) Ghi PlatformTransaction (đủ NOT NULL fields)
+        PlatformTransaction ptx = PlatformTransaction.builder()
+                .wallet(plat)
+                .orderId(co.getId())
+                .customerId(customerId)
+                .amount(refundAmount)
+
+                .type(TransactionType.REFUND)
+                .status(TransactionStatus.DONE)
+                .channel(PaymentChannel.PAYOS)          // đổi nếu enum bạn khác
+                .bucket(WalletBucket.CASH)             // nếu bạn không có CASH, dùng bucket phù hợp (VD: PENDING/AVAILABLE)
+                .direction(TxDirection.OUT)
+
+                .balanceBefore(beforeCash)
+                .balanceAfter(afterCash)
+
+                .description(buildRefundDescription(co.getId(), reason))
+                .idempotencyKey(platformIdemKey)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        platformTransactionRepository.save(ptx);
+
+        // 6) Cộng tiền vào ví khách + WalletTransaction
         Wallet wallet = walletRepository.findByCustomer_Id(customerId)
                 .orElseThrow(() -> new NoSuchElementException("Wallet not found for customer"));
 
-        BigDecimal before = wallet.getBalance() != null ? wallet.getBalance() : BigDecimal.ZERO;
-        BigDecimal after = before.add(refundAmount);
+        BigDecimal before = nz(wallet.getBalance());
+        BigDecimal after  = before.add(refundAmount);
 
         wallet.setBalance(after);
         wallet.setLastTransactionAt(LocalDateTime.now());
         walletRepository.save(wallet);
 
-        // 5) lưu transaction
         WalletTransaction tx = WalletTransaction.builder()
                 .wallet(wallet)
                 .amount(refundAmount)
@@ -297,11 +348,16 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .balanceBefore(before)
                 .balanceAfter(after)
                 .orderId(co.getId())
-                .externalRef(externalRef)
+                .externalRef(walletExternalRef)
                 .build();
 
         walletTransactionRepository.save(tx);
     }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
+    }
+
 
     private String buildRefundDescription(UUID orderId, String reason) {
         String base = "Refund for store-cancelled order " + orderId;
