@@ -63,7 +63,7 @@ public interface StoreService {
      */
     ResponseEntity<BaseResponse> searchStores(String keyword, int page, int size);
 
-    ResponseEntity<BaseResponse> getDefaultAddressByProductId(UUID productId);
+    ResponseEntity<BaseResponse<?>> getDefaultAddressByProductId(UUID productId);
 
     ResponseEntity<BaseResponse> shopToggleStoreStatus(UUID storeId, StoreStatus newStatus);
 
