@@ -867,62 +867,73 @@ public class ProductServiceImpl implements ProductService {
                     .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy sản phẩm: " + productId));
 
             ProductStatus current = product.getStatus();
+
+            // ==========================================================
+            // ❌ KHÔNG CHO ADMIN CẤM / TOGGLE KHI PENDING_APPROVAL / REJECT
+            // ==========================================================
+            if (current == ProductStatus.PENDING_APPROVAL || current == ProductStatus.REJECT) {
+                return ResponseEntity.badRequest().body(
+                        BaseResponse.error("""
+                        ❌ Không thể tạm ngưng / cấm sản phẩm ở trạng thái hiện tại.
+                        👉 Admin không được thao tác khi sản phẩm đang ở:
+                           - PENDING_APPROVAL (Chờ duyệt)
+                           - REJECT (Bị từ chối)
+
+                        👉 Trạng thái hiện tại: %s
+                        """.formatted(current))
+                );
+            }
+
             ProductStatus newStatus;
             String actionMessage;
 
             // ==========================================================
-            // ✅ ADMIN: CHO PHÉP THAO TÁC VỚI TẤT CẢ TRẠNG THÁI
+            // ✅ TOGGLE RULES (ADMIN)
             // ==========================================================
-            // Toggle theo rule:
             // 1) INACTIVE_PAUSE  -> BANNED
             // 2) BANNED          -> INACTIVE_PAUSE
             // 3) SUSPENDED       -> ACTIVE
-            // 4) Others          -> SUSPENDED
+            // 4) Các trạng thái khác -> SUSPENDED
             // ==========================================================
 
             if (current == ProductStatus.INACTIVE_PAUSE) {
-                // Seller đang pause → admin khóa (banned)
                 newStatus = ProductStatus.BANNED;
                 actionMessage = """
-                    ✅ Admin đã khóa sản phẩm (BANNED).
-                    👉 Sản phẩm trước đó đang ở trạng thái INACTIVE_PAUSE (người bán tạm dừng),
-                       nên khi admin suspend sẽ chuyển sang BANNED.
-                    """;
+                ✅ Admin đã khóa sản phẩm (BANNED).
+                👉 Sản phẩm đang ở INACTIVE_PAUSE (người bán tạm dừng),
+                   nên khi admin suspend sẽ chuyển sang BANNED.
+                """;
 
             } else if (current == ProductStatus.BANNED) {
-                // Mở khóa → quay về trạng thái pause của seller
                 newStatus = ProductStatus.INACTIVE_PAUSE;
                 actionMessage = """
-                    ✅ Admin đã mở khóa sản phẩm.
-                    👉 Sản phẩm đang ở BANNED nên khi bấm lại sẽ trở về INACTIVE_PAUSE (người bán tạm dừng).
-                    """;
+                ✅ Admin đã mở khóa sản phẩm.
+                👉 Sản phẩm đang ở BANNED nên khi bấm lại sẽ trở về INACTIVE_PAUSE (người bán tạm dừng).
+                """;
 
             } else if (current == ProductStatus.SUSPENDED) {
-                // Mở lại → ACTIVE
                 newStatus = ProductStatus.ACTIVE;
                 actionMessage = """
-                    ✅ Admin đã mở lại sản phẩm (ACTIVE).
-                    👉 Sản phẩm đang ở SUSPENDED nên khi bấm lại sẽ chuyển về ACTIVE.
-                    """;
+                ✅ Admin đã mở lại sản phẩm (ACTIVE).
+                👉 Sản phẩm đang ở SUSPENDED nên khi bấm lại sẽ chuyển về ACTIVE.
+                """;
 
             } else {
-                // Các trạng thái còn lại → SUSPENDED
                 newStatus = ProductStatus.SUSPENDED;
 
-                // message chi tiết cho dễ hiểu (nhất là ACTIVE)
                 if (current == ProductStatus.ACTIVE) {
                     actionMessage = """
-                        ✅ Admin đã tạm ngưng sản phẩm (SUSPENDED).
-                        👉 Sản phẩm đang ACTIVE nên khi suspend sẽ chuyển sang SUSPENDED.
-                        👉 Khi bấm mở lại, sản phẩm sẽ trở về ACTIVE.
-                        """;
+                    ✅ Admin đã tạm ngưng sản phẩm (SUSPENDED).
+                    👉 Sản phẩm đang ACTIVE nên khi suspend sẽ chuyển sang SUSPENDED.
+                    👉 Khi bấm mở lại, sản phẩm sẽ trở về ACTIVE.
+                    """;
                 } else {
                     actionMessage = """
-                        ✅ Admin đã tạm ngưng sản phẩm (SUSPENDED).
-                        👉 Admin được phép suspend mọi trạng thái.
-                        👉 Sản phẩm đang ở trạng thái %s nên sẽ chuyển sang SUSPENDED.
-                        👉 Khi bấm mở lại, sản phẩm sẽ trở về ACTIVE.
-                        """.formatted(current);
+                    ✅ Admin đã tạm ngưng sản phẩm (SUSPENDED).
+                    👉 Admin được phép suspend mọi trạng thái (trừ PENDING_APPROVAL & REJECT).
+                    👉 Sản phẩm đang ở trạng thái %s nên sẽ chuyển sang SUSPENDED.
+                    👉 Khi bấm mở lại, sản phẩm sẽ trở về ACTIVE.
+                    """.formatted(current);
                 }
             }
 
@@ -950,5 +961,6 @@ public class ProductServiceImpl implements ProductService {
             );
         }
     }
+
 
 }
