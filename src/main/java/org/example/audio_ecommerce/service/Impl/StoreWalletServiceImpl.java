@@ -459,8 +459,8 @@ public class StoreWalletServiceImpl implements StoreWalletService {
         Stream<DebtComponentItemResponse> orderComponents = orders.stream()
                 .filter(o -> o.getStore() != null && storeId.equals(o.getStore().getStoreId()))
 
-                // ✅ NEW: bỏ qua order đã cancel/không còn nợ
-                .filter(o -> nvl(o.getTotalDebtOrder()).compareTo(BigDecimal.ZERO) > 0)
+                // ✅ CÁCH 1: bỏ qua đơn CANCELLED (không đưa lên breakdown)
+                .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
 
                 .flatMap(o -> {
                     BigDecimal R = nvl(o.getShippingFeeReal());
@@ -956,8 +956,6 @@ public class StoreWalletServiceImpl implements StoreWalletService {
                 .debtBalance(nz(wallet.getDebtBalance()))
                 .build();
     }
-
-
 
 
 }
