@@ -1,5 +1,6 @@
 package org.example.audio_ecommerce.dto.response;
 
+import jakarta.persistence.Column;
 import lombok.Builder;
 import lombok.Data;
 import org.example.audio_ecommerce.entity.Enum.ReturnFaultType;
@@ -22,7 +23,8 @@ public class ReturnRequestResponse {
     private UUID productId;
     private String productName;
     private BigDecimal itemPrice;
-
+    private UUID escalatedById;   // shopId
+    private String escalatedByName; // storeName
     // ===== NEW =====
     private String customerName;
     private String storeName;
@@ -51,5 +53,8 @@ public class ReturnRequestResponse {
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    private boolean finalDecision;
+    private boolean adminForcedContinue;
 }
 

@@ -7,6 +7,7 @@ import org.example.audio_ecommerce.entity.Enum.ReturnReasonType;
 import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -136,4 +137,12 @@ public class ReturnRequest extends BaseEntity {
     @Column(name = "legal_point_deducted", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean legalPointDeducted = false;
 
+    @Column(name = "final_decision", nullable = false)
+    private boolean finalDecision;
+
+    @Column(name = "final_decision_at")
+    private LocalDateTime finalDecisionAt;
+
+    @Column(name = "admin_forced_continue", nullable = false)
+    private boolean adminForcedContinue;
 }

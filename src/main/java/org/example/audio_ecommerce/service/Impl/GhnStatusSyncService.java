@@ -8,12 +8,10 @@ import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.GhnStatus;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
+import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetail;
 import org.example.audio_ecommerce.integration.ghn.dto.GhnOrderDetailWrapper;
-import org.example.audio_ecommerce.repository.CustomerOrderRepository;
-import org.example.audio_ecommerce.repository.GhnOrderRepository;
-import org.example.audio_ecommerce.repository.ReturnShippingFeeRepository;
-import org.example.audio_ecommerce.repository.StoreOrderRepository;
+import org.example.audio_ecommerce.repository.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -26,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -39,6 +38,7 @@ public class GhnStatusSyncService {
     private final ObjectMapper objectMapper;
     private final ReturnShippingFeeRepository returnShippingFeeRepo;
     private final SettlementService settlementService;
+    private final ReturnRequestRepository returnRequestRepo;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -149,26 +149,33 @@ public class GhnStatusSyncService {
             return;
         }
 
-        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
-            log.info("⛔ [GHN Sync] GHN orderCode={} đang PICKED trong DB → bỏ qua, không update sang {}",
-                    orderCode, newStatus);
-            return;
-        }
+//        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
+//            log.info("⛔ [GHN Sync] GHN orderCode={} đang PICKED trong DB → bỏ qua, không update sang {}",
+//                    orderCode, newStatus);
+//            return;
+//        }
         // 1️⃣ Cập nhật GhnOrder
         updateGhnOrderEntity(ghnOrder, detail, newStatus);
-
+        updateReturnRequestStatusByGhn(ghnOrder, detail, newStatus);
         // 2️⃣ Cập nhật StoreOrder + CustomerOrder
-        updateStoreAndCustomerOrder(ghnOrder, detail, newStatus);
+        try {
+            // 2) update store + customer
+            updateStoreAndCustomerOrder(ghnOrder, detail, newStatus);
+        } catch (Exception e) {
+            log.error("❌ [GHN Sync] Store/Customer update failed for orderCode={} : {}",
+                    ghnOrder.getOrderGhn(), e.getMessage(), e);
+            // KHÔNG throw lại để khỏi rollback phần update GHN
+        }
     }
 
     private void updateGhnOrderEntity(GhnOrder ghnOrder,
                                       GhnOrderDetail detail,
                                       GhnStatus newStatus) {
-        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
-            log.info("⛔ [GHN Sync] GHN order {} đang PICKED trong DB → không update sang {}",
-                    ghnOrder.getOrderGhn(), newStatus);
-            return;
-        }
+//        if (ghnOrder.getStatus() == GhnStatus.PICKED && newStatus != GhnStatus.PICKED) {
+//            log.info("⛔ [GHN Sync] GHN order {} đang PICKED trong DB → không update sang {}",
+//                    ghnOrder.getOrderGhn(), newStatus);
+//            return;
+//        }
 
         ghnOrder.setStatus(newStatus);
 
@@ -383,6 +390,70 @@ public class GhnStatusSyncService {
 
             log.info("🚚 [RETURN FEE] Mark picked=true for returnRequestId={} | ghnOrderCode={} | shippingFee={}",
                     feeLog.getReturnRequestId(), orderCode, feeLog.getShippingFee());
+        });
+    }
+
+    private void updateReturnRequestStatusByGhn(GhnOrder ghnOrder,
+                                                GhnOrderDetail detail,
+                                                GhnStatus newGhnStatus) {
+
+        String orderCode = ghnOrder.getOrderGhn();
+        if (orderCode == null || orderCode.isBlank()) return;
+
+        // Dựa vào bảng ReturnShippingFee để biết GHN orderCode này thuộc returnRequest nào
+        returnShippingFeeRepo.findByGhnOrderCode(orderCode).ifPresent(feeLog -> {
+
+            UUID returnRequestId = feeLog.getReturnRequestId();
+            ReturnRequest rr = returnRequestRepo.findById(returnRequestId).orElse(null);
+            if (rr == null) return;
+
+            // 1) update tracking fields
+            rr.setGhnOrderCode(orderCode);
+
+            // trackingStatus nên lưu RAW string từ GHN (để match rule check "delivered" của bạn)
+            String raw = detail.getStatus(); // vd: "delivered", "picking", ...
+            rr.setTrackingStatus(raw != null ? raw : newGhnStatus.name());
+
+            // 2) map GHN -> ReturnStatus (tối thiểu, tránh phá flow)
+            // - Khi picked => return đã được lấy hàng => SHIPPING
+            // - Khi delivered => hàng đã về shop => vẫn giữ SHIPPING để shopReceiveOrDispute xử lý
+            //   (vì flow bạn thường cần status SHIPPING + trackingStatus="delivered")
+            switch (newGhnStatus) {
+                case PICKED, PICKING, READY_TO_PICK, READY_PICKUP,
+                     STORING, TRANSPORTING, SORTING, DELIVERING,
+                     MONEY_COLLECT_DELIVERING, MONEY_COLLECT_PICKING,
+                     WAITING_TO_RETURN, RETURN, RETURN_TRANSPORTING, RETURN_SORTING, RETURNING -> {
+
+                    // nếu case đã bị admin đóng thì không auto đổi status nữa
+                    if (!rr.isFinalDecision()) {
+                        rr.setStatus(ReturnStatus.SHIPPING);
+                    }
+                }
+
+                case DELIVERED -> {
+                    // vẫn giữ SHIPPING (để shop bấm receive/dispute hoặc autoRefundForUnresponsiveShop chạy)
+                    if (!rr.isFinalDecision()) {
+                        rr.setStatus(ReturnStatus.SHIPPING);
+                    }
+                }
+
+                case CANCEL -> {
+                    // nếu enum của bạn có CANCELLED thì set, không thì bỏ qua
+                    if (!rr.isFinalDecision()) {
+                        try {
+                            rr.setStatus(ReturnStatus.CANCELLED);
+                        } catch (Exception ignore) {
+                            // nếu ReturnStatus không có CANCELLED thì thôi, chỉ update trackingStatus
+                        }
+                    }
+                }
+
+                default -> {
+                    // không làm gì thêm
+                }
+            }
+
+            returnRequestRepo.save(rr);
         });
     }
 
