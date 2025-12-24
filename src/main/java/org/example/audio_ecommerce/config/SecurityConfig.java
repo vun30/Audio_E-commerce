@@ -43,7 +43,9 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(request -> {
                     var corsConfiguration = new CorsConfiguration();
                     corsConfiguration.setAllowedHeaders(List.of("*"));
-                    corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+                    corsConfiguration.setAllowedMethods(List.of(
+                            "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"
+                    ));
                     corsConfiguration.setAllowedOrigins(List.of(
                             "http://localhost:3000",
                             "http://localhost:5173",
@@ -59,30 +61,40 @@ public class SecurityConfig {
                     corsConfiguration.setAllowCredentials(true);
                     return corsConfiguration;
                 }))
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+                // ✅ QUAN TRỌNG: vẫn cho tạo session khi AI cần
+                .sessionManagement(sm ->
+                        sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                )
+
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/payos/webhook",
+                        // ✅ THẢ TOÀN BỘ API NHƯ BẢN CŨ
+                        .requestMatchers("/api/**").permitAll()
+
+                        // swagger / oauth / webhook
+                        .requestMatchers(
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/api/account/register/**",
-                                "/api/account/login/**",
-                                "/api/**",
                                 "/oauth2/**",
-                                "/login/oauth2/**").permitAll() // mở tất cả bean bảo vệ để test , code xong nhớ xóa
-                        .requestMatchers(HttpMethod.GET, "/api/consultation").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/consultation").permitAll()
-                        .requestMatchers("/loaderio-*").permitAll()
-                        .anyRequest().authenticated()
+                                "/login/oauth2/**",
+                                "/loaderio-*"
+                        ).permitAll()
+
+                        // ✅ còn lại cũng thả luôn (DEV MODE)
+                        .anyRequest().permitAll()
                 )
+
                 .oauth2Login(oauth -> oauth
-                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization")) // => /oauth2/authorization/google
+                        .authorizationEndpoint(ae -> ae.baseUri("/oauth2/authorization"))
                         .redirectionEndpoint(re -> re.baseUri("/login/oauth2/code/*"))
                         .userInfoEndpoint(ui -> ui.userService(oAuth2UserService))
                         .successHandler(oAuth2SuccessHandler)
                         .failureHandler(oAuth2FailureHandler)
                 )
 
+                // ✅ JWT vẫn chạy (có token thì set SecurityContext)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(restAuthEntryPoint())
                         .accessDeniedHandler((req, res, e) -> {
@@ -91,6 +103,7 @@ public class SecurityConfig {
                             res.getWriter().write("{\"status\":403,\"message\":\"Forbidden\"}");
                         })
                 );
+
         return http.build();
     }
 

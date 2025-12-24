@@ -431,6 +431,16 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     FlatOrderAgg2 aggFlatOverview(@Param("from") LocalDateTime from,
                                   @Param("toExclusive") LocalDateTime toExclusive);
 
+
+
+    @Query("""
+    select coalesce(sum(o.totalDebtOrder), 0)
+    from StoreOrder o
+    where o.store.storeId = :storeId
+      and (o.paidByShop = false or o.paidByShop is null)
+""")
+    BigDecimal sumDebtOrdersByStoreId(@Param("storeId") UUID storeId);
+
     List<StoreOrder> findByStatusAndPaymentMethodAndCodCollectedFalse(
             OrderStatus status,
             PaymentMethod paymentMethod

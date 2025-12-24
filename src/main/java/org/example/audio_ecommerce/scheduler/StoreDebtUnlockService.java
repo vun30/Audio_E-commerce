@@ -47,7 +47,7 @@ public class StoreDebtUnlockService {
      * ✅ AUTO: Tự quét các store đang SUSPENDED_DEBT và thử mở khóa.
      * Chỉ mở khi đủ điều kiện. Không đổi trạng thái => không gửi mail.
      */
-    @Scheduled(cron = "0 */2 * * * *") // mỗi 2 phút
+    @Scheduled(cron = "0 */1 * * * *") // mỗi 2 phút
     @Transactional
     public void autoUnlockDebtStores() {
 

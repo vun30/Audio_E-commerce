@@ -36,6 +36,17 @@ public class Account extends BaseEntity {
     @Column(length = 255)
     private String resetPasswordToken;
 
+    // Account.java
+    @Column(name = "email_verified", nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    @Column(name = "email_verify_token", length = 255)
+    private String emailVerifyToken;
+
+    @Column(name = "email_verify_token_expiry")
+    private java.time.LocalDateTime emailVerifyTokenExpiry;
+
     @Column
     private java.time.LocalDateTime resetPasswordTokenExpiry;
 

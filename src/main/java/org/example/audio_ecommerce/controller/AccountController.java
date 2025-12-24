@@ -312,4 +312,14 @@ public class AccountController {
             @RequestBody LoginByPhoneFirebaseRequest request) {
         return accountService.loginByPhoneFirebase(request);
     }
+
+    @GetMapping("/verify-email")
+    public ResponseEntity<BaseResponse> verifyEmail(@RequestParam String token) {
+        return accountService.verifyEmail(token);
+    }
+
+    @PostMapping("/resend-verify-email")
+    public ResponseEntity<BaseResponse> resendVerifyEmail(@Valid @RequestBody ResendVerifyEmailRequest request) {
+        return accountService.resendVerifyEmail(request);
+    }
 }

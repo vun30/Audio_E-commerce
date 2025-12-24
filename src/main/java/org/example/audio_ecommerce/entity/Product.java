@@ -51,6 +51,7 @@ public class Product {
     )
     private List<Category> categories;
 
+    @JsonIgnore
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProductAttributeValue> attributeValues;
 

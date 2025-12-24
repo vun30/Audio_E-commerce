@@ -85,36 +85,36 @@ public class StoreController {
                     """
     )
     @PatchMapping("/{storeId}/status")
-public ResponseEntity<BaseResponse> updateStoreStatus(
-        @PathVariable UUID storeId,
-        @Valid @RequestBody UpdateStoreStatusRequest request
-) {
-    return storeService.updateStoreStatus(storeId, request.getStatus(), request.getReason());
-}
-    @Operation(
-        summary = "Shop tự đổi trạng thái cửa hàng (ACTIVE <-> PAUSED)",
-        description = """
-                API dành cho Chủ Shop tự thay đổi trạng thái cửa hàng.
-                
-                ✔ Cho phép:
-                  • ACTIVE  → PAUSED
-                  • PAUSED  → ACTIVE
-                
-                ❌ Không cho phép đổi sang các trạng thái khác:
-                  • INACTIVE, PENDING, REJECTED, SUSPENDED
-                
-                Hành vi sản phẩm:
-                  • Khi PAUSED → toàn bộ sản phẩm UNLISTED
-                  • Khi ACTIVE → toàn bộ sản phẩm ACTIVE
-                """
-)
-@PatchMapping("/{storeId}/toggle-status")
-public ResponseEntity<BaseResponse> shopToggleStatus(
-        @PathVariable UUID storeId,
-        @RequestBody UpdateStoreStatusRequest request) {
-    return storeService.shopToggleStoreStatus(storeId, request.getStatus());
-}
+    public ResponseEntity<BaseResponse> updateStoreStatus(
+            @PathVariable UUID storeId,
+            @Valid @RequestBody UpdateStoreStatusRequest request
+    ) {
+        return storeService.updateStoreStatus(storeId, request.getStatus(), request.getReason());
+    }
 
+    @Operation(
+            summary = "Shop tự đổi trạng thái cửa hàng (ACTIVE <-> PAUSED)",
+            description = """
+                    API dành cho Chủ Shop tự thay đổi trạng thái cửa hàng.
+                    
+                    ✔ Cho phép:
+                      • ACTIVE  → PAUSED
+                      • PAUSED  → ACTIVE
+                    
+                    ❌ Không cho phép đổi sang các trạng thái khác:
+                      • INACTIVE, PENDING, REJECTED, SUSPENDED
+                    
+                    Hành vi sản phẩm:
+                      • Khi PAUSED → toàn bộ sản phẩm UNLISTED
+                      • Khi ACTIVE → toàn bộ sản phẩm ACTIVE
+                    """
+    )
+    @PatchMapping("/{storeId}/toggle-status")
+    public ResponseEntity<BaseResponse> shopToggleStatus(
+            @PathVariable UUID storeId,
+            @RequestBody UpdateStoreStatusRequest request) {
+        return storeService.shopToggleStoreStatus(storeId, request.getStatus());
+    }
 
 
     @Operation(summary = "Danh sách cửa hàng (phân trang + tìm kiếm)")
@@ -241,10 +241,9 @@ public ResponseEntity<BaseResponse> shopToggleStatus(
 
     @Operation(summary = "📦 Lấy địa chỉ mặc định của store dựa vào productId")
     @GetMapping("/address/default-by-product/{productId}")
-    public ResponseEntity<BaseResponse> getDefaultAddressByProduct(
-            @PathVariable UUID productId
-    ) {
+    public ResponseEntity<BaseResponse<?>> getDefaultAddressByProduct(@PathVariable UUID productId) {
         return storeService.getDefaultAddressByProductId(productId);
     }
-
 }
+
+

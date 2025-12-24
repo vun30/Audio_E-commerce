@@ -69,26 +69,26 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
         LocalDateTime now = LocalDateTime.now();
 
         // =====================================================
-        // 🔥 FIX TIMEZONE: tự trừ 7 giờ khi lưu
+        // ✅ TIME: không trừ 7 giờ nữa (lưu đúng như request gửi lên)
         // =====================================================
-        LocalDateTime fixedStart = req.getStartTime().minusHours(7);
-        LocalDateTime fixedEnd = req.getEndTime().minusHours(7);
-
-        // ========== VALIDATE TIME RANGE (validate theo fixed) ==========
         if (req.getStartTime() == null || req.getEndTime() == null) {
             throw new RuntimeException("❌ Start time và End time không được để trống");
         }
 
-        if (!fixedStart.isBefore(fixedEnd)) {
+        LocalDateTime start = req.getStartTime();
+        LocalDateTime end = req.getEndTime();
+
+        // ========== VALIDATE TIME RANGE ==========
+        if (!start.isBefore(end)) {
             throw new RuntimeException("❌ Start time phải nhỏ hơn End time");
         }
 
-        if (fixedEnd.isBefore(now)) {
+        if (end.isBefore(now)) {
             throw new RuntimeException("❌ End time phải lớn hơn thời điểm hiện tại");
         }
         // ================================================================
 
-        // === Khởi tạo voucher (sử dụng fixed time)
+        // === Khởi tạo voucher (sử dụng time gốc)
         ShopVoucher voucher = ShopVoucher.builder()
                 .shop(store)
                 .code(voucherCode)
@@ -101,8 +101,8 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
                 .minOrderValue(req.getMinOrderValue())
                 .totalVoucherIssued(req.getTotalVoucherIssued())
                 .usagePerUser(req.getUsagePerUser())
-                .startTime(fixedStart)
-                .endTime(fixedEnd)
+                .startTime(start)
+                .endTime(end)
                 .status(VoucherStatus.ACTIVE)
                 .scopeType(ShopVoucherScopeType.PRODUCT_VOUCHER)
                 .createdAt(now)
@@ -175,16 +175,20 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
         LocalDateTime now = LocalDateTime.now();
 
         // =====================================================
-        // 🔥 FIX TIMEZONE: tự trừ 7 giờ
+        // ✅ TIME: không trừ 7 giờ nữa (lưu đúng như request gửi lên)
         // =====================================================
-        LocalDateTime fixedStart = req.getStartTime().minusHours(7);
-        LocalDateTime fixedEnd   = req.getEndTime().minusHours(7);
+        if (req.getStartTime() == null || req.getEndTime() == null) {
+            throw new RuntimeException("❌ Start time và End time không được để trống");
+        }
 
-        // Validate theo fixed
-        if (!fixedStart.isBefore(fixedEnd)) {
+        LocalDateTime start = req.getStartTime();
+        LocalDateTime end   = req.getEndTime();
+
+        // Validate theo time gốc
+        if (!start.isBefore(end)) {
             throw new RuntimeException("❌ Start time phải nhỏ hơn End time");
         }
-        if (fixedEnd.isBefore(now)) {
+        if (end.isBefore(now)) {
             throw new RuntimeException("❌ End time phải lớn hơn thời điểm hiện tại");
         }
 
@@ -202,8 +206,8 @@ public class ShopVoucherServiceImpl implements ShopVoucherService {
                 .usagePerUser(req.getUsagePerUser())
                 .remainingUsage(req.getRemainingUsage() != null ? req.getRemainingUsage() : req.getTotalVoucherIssued())
                 .scopeType(ShopVoucherScopeType.ALL_SHOP_VOUCHER)
-                .startTime(fixedStart)
-                .endTime(fixedEnd)
+                .startTime(start)
+                .endTime(end)
                 .status(VoucherStatus.ACTIVE)
                 .createdAt(now)
                 .updatedAt(now)

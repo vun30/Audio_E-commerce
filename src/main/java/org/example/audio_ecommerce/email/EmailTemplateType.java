@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.email;
 
 public enum EmailTemplateType {
+    ACCOUNT_VERIFY,
     ACCOUNT_WELCOME,
     ACCOUNT_CREATED,
     KYC_SUBMITTED,   // 👈 mới: xác nhận đã nộp KYC
