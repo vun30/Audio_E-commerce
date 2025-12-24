@@ -132,6 +132,16 @@ public class PlatformCampaignServiceImpl implements PlatformCampaignService {
         PlatformCampaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new RuntimeException("❌ Campaign không tồn tại"));
 
+        // 🚫 BLOCK UPDATE nếu campaign đã ONOPEN hoặc ACTIVE
+        if (campaign.getStatus() == VoucherStatus.ONOPEN
+                || campaign.getStatus() == VoucherStatus.ACTIVE) {
+            throw new RuntimeException(
+                    "🚫 Không thể cập nhật campaign khi đang ở trạng thái "
+                            + campaign.getStatus()
+                            + ". Chỉ cho phép update khi DRAFT"
+            );
+        }
+
         VoucherStatus oldStatus = campaign.getStatus();
         VoucherStatus newStatus = oldStatus;
 

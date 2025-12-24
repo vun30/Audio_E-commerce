@@ -433,4 +433,13 @@ WHERE (:from IS NULL OR so.created_at >= :from)
                                   @Param("toExclusive") LocalDateTime toExclusive);
 
 
+
+    @Query("""
+    select coalesce(sum(o.totalDebtOrder), 0)
+    from StoreOrder o
+    where o.store.storeId = :storeId
+      and (o.paidByShop = false or o.paidByShop is null)
+""")
+    BigDecimal sumDebtOrdersByStoreId(@Param("storeId") UUID storeId);
+
 }

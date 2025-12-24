@@ -14,11 +14,13 @@ import org.example.audio_ecommerce.repository.CustomerOrderRepository;
 import org.example.audio_ecommerce.repository.GhnOrderRepository;
 import org.example.audio_ecommerce.repository.ReturnShippingFeeRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
+import org.example.audio_ecommerce.scheduler.StoreOrderDebtCron;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
+
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -39,6 +41,7 @@ public class GhnStatusSyncService {
     private final ObjectMapper objectMapper;
     private final ReturnShippingFeeRepository returnShippingFeeRepo;
     private final SettlementService settlementService;
+    private final StoreOrderDebtCron storeOrderDebtCron;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -299,6 +302,13 @@ public class GhnStatusSyncService {
         storeOrderRepo.save(storeOrder);
         log.info("✅ [GHN Sync] Cập nhật StoreOrder {} → status={} deliveredAt={}",
                 storeOrder.getId(), storeOrder.getStatus(), storeOrder.getDeliveredAt());
+        // ==== Cập nhật nợ cho StoreOrder ====
+        try {
+            storeOrderDebtCron.recalcDebtAndWalletForOrder(storeOrder.getId(), mappedStatus);
+        } catch (Exception e) {
+            log.error("❌ [GHN Sync] recalc debt failed for storeOrderId={} : {}",
+                    storeOrder.getId(), e.getMessage(), e);
+        }
 
         // ==== Cập nhật CustomerOrder ====
         CustomerOrder customerOrder = storeOrder.getCustomerOrder();

@@ -4,7 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.StoreOrder;
+import org.example.audio_ecommerce.repository.ReturnShippingFeeRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
+import org.example.audio_ecommerce.repository.StoreWalletRepository;
+import org.example.audio_ecommerce.service.Impl.StoreWalletDebtService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +23,9 @@ import java.util.UUID;
 public class StoreOrderDebtCron {
 
     private final StoreOrderRepository storeOrderRepository;
+    private final ReturnShippingFeeRepository returnShippingFeeRepository;
+    private final StoreWalletRepository storeWalletRepository;
+    private final StoreWalletDebtService storeWalletDebtService;
 
     @Scheduled(cron = "0 */1 * * * *") // mỗi 1 phút
     @Transactional
@@ -35,7 +41,6 @@ public class StoreOrderDebtCron {
             // ✅ ĐÃ THANH TOÁN NỢ -> BỎ QUA
             if (Boolean.TRUE.equals(o.getPaidByShop())) continue;
 
-            // ✅ Chỉ tính khi có status
             OrderStatus status = o.getStatus();
             if (status == null) continue;
 
@@ -46,38 +51,25 @@ public class StoreOrderDebtCron {
 
             BigDecimal debt;
 
-            // ✅ Tính theo rule status
-            switch (status) {
-                case SHIPPING:
-                case OUT_FOR_DELIVERY:
-                case DELIVERED_WAITING_CONFIRM:
-                    debt = R;
-                    break;
-
-                case RETURNING:
-                    debt = R.multiply(new BigDecimal("1.5"))
-                            .setScale(2, RoundingMode.HALF_UP);
-                    break;
-
-                case DELIVERY_SUCCESS:
-                    debt = R.subtract(E).max(BigDecimal.ZERO);
-                    break;
-
-                default:
-                    continue; // trạng thái khác -> không tính lại nợ
-            }
-
-            // ✅ Giữ logic cũ: nếu returnChargeApplied true => cộng thêm rate% của R
+            // ✅ Ưu tiên: có return charge -> 1.5R
             if (Boolean.TRUE.equals(o.getReturnChargeApplied())) {
-                BigDecimal rate = nvl(o.getReturnShippingChargeRate());
-                BigDecimal extra = R.multiply(rate)
-                        .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                debt = R.multiply(new BigDecimal("1.5"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            } else {
+                // ✅ Không return charge -> tính theo status
+                switch (status) {
+                    case SHIPPING:
+                    case OUT_FOR_DELIVERY:
+                    case DELIVERED_WAITING_CONFIRM:
+                        debt = R;
+                        break;
 
-                debt = debt.add(extra);
+                    case DELIVERY_SUCCESS:
+                        debt = R.subtract(E).max(BigDecimal.ZERO);
+                        break;
 
-                // snapshot returnShippingCharge
-                if (o.getReturnShippingCharge() == null || o.getReturnShippingCharge().compareTo(extra) != 0) {
-                    o.setReturnShippingCharge(extra);
+                    default:
+                        continue; // trạng thái khác -> không tính lại nợ
                 }
             }
 
@@ -93,6 +85,7 @@ public class StoreOrderDebtCron {
             log.info("StoreOrderDebtCron updated {} orders", updated);
         }
     }
+
 
 //    @Transactional
 //    public void recalcDebtForOrder(UUID storeOrderId, OrderStatus status) {
@@ -122,10 +115,9 @@ public class StoreOrderDebtCron {
      */
     private BigDecimal computeDebt(StoreOrder o, OrderStatus status) {
 
-        // ✅ ĐÃ THANH TOÁN NỢ -> BỎ QUA, KHÔNG TÍNH LẠI
+        // ✅ ĐÃ THANH TOÁN NỢ -> BỎ QUA
         if (Boolean.TRUE.equals(o.getPaidByShop())) return null;
 
-        // Chỉ tính khi có status
         if (status == null) return null;
 
         BigDecimal R = nvl(o.getShippingFeeReal());
@@ -133,43 +125,50 @@ public class StoreOrderDebtCron {
 
         BigDecimal E = nvl(o.getShippingFee());
 
-        BigDecimal debt;
+        // ✅ Nếu áp dụng phí quay đầu / return charge -> nợ = 1.5R
+        if (Boolean.TRUE.equals(o.getReturnChargeApplied())) {
+            return R.multiply(new BigDecimal("1.5"))
+                    .setScale(2, RoundingMode.HALF_UP);
+        }
 
+        // ✅ Không return charge -> tính theo status
         switch (status) {
 
             case SHIPPING:
             case OUT_FOR_DELIVERY:
             case DELIVERED_WAITING_CONFIRM:
-                debt = R;
-                break;
-
-            case RETURNING:
-                debt = R.multiply(new BigDecimal("1.5"))
-                        .setScale(2, RoundingMode.HALF_UP);
-                break;
+                return R;
 
             case DELIVERY_SUCCESS:
-                debt = R.subtract(E).max(BigDecimal.ZERO);
-                break;
+                return R.subtract(E).max(BigDecimal.ZERO);
 
             default:
                 return null;
         }
+    }
 
-        // (Giữ lại logic cũ) Nếu returnChargeApplied true => cộng thêm rate% của R
-        if (Boolean.TRUE.equals(o.getReturnChargeApplied())) {
-            BigDecimal rate = nvl(o.getReturnShippingChargeRate());
-            BigDecimal extra = R.multiply(rate)
-                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+    @Transactional
+    public void recalcDebtAndWalletForOrder(UUID storeOrderId, OrderStatus status) {
 
-            debt = debt.add(extra);
+        StoreOrder o = storeOrderRepository.findById(storeOrderId)
+                .orElseThrow(() -> new RuntimeException("StoreOrder not found"));
 
-            if (o.getReturnShippingCharge() == null || o.getReturnShippingCharge().compareTo(extra) != 0) {
-                o.setReturnShippingCharge(extra);
-            }
-        }
+        BigDecimal newDebt = computeDebt(o, status);
+        if (newDebt == null) return;
 
-        return debt;
+        boolean changed =
+                o.getTotalDebtOrder() == null
+                        || o.getTotalDebtOrder().compareTo(newDebt) != 0;
+
+        if (!changed) return;
+
+        // 1️⃣ update nợ của order
+        o.setTotalDebtOrder(newDebt);
+        storeOrderRepository.save(o);
+
+        // 2️⃣ update tổng nợ của store
+        UUID storeId = o.getStore().getStoreId();
+        storeWalletDebtService.recalcStoreDebtBalanceByStoreId(storeId);
     }
 
 
