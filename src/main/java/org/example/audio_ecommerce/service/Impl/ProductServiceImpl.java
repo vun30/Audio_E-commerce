@@ -120,6 +120,8 @@ public class ProductServiceImpl implements ProductService {
             p.setMaterial(req.getMaterial());
             p.setDimensions(req.getDimensions());
             p.setWeight(req.getWeight());
+            p.setWarrantyPeriod(req.getWarrantyPeriod());
+            p.setWarrantyType(req.getWarrantyType());
             p.setImages(req.getImages());
             p.setVideoUrl(req.getVideoUrl());
             p.setWarehouseLocation(req.getWarehouseLocation());
@@ -270,6 +272,8 @@ public class ProductServiceImpl implements ProductService {
             if (req.getShippingFee() != null) p.setShippingFee(req.getShippingFee());
             if (req.getSupportedShippingMethodIds() != null)
                 p.setSupportedShippingMethodIds(req.getSupportedShippingMethodIds());
+            if (req.getWarrantyPeriod() != null) p.setWarrantyPeriod(req.getWarrantyPeriod());
+            if (req.getWarrantyType() != null) p.setWarrantyType(req.getWarrantyType());
 
             // SKU CHECK
             if (req.getSku() != null && !req.getSku().equals(p.getSku())) {
@@ -452,6 +456,8 @@ public class ProductServiceImpl implements ProductService {
                 .material(p.getMaterial())
                 .dimensions(p.getDimensions())
                 .weight(p.getWeight())
+                .warrantyPeriod(p.getWarrantyPeriod())
+                .warrantyType(p.getWarrantyType())
                 .images(p.getImages())
                 .videoUrl(p.getVideoUrl())
                 .sku(p.getSku())
