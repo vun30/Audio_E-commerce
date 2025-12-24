@@ -1089,14 +1089,14 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop)
-        if (r.getStatus() != ReturnStatus.SHIPPING) {
-            throw new IllegalStateException("ReturnRequest must be SHIPPING");
+        if (r.getStatus() != ReturnStatus.DELIVERED) {
+            throw new IllegalStateException("ReturnRequest must be DELIVERED to confirm");
         }
 
         // Chỉ confirm khi GHN đã giao trả về shop
         // tuỳ bạn map trackingStatus, ở code bạn đang dùng "delivered" cho auto refund
         ReturnStatus tracking = r.getStatus();
-        if (!tracking.equals(ReturnStatus.DELIVERED)) {
+        if (!tracking.equals(ReturnStatus.SHIPPING)) {
             throw new IllegalStateException("GHN has not delivered return package to shop yet");
         }
 
