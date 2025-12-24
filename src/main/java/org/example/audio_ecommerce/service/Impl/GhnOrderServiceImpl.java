@@ -12,10 +12,13 @@ import org.example.audio_ecommerce.repository.CustomerOrderRepository;
 import org.example.audio_ecommerce.repository.GhnOrderRepository;
 import org.example.audio_ecommerce.repository.StoreOrderRepository;
 import org.example.audio_ecommerce.service.GhnOrderService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -157,6 +160,29 @@ public class GhnOrderServiceImpl implements GhnOrderService {
                     -> OrderStatus.EXCEPTION;
             default -> OrderStatus.EXCEPTION;
         };
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<GhnOrderResponse> list(
+            UUID storeId,
+            String fromDate,
+            String toDate,
+            Pageable pageable
+    ) {
+        LocalDateTime from = null;
+        LocalDateTime to = null;
+
+        if (fromDate != null && !fromDate.isBlank()) {
+            from = LocalDate.parse(fromDate).atStartOfDay();
+        }
+        if (toDate != null && !toDate.isBlank()) {
+            // lấy hết ngày toDate
+            to = LocalDate.parse(toDate).plusDays(1).atStartOfDay();
+        }
+
+        return repo.search(storeId, from, to, pageable)
+                .map(this::toResp);
     }
 
 }
