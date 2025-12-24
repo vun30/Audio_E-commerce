@@ -85,6 +85,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .id(r.getId())
                 .customerId(r.getCustomerId())
                 .shopId(r.getShopId())
+                .escalatedById(r.getStatus() == ReturnStatus.DISPUTE ? r.getShopId() : null)
+                .escalatedByName(r.getStatus() == ReturnStatus.DISPUTE && store != null ? store.getStoreName() : null)
                 .orderItemId(r.getOrderItemId())
                 .productId(r.getProductId())
                 .productName(r.getProductName())
@@ -109,6 +111,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .trackingStatus(r.getTrackingStatus())
                 .createdAt(r.getCreatedAt())
                 .updatedAt(r.getUpdatedAt())
+                .adminForcedContinue(r.isAdminForcedContinue())
+                .finalDecision(r.isFinalDecision())
                 .build();
     }
 
@@ -209,6 +213,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         UUID customerId = securityUtils.getCurrentCustomerId();
         ReturnRequest r = returnRepo.findById(returnRequestId)
                 .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+        if (Boolean.TRUE.equals(r.isFinalDecision())) {
+            throw new IllegalStateException("Return request is closed by admin decision.");
+        }
 
         if (!r.getCustomerId().equals(customerId)) {
             throw new AccessDeniedException("Not your return request");
@@ -382,10 +389,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     @Transactional
     public ReturnRequestResponse disputeToAdmin(UUID returnRequestId, ReturnDisputeRequest req) {
-
         ReturnRequest r = returnRepo.findById(returnRequestId)
                 .orElseThrow(() -> new RuntimeException("ReturnRequest not found: " + returnRequestId));
-
+        if (Boolean.TRUE.equals(r.isFinalDecision())) {
+            throw new IllegalStateException("Admin decided CUSTOMER wins. Shop must continue return flow; dispute is not allowed.");
+        }
         // ✅ LẤY STORE HIỆN TẠI (GIỐNG CÁC API KHÁC)
         UUID currentShopId = securityUtils.getCurrentStoreId();
 
@@ -673,6 +681,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         ReturnRequest r = returnRepo.findById(returnRequestId)
                 .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+        if (Boolean.TRUE.equals(r.isFinalDecision())) {
+            throw new IllegalStateException("Admin decided CUSTOMER wins. Shop must continue return flow; dispute is not allowed.");
+        }
+
 
         if (!r.getShopId().equals(shopId)) {
             throw new AccessDeniedException("Not your return request");
@@ -722,38 +734,49 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .map(this::toResponse);
     }
 
-    @Override
     @Transactional
-    public ReturnRequestResponse resolveDispute(
-            UUID returnRequestId,
-            ReturnDisputeResolveRequest req
-    ) {
+    @Override
+    public ReturnRequestResponse resolveDispute(UUID returnRequestId, ReturnDisputeResolveRequest req) {
+
         ReturnRequest r = returnRepo.findById(returnRequestId)
                 .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
 
         if (r.getStatus() != ReturnStatus.DISPUTE) {
-            throw new IllegalStateException("ReturnRequest must be DISPUTE");
+            throw new IllegalStateException("Only DISPUTE can be resolved by admin");
         }
 
-        r.setFaultType(req.getFaultType());
-
-        if (req.getFaultType() == ReturnFaultType.SHOP) {
-            // Shop sai => customer thắng
-            r.setStatus(ReturnStatus.DISPUTE_RESOLVED_CUSTOMER);
-            refundAndDeductLegalPointIfNeeded(r);
-        } else if (req.getFaultType() == ReturnFaultType.CUSTOMER) {
-            // Customer sai => shop thắng
-            r.setStatus(ReturnStatus.DISPUTE_RESOLVED_SHOP);
-        } else {
-            throw new IllegalStateException("Invalid faultType for dispute resolve: " + req.getFaultType());
-        }
-
+        // lưu phán quyết
+        r.setFaultType(req.getFaultType()); // SHOP / CUSTOMER
         r.setUpdatedAt(LocalDateTime.now());
-        returnRepo.save(r);
-//        finalizeReturnShippingPayer(r);
+
+        // =================================================
+        // ✅ CASE 1: SHOP THẮNG → ĐÓNG LUỒNG, KHÔNG RETURN
+        // =================================================
+        if (req.getFaultType() == ReturnFaultType.CUSTOMER) {
+            r.setStatus(ReturnStatus.DISPUTE_RESOLVED_SHOP);
+            r.setFinalDecision(true);
+            r.setFinalDecisionAt(LocalDateTime.now());
+            r.setAdminForcedContinue(false);
+
+            return toResponse(returnRepo.save(r));
+        }
+
+        // =================================================
+        // ✅ CASE 2: CUSTOMER THẮNG → QUAY VỀ FLOW BÌNH THƯỜNG
+        //     => status phải là APPROVED để customer set package và shop tạo GHN
+        // =================================================
+        r.setStatus(ReturnStatus.APPROVED);          // 🔥 QUAN TRỌNG
+        r.setFinalDecision(false);
+        r.setAdminForcedContinue(true);
+
+        // admin phán shop chịu phí ship return (ghi vào ReturnShippingFee)
         applyAdminPayerToReturnShippingFee(r);
-        return toResponse(r);
+
+        return toResponse(returnRepo.save(r));
     }
+
+
+
 
     // =========================================================
     // ========================= AUTO ==========================
