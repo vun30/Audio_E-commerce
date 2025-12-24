@@ -123,16 +123,22 @@ public class WalletServiceImpl implements WalletService {
         PlatformTransaction pfTxn = PlatformTransaction.builder()
                 .wallet(platformWallet)
                 .orderId(orderId)
-                .storeId(r.getShopId())              // nếu muốn link shop liên quan
+                .storeId(r.getShopId())
                 .customerId(r.getCustomerId())
                 .amount(amount)
-                .type(TransactionType.REFUND_CUSTOMER_RETURN)  // hoặc TransactionType.REFUND nếu enum bạn đang dùng vậy
+                .type(TransactionType.REFUND_CUSTOMER_RETURN)
                 .status(TransactionStatus.DONE)
-                .description("Refund trả hàng từ platform pending cho customer, returnId=" + r.getId())
+                .bucket(WalletBucket.CASH)            // ✅ thêm dòng này (ví dụ)
+                .direction(TxDirection.OUT)       // ✅ nếu direction cũng NOT NULL
+                .channel(PaymentChannel.WALLET)        // ✅ nếu channel cũng NOT NULL
+                .balanceBefore(pfPendingBefore)            // ✅ nếu DB bắt buộc
+                .balanceAfter(pfPendingAfter)              // ✅ nếu DB bắt buộc
+                .description("Refund trả hàng..., returnId=" + r.getId())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
         platformTxnRepo.save(pfTxn);
+
 
         // ===== CUSTOMER: cộng balance + log WalletTransaction =====
         BigDecimal cusBefore = customerWallet.getBalance();
