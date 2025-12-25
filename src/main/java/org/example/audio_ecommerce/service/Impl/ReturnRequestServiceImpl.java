@@ -1161,27 +1161,31 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
     private void refundAndDeductLegalPointIfNeeded(ReturnRequest r) {
 
-        // 1️⃣ Refund tiền – FAIL là throw → KHÔNG trừ điểm
+        // 1) Refund tiền – FAIL thì throw -> KHÔNG trừ điểm
         walletService.refundForReturn(r);
 
-        // 2️⃣ Chỉ trừ điểm nếu lỗi SHOP
-        if (r.getFaultType() != ReturnFaultType.SHOP) {
+        // 2) chống trừ lặp
+        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) return;
+
+        // 3) trừ điểm theo fault
+        if (r.getFaultType() == ReturnFaultType.CUSTOMER) {
+            // ✅ Trừ điểm CUSTOMER (ví dụ -1)
+            legalPointService.minusForCustomer(r.getCustomerId(), 1,
+                    "RETURN_FAULT_CUSTOMER returnRequest=" + r.getId());
+
+        } else if (r.getFaultType() == ReturnFaultType.SHOP) {
+            // (tuỳ bạn) nếu bạn vẫn muốn trừ store khi shop sai thì giữ
+            legalPointService.minusForStore(r.getShopId(), 1);
+        } else {
             return;
         }
 
-        // 3️⃣ Chống trừ lặp
-        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) {
-            return;
-        }
-
-        // 4️⃣ Trừ 1 legal point
-        legalPointService.minusForStore(r.getShopId(), 1);
-
-        // 5️⃣ Đánh dấu đã trừ
+        // 4) đánh dấu đã xử lý
         r.setLegalPointDeducted(true);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
     }
+
 
     @Transactional
     public void finalizeReturnShippingPayer(ReturnRequest r) {
