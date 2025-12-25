@@ -214,7 +214,7 @@ public class GhnStatusSyncService {
             case  PICKING, MONEY_COLLECT_PICKING, PICKED,
                  STORING, TRANSPORTING, SORTING, DELIVERING, MONEY_COLLECT_DELIVERING ->
                     OrderStatus.SHIPPING;              // ông có thể đổi sang CONFIRMED / SHIPPING tùy enum
-            case READY_TO_PICK -> OrderStatus.AWAITING_SHIPMENT;
+            case READY_PICKUP -> OrderStatus.AWAITING_SHIPMENT;
             case DELIVERED -> OrderStatus.DELIVERY_SUCCESS;
 
             case DELIVERY_FAIL,
