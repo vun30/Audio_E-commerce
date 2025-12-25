@@ -521,6 +521,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // 2️⃣ Build body GHN create-order (return: customer → shop)
         GhnCreateOrderRequest body = GhnCreateOrderRequest.builder().build();
+        log.info("[GHN RETURN][REQ] from_name='{}', from_phone='{}', from_address='{}', " +
+                        "to_name='{}', to_phone='{}', weight={}, length={}, width={}, height={}",
+                r.getProductName() != null ? "Customer return - " + r.getProductName() : "Customer",
+                r.getCustomerPhone(),
+                r.getPickupAddressLine(),
+                store.getStoreName(),
+                store.getPhoneNumber(),
+                r.getPackageWeight() != null ? r.getPackageWeight().intValue() : null,
+                r.getPackageLength() != null ? r.getPackageLength().intValue() : null,
+                r.getPackageWidth() != null ? r.getPackageWidth().intValue() : null,
+                r.getPackageHeight() != null ? r.getPackageHeight().intValue() : null
+        );
 
         // FROM = CUSTOMER
         body.setFrom_name(r.getProductName() != null ? "Customer return - " + r.getProductName() : "Customer");
@@ -551,12 +563,30 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         body.setPayment_type_id(1);
 
 
-        // Service & kích thước
         body.setService_type_id(2);
-        body.setWeight(r.getPackageWeight().intValue());
-        body.setLength(r.getPackageLength().intValue());
-        body.setWidth(r.getPackageWidth().intValue());
-        body.setHeight(r.getPackageHeight().intValue());
+
+// ✅ validate trước
+        if (r.getPackageWeight() == null || r.getPackageWeight().compareTo(BigDecimal.ZERO) <= 0
+                || r.getPackageLength() == null || r.getPackageLength().compareTo(BigDecimal.ZERO) <= 0
+                || r.getPackageWidth() == null || r.getPackageWidth().compareTo(BigDecimal.ZERO) <= 0
+                || r.getPackageHeight() == null || r.getPackageHeight().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalStateException("Missing/invalid package info. Customer must set package first.");
+        }
+
+// ✅ length/width/height: int >=1
+        int length = Math.max(r.getPackageLength().intValue(), 1);
+        int width  = Math.max(r.getPackageWidth().intValue(), 1);
+        int height = Math.max(r.getPackageHeight().intValue(), 1);
+
+// ✅ weight: KG -> grams, int >=1
+        int weightInGrams = r.getPackageWeight().multiply(BigDecimal.valueOf(1000)).intValue();
+        int weight = Math.max(weightInGrams, 1);
+
+        body.setLength(length);
+        body.setWidth(width);
+        body.setHeight(height);
+        body.setWeight(weight);
+
 
         body.setRequired_note("KHONGCHOXEMHANG");
         body.setNote("Return hàng đơn: " + r.getId());
@@ -570,10 +600,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .name(r.getProductName())
                 .code(r.getProductId() != null ? r.getProductId().toString() : null)
                 .quantity(1)
-                .weight(r.getPackageWeight().intValue())
-                .length(r.getPackageLength().intValue())
-                .width(r.getPackageWidth().intValue())
-                .height(r.getPackageHeight().intValue())
+                .weight(weight)
+                .length(length)
+                .width(width)
+                .height(height)
                 .build();
         body.setItems(List.of(item));
 
