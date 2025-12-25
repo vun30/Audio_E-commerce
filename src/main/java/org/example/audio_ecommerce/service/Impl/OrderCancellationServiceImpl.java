@@ -5,6 +5,7 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.service.LegalPointService;
 import org.example.audio_ecommerce.service.NotificationCreatorService;
 import org.example.audio_ecommerce.service.OrderCancellationService;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
     private final ProductRepository productRepo;
     private final ProductVariantRepository productVariantRepo;
     private final NotificationCreatorService notificationCreatorService;
+    private final LegalPointService legalPointService;
 
     /**
      * KH hủy toàn bộ nếu CustomerOrder còn PENDING => refund ngay về ví KH, không cần shop duyệt
@@ -72,7 +74,11 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         // CustomerOrder -> CANCELLED
         order.setStatus(OrderStatus.CANCELLED);
         customerOrderRepo.save(order);
-
+        legalPointService.minusForCustomer(
+                order.getCustomer().getId(),
+                1,
+                "CUSTOMER_CANCEL_ORDER_PENDING orderCode=" + order.getOrderCode()
+        );
         // CUSTOMER
         notificationCreatorService.createAndSend(
                 NotificationTarget.CUSTOMER,
@@ -168,6 +174,13 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         if (allCancelled) {
             customerOrder.setStatus(OrderStatus.CANCELLED);
             customerOrderRepo.save(customerOrder);
+
+            // ✅ Trừ legalPoint CUSTOMER vì huỷ đã đi vào luồng shop duyệt
+            legalPointService.minusForCustomer(
+                    customerOrder.getCustomer().getId(),
+                    1,
+                    "CUSTOMER_CANCEL_APPROVED_BY_SHOP orderCode=" + customerOrder.getOrderCode()
+            );
         }
 
         // ================== 🔔 NOTIFICATION ==================

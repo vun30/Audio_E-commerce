@@ -14,7 +14,7 @@ public class GhnOrderStatusScheduler {
 
     private final GhnStatusSyncService ghnStatusSyncService;
 
-    @Scheduled(cron = "0 */1 * * * ?") //Test nhanh: "0 */1 * * * ?" (mỗi phút)
+//    @Scheduled(cron = "0 */1 * * * ?") //Test nhanh: "0 */1 * * * ?" (mỗi phút)
     @Transactional
     public void syncGhnOrderStatuses() {
         log.info("⏱ [Scheduler] Bắt đầu đồng bộ trạng thái GHN orders.");
