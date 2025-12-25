@@ -96,6 +96,29 @@ public class GhnOrderServiceImpl implements GhnOrderService {
 
         so.setStatus(mappedOrderStatus);
 
+        if (mappedOrderStatus == OrderStatus.RETURNING) {
+
+            // idempotent – chống set lặp
+            if (!Boolean.TRUE.equals(so.getReturnChargeApplied())) {
+                so.setReturnChargeApplied(true);
+                so.setReturnChargeAppliedAt(LocalDateTime.now());
+
+                // (OPTIONAL – nếu bạn muốn tính luôn tiền quay đầu ở đây)
+                // returnShippingCharge = shippingFeeReal * rate / 100
+                if (so.getShippingFeeReal() != null) {
+                    BigDecimal charge = so.getShippingFeeReal()
+                            .multiply(so.getReturnShippingChargeRate())
+                            .divide(new BigDecimal("100"));
+                    so.setReturnShippingCharge(charge);
+
+                    // cộng vào tổng nợ
+                    so.setTotalDebtOrder(
+                            so.getTotalDebtOrder().add(charge)
+                    );
+                }
+            }
+        }
+
         // nếu giao thành công thì set deliveredAt
         if (mappedOrderStatus == OrderStatus.DELIVERY_SUCCESS
                 || mappedOrderStatus == OrderStatus.COMPLETED
