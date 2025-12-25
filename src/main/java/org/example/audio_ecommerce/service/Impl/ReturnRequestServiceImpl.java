@@ -693,7 +693,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         if ("SHOP".equalsIgnoreCase(payerFinal)) {
             feeLog.setChargedToShop(feeValue);
-            feeLog.setPaidByShop(true);
+            feeLog.setPaidByShop(false);
             feeLog.setShopFault(true);
         } else {
             feeLog.setChargedToShop(BigDecimal.ZERO);
