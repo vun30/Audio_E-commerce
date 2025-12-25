@@ -339,8 +339,14 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         StoreOrder target = storeOrders.get(0);
 
         // Chỉ cho phép request khi đang AWAITING_SHIPMENT
-        if (target.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
-            return BaseResponse.error("StoreOrder must be AWAITING_SHIPMENT to request cancel");
+//        if (target.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
+//            return BaseResponse.error("StoreOrder must be AWAITING_SHIPMENT to request cancel");
+//        }
+        if (cancelRepo.existsByStoreOrder_IdAndStatus(target.getId(), CancellationRequestStatus.REQUESTED)) {
+            return BaseResponse.error("Bạn đã gửi yêu cầu huỷ cho đơn này rồi. Vui lòng chờ shop xử lý.");
+        }
+        if (customerCancelRepo.existsByCustomerOrder_IdAndStatus(co.getId(), CancellationRequestStatus.REQUESTED)) {
+            return BaseResponse.error("Bạn đã gửi yêu cầu huỷ cho đơn này rồi. Vui lòng chờ shop xử lý.");
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -363,6 +369,8 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
                 .status(CancellationRequestStatus.REQUESTED)
                 .requestedAt(LocalDateTime.now())
                 .build();
+
+
         cancelRepo.save(req);
 
         // ================== 🔔 NOTIFICATION ==================
