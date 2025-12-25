@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.FlatGhnOverviewResponse;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -279,6 +280,68 @@ public class PlatformWalletController {
 
         return ResponseEntity.ok(
                 BaseResponse.success("Lấy tổng quan GHN (Flat) thành công", data)
+        );
+    }
+
+
+
+    @GetMapping("/ship-fee/overview")
+    public ResponseEntity<BaseResponse<FlatGhnShipFeeOverviewResponse>> getShipFeeOverview(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+    ) {
+        var data = platformWalletService.getFlatGhnShipFeeOverview(from, to);
+        return ResponseEntity.ok(BaseResponse.success("Lấy tổng quan phí ship GHN thành công", data));
+    }
+
+    @GetMapping("/debt/summary")
+    public ResponseEntity<BaseResponse<FlatStoreDebtSummaryResponse>> getFlatStoreDebtSummary(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime from,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime to
+    ) {
+
+        FlatStoreDebtSummaryResponse data =
+                platformWalletService.getFlatStoreDebtSummary(from, to);
+
+        return ResponseEntity.ok(
+                BaseResponse.success("Lấy tổng hợp nợ Flat/GHN thành công", data)
+        );
+    }
+
+    @GetMapping("/customer-ship/total")
+    public ResponseEntity<BaseResponse<BigDecimal>> getTotalCustomerShipPaid(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime from,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime to
+    ) {
+        BigDecimal total = platformWalletService.getTotalCustomerShipPaid(from, to);
+        return ResponseEntity.ok(BaseResponse.success("Lấy tổng phí ship khách đã trả thành công", total));
+    }
+
+    @GetMapping("/return-ship/summary")
+    public ResponseEntity<BaseResponse<ReturnShipFeeSummaryResponse>> getReturnShipFeeSummary(
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime from,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+            LocalDateTime to
+    ) {
+        ReturnShipFeeSummaryResponse data =
+                platformWalletService.getReturnShipFeeSummary(from, to);
+
+        return ResponseEntity.ok(
+                BaseResponse.success("Lấy tổng phí ship return thành công", data)
         );
     }
 }

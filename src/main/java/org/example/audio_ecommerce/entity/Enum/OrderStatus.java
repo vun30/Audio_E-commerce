@@ -37,10 +37,11 @@ public enum OrderStatus {
     UNPAID,
     PENDING,
     CONFIRMED,
-//
+    AWAITING_SHIPMENT, // chờ bàn giao
+
     // 2. Tạo GHN / chờ lấy hàng
+
     GHN_CREATED,
-    AWAITING_SHIPMENT,
     READY_FOR_PICKUP,
     READY_FOR_DELIVERY,
 

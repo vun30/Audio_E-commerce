@@ -1,6 +1,7 @@
 package org.example.audio_ecommerce.repository;
 
 import org.example.audio_ecommerce.entity.ReturnShippingFee;
+import org.example.audio_ecommerce.repository.projection.ReturnShipFeeAgg;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -107,4 +108,41 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
       and r.shippingFee > 0
 """)
     BigDecimal sumDebtReturnFeesByStoreId(@Param("storeId") UUID storeId);
+
+    @Query("""
+    select coalesce(sum(r.shippingFee), 0)
+    from ReturnShippingFee r
+    where (:from is null or r.createdAt >= :from)
+      and (:toExclusive is null or r.createdAt < :toExclusive)
+    """)
+    BigDecimal sumReturnShipFee(@Param("from") LocalDateTime from,
+                                @Param("toExclusive") LocalDateTime toExclusive);
+
+
+    @Query(value = """
+        SELECT
+          COALESCE(SUM(
+            CASE
+              WHEN rsf.paid_by_shop = 1
+              THEN rsf.shipping_fee
+              ELSE 0
+            END
+          ),0) AS paid,
+
+          COALESCE(SUM(
+            CASE
+              WHEN rsf.paid_by_shop = 0 OR rsf.paid_by_shop IS NULL
+              THEN rsf.shipping_fee
+              ELSE 0
+            END
+          ),0) AS outstanding
+        FROM return_shipping_fees rsf
+        WHERE (:from IS NULL OR rsf.created_at >= :from)
+          AND (:toExclusive IS NULL OR rsf.created_at < :toExclusive)
+        """, nativeQuery = true)
+    ReturnShipFeeAgg aggReturnShipFee(
+            @Param("from") LocalDateTime from,
+            @Param("toExclusive") LocalDateTime toExclusive
+    );
 }
+
