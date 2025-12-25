@@ -99,7 +99,7 @@ public class CodCollectedToPlatformWalletJob {
 
                         .idempotencyKey(idem)
                         .externalRefCode(so.getOrderCode())
-                        .description("COD collected for delivered-success store order")
+                        .description("Thu tiền COD cho đơn vận chuyển thành công.")
                         .build();
 
                 platformTransactionRepository.save(tx);
