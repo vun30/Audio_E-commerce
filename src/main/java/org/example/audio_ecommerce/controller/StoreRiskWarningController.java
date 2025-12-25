@@ -259,6 +259,72 @@ public class StoreRiskWarningController {
         );
     }
 
+
+    @Operation(
+            summary = "Lấy danh sách nợ cần quyết toán của cửa hàng",
+            description = """
+                API trả về toàn bộ các khoản nợ **chưa thanh toán** của cửa hàng hiện tại, bao gồm:
+
+                1️⃣ Nợ từ đơn hàng đã kết thúc (StoreOrder)
+                - Trạng thái: DELIVERY_SUCCESS, RETURNING, RETURNED
+                - Chỉ lấy đơn: paidByShop = false
+                - DELIVERY_SUCCESS:
+                  → Nợ = max(shippingFeeReal - shippingFee, 0)
+                - RETURNING / RETURNED hoặc returnChargeApplied = true:
+                  → Nợ = shippingFeeReal × 1.5
+
+                2️⃣ Không bao gồm:
+                - Đơn chưa kết thúc
+                - Đơn đã thanh toán
+                - Đơn CANCELLED
+                
+                                    {
+                                      "status": 200,
+                                      "message": "✅ Lấy danh sách nợ cần quyết toán thành công",
+                                      "data": [
+                                        {
+                                          "orderId": "8a6c9f3d-5b6a-4a4c-9d72-3f7a9f4c1111",
+                                          "orderCode": "ORD-240901-001",
+                                          "status": "DELIVERY_SUCCESS",
+                                          "debtNeedToPay": 15000,
+                                          "shippingFeeCustomerPaid": 30000,
+                                          "shippingFeeReal": 45000,
+                                          "afterSubtract": 15000,
+                                          "boomFee": null,
+                                          "returnChargeApplied": false
+                                        },
+                                        {
+                                          "orderId": "c2a7e2bb-9e2d-4e91-8a1c-6e4d88c82222",
+                                          "orderCode": "ORD-240901-002",
+                                          "status": "RETURNING",
+                                          "debtNeedToPay": 60000,
+                                          "shippingFeeCustomerPaid": 0,
+                                          "shippingFeeReal": 40000,
+                                          "afterSubtract": null,
+                                          "boomFee": 60000,
+                                          "returnChargeApplied": true
+                                        }
+                                      ]
+                                    }
+
+                📌 Store được xác định tự động từ JWT (không cần truyền storeId).
+                📌 Kết quả dùng cho màn hình "Nợ cần quyết toán".
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Lấy danh sách nợ cần quyết toán thành công"
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "Chưa đăng nhập hoặc token không hợp lệ"
+            ),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Không có quyền truy cập"
+            )
+    })
     @GetMapping("/unpaid-ended")
     public ResponseEntity<BaseResponse> getUnpaidEndedDebts() {
         var storeId = securityUtils.getCurrentStoreId();
