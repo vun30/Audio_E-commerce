@@ -199,6 +199,15 @@ public class StoreOrder {
     @Column(nullable = false)
     private boolean sellCountUpdated = false;
 
+    @Column(name = "confirmed_at")
+    private LocalDateTime confirmedAt; // lúc store bấm "xác nhận đơn"
+
+    @Column(name = "ghn_handover_at")
+    private LocalDateTime ghnHandoverAt; // lúc store bàn giao cho GHN (hoặc lúc GHN pickup)
+
+    @Builder.Default
+    @Column(name = "auto_cancel_applied", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
+    private Boolean autoCancelApplied = false; // chống chạy cron trùng
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {

@@ -445,4 +445,23 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
             OrderStatus status,
             PaymentMethod paymentMethod
     );
+
+    // 12h không confirm (status còn PENDING)
+    List<StoreOrder> findAllByStatusAndCreatedAtBefore(OrderStatus status, LocalDateTime time);
+
+    // 24h sau confirm mà chưa bàn giao GHN
+    @Query("""
+        select so
+        from StoreOrder so
+        where so.status = :status
+          and so.confirmedAt is not null
+          and so.confirmedAt < :deadline
+          and (so.ghnHandoverAt is null)
+          and so.autoCancelApplied = false
+    """)
+    List<StoreOrder> findNeedAutoCancelAfterConfirm(
+            @Param("status") OrderStatus status,
+            @Param("deadline") LocalDateTime deadline
+    );
+
 }
