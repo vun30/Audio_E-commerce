@@ -74,7 +74,7 @@ public class LegalPointScheduler {
     private void penalizeCustomerForReturningOrders() {
         List<CustomerOrder> orders =
                 customerOrderRepository.findByStatusAndCustomerPenalizedFalse(
-                        OrderStatus.RETURNING
+                        OrderStatus.DELIVERY_FAIL
                 );
 
         if (orders.isEmpty()) return;

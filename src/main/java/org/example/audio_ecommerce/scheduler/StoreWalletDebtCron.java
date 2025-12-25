@@ -24,6 +24,7 @@ public class StoreWalletDebtCron {
     @Transactional
     public void recalcStoreDebtBalance() {
 
+
         Map<UUID, BigDecimal> debtMap = new HashMap<>();
 
         // 1️⃣ Nợ từ StoreOrder
@@ -39,6 +40,7 @@ public class StoreWalletDebtCron {
             BigDecimal amount = (BigDecimal) row[1];
             debtMap.merge(storeId, amount, BigDecimal::add);
         }
+
 
         // 3️⃣ Update StoreWallet
         int updated = 0;
@@ -64,7 +66,7 @@ public class StoreWalletDebtCron {
         }
     }
 
-//    @Transactional
+    //    @Transactional
 //    public void recalcStoreDebtBalanceByStoreId(UUID storeId) {
 //
 //        if (storeId == null) return;
@@ -111,9 +113,6 @@ public class StoreWalletDebtCron {
 //                    storeId, oldDebt, newDebt);
 //        }
 //    }
-
-
-
 
     private BigDecimal nz(BigDecimal v) {
         return v == null ? BigDecimal.ZERO : v;
