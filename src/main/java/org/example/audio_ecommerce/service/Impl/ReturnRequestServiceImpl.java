@@ -1273,7 +1273,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                                 .storeId(r.getShopId())
                                 .ghnOrderCode(null)              // chưa có
                                 .shippingFee(BigDecimal.ZERO)    // ✅ vì chưa có phí
-                                .payer("UNKNOWN")                   // sẽ set lại ngay dưới
+                                .payer("SHOP")                   // sẽ set lại ngay dưới
                                 .chargedToShop(BigDecimal.ZERO)
                                 .shopFault(null)
                                 .paidByShop(false)
@@ -1310,14 +1310,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         feeLog.setShippingFee(fee);
 
         // giữ payer hiện tại (nếu admin đã phán thì dùng payer đó)
-        String payer = feeLog.getPayer();
-        if ("SHOP".equalsIgnoreCase(payer)) {
-            feeLog.setChargedToShop(fee);
-            feeLog.setPaidByShop(true);
-        } else {
-            feeLog.setChargedToShop(BigDecimal.ZERO);
-            feeLog.setPaidByShop(false);
-        }
+        feeLog.setPayer("SHOP");
+        feeLog.setChargedToShop(fee);
+        feeLog.setPaidByShop(true);
+        feeLog.setShopFault(true); // optional
 
         shippingFeeRepo.save(feeLog);
     }
