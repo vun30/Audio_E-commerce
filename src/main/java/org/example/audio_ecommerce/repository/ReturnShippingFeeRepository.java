@@ -144,5 +144,16 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
             @Param("from") LocalDateTime from,
             @Param("toExclusive") LocalDateTime toExclusive
     );
+
+    @Query("""
+    select f
+    from ReturnShippingFee f
+    where f.storeId = :storeId
+      and (f.paidByShop = false or f.paidByShop is null)
+      and upper(f.payer) = 'SHOP'
+    order by f.createdAt desc
+""")
+    List<ReturnShippingFee> findUnpaidShopReturnFeesByStoreId(@Param("storeId") UUID storeId);
+
 }
 
