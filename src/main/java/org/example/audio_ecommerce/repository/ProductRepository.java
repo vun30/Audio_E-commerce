@@ -82,7 +82,7 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     // =============================
     // ADVANCED FILTER (STORE ADDRESS + CATEGORY)
     // =============================
-@Query("""
+    @Query("""
 SELECT DISTINCT p FROM Product p
 JOIN p.store s
 LEFT JOIN s.storeAddresses addr
@@ -94,20 +94,26 @@ WHERE (:status IS NULL OR p.status = :status)
        OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%'))
        OR LOWER(p.brandName) LIKE LOWER(CONCAT('%', :keyword, '%'))
   )
-  AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
-  AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
-  AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
+  AND (
+        (:provinceCode IS NULL AND :districtCode IS NULL AND :wardCode IS NULL)
+        OR (
+            addr.defaultAddress = true
+            AND (:provinceCode IS NULL OR addr.provinceCode = :provinceCode)
+            AND (:districtCode IS NULL OR addr.districtCode = :districtCode)
+            AND (:wardCode IS NULL OR addr.wardCode = :wardCode)
+        )
+  )
 """)
-Page<Product> findAllWithAdvancedFilters(
-        @Param("status") ProductStatus status,
-        @Param("categoryId") UUID categoryId,
-        @Param("storeId") UUID storeId,
-        @Param("keyword") String keyword,
-        @Param("provinceCode") String provinceCode,
-        @Param("districtCode") String districtCode,
-        @Param("wardCode") String wardCode,
-        Pageable pageable
-);
+    Page<Product> findAllWithAdvancedFilters(
+            @Param("status") ProductStatus status,
+            @Param("categoryId") UUID categoryId,
+            @Param("storeId") UUID storeId,
+            @Param("keyword") String keyword,
+            @Param("provinceCode") String provinceCode,
+            @Param("districtCode") String districtCode,
+            @Param("wardCode") String wardCode,
+            Pageable pageable
+    );
 
 
 
@@ -164,7 +170,7 @@ Page<Product> findAllWithAdvancedFilters(
     @Query("""
 UPDATE Product p
 SET p.status = :toStatus
-WHERE p.store.id = :storeId
+WHERE p.store.storeId = :storeId
   AND p.status = :fromStatus
 """)
     int updateProductStatusByStore(
@@ -173,5 +179,19 @@ WHERE p.store.id = :storeId
             @Param("toStatus") ProductStatus toStatus
     );
 
+    @Query("""
+    select distinct p
+    from Product p
+    join p.store s
+    join s.storeAddresses a
+    where p.status = :status
+      and a.defaultAddress = true
+      and a.provinceCode = :provinceCode
+""")
+    Page<Product> findNearbyByProvince(
+            @Param("status") ProductStatus status,
+            @Param("provinceCode") String provinceCode,
+            Pageable pageable
+    );
 
 }
