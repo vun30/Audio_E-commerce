@@ -331,7 +331,19 @@ public class GhnStatusSyncService {
         List<StoreOrder> allStoreOrders =
                 storeOrderRepo.findAllByCustomerOrder(customerOrder);
 
-        // Kiểm tra nếu có bất kỳ store order nào bị hủy -> customer order cũng bị hủy
+        // Xác định trạng thái cao nhất trong các store orders để gán cho customer order
+        // Theo thứ tự ưu tiên: CANCELLED > RETURNED > DELIVERY_FAIL > READY_FOR_PICKUP > SHIPPING > DELIVERY_SUCCESS
+        OrderStatus highestPriorityStatus = allStoreOrders.stream()
+                .map(StoreOrder::getStatus)
+                .max((status1, status2) -> {
+                    // Define priority order (higher number = higher priority)
+                    int priority1 = getOrderPriority(status1);
+                    int priority2 = getOrderPriority(status2);
+                    return Integer.compare(priority1, priority2);
+                })
+                .orElse(customerOrder.getStatus());
+
+        // Nếu có bất kỳ store order nào bị hủy -> customer order cũng bị hủy
         boolean hasCancelledOrder = allStoreOrders.stream()
                 .anyMatch(so -> so.getStatus() == OrderStatus.CANCELLED);
         
@@ -376,16 +388,33 @@ public class GhnStatusSyncService {
                     }
                 }
             } else {
-                // Nếu chưa giao hết: có thể set trạng thái "SHIPPING" (nếu hiện tại chưa phải CANCEL/UNPAID)
+                // Nếu chưa giao hết: dùng trạng thái ưu tiên cao nhất từ các store orders
+                // (nếu hiện tại chưa phải CANCEL/UNPAID)
                 if (customerOrder.getStatus() != OrderStatus.CANCELLED
                         && customerOrder.getStatus() != OrderStatus.UNPAID) {
-                    customerOrder.setStatus(OrderStatus.SHIPPING);
+                    customerOrder.setStatus(highestPriorityStatus);
                     customerOrderRepo.save(customerOrder);
-                    log.info("ℹ [GHN Sync] CustomerOrder {} → SHIPPING (chưa giao hết store)",
-                            customerOrder.getId());
+                    log.info("ℹ [GHN Sync] CustomerOrder {} → {} (trạng thái ưu tiên cao nhất từ store orders)",
+                            customerOrder.getId(), highestPriorityStatus);
                 }
             }
         }
+    }
+
+    /**
+     * Xác định mức độ ưu tiên của trạng thái đơn hàng
+     * Trả về số càng cao thì ưu tiên càng cao
+     */
+    private int getOrderPriority(OrderStatus status) {
+        return switch (status) {
+            case CANCELLED -> 6;
+            case RETURNED -> 5;
+            case DELIVERY_FAIL -> 4;
+            case READY_FOR_PICKUP -> 3;
+            case SHIPPING -> 2;
+            case DELIVERY_SUCCESS -> 1;
+            default -> 0;
+        };
     }
 
     /**
