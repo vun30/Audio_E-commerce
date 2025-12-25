@@ -1095,10 +1095,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // Chỉ confirm khi GHN đã giao trả về shop
         // tuỳ bạn map trackingStatus, ở code bạn đang dùng "delivered" cho auto refund
-        ReturnStatus tracking = r.getStatus();
-        if (!tracking.equals(ReturnStatus.SHIPPING)) {
-            throw new IllegalStateException("GHN has not delivered return package to shop yet");
-        }
+//        ReturnStatus tracking = r.getStatus();
+//        if (!tracking.equals(ReturnStatus.SHIPPING)) {
+//            throw new IllegalStateException("GHN has not delivered return package to shop yet");
+//        }
 
         // Nếu admin đã phán SHOP thắng -> đóng luồng, không cho refund/confirm
         if (r.isFinalDecision()) {
