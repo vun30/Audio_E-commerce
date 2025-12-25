@@ -15,7 +15,6 @@ public interface CustomerOrderCancellationRepository
 
     List<CustomerOrderCancellationRequest> findAllByCustomerOrder_Customer_Id(UUID customerId);
 
-    boolean existsByStoreOrder_IdAndStatus(UUID storeOrderId, CancellationRequestStatus status);
     boolean existsByCustomerOrder_IdAndStatus(UUID customerOrderId, CancellationRequestStatus status);
 
 }

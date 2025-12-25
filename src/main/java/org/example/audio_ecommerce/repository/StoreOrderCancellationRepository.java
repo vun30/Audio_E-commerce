@@ -10,6 +10,5 @@ import java.util.UUID;
 public interface StoreOrderCancellationRepository extends JpaRepository<StoreOrderCancellationRequest, UUID> {
     List<StoreOrderCancellationRequest> findAllByStoreOrder_Id(UUID storeOrderId);
     boolean existsByStoreOrder_IdAndStatus(UUID storeOrderId, CancellationRequestStatus status);
-    boolean existsByCustomerOrder_IdAndStatus(UUID customerOrderId, CancellationRequestStatus status);
 
 }
