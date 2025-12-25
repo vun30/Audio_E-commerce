@@ -7,6 +7,8 @@ import org.springframework.data.domain.*;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -58,4 +60,7 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
         group by month(c.created_at)
     """, nativeQuery = true)
     java.util.List<Object[]> countNewCustomersByMonth(@Param("year") int year);
+
+    List<Customer> findAllByBuyableFalseAndLegalPointZeroedAtIsNotNullAndLegalPoint(BigDecimal legalPoint);
+
 }

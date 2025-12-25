@@ -152,6 +152,9 @@ public class Customer extends BaseEntity {
     @Builder.Default
     private boolean buyable = true; // hoặc false tuỳ logic của bạn
 
+    @Column(name = "legal_point_zeroed_at")
+    private LocalDateTime legalPointZeroedAt;
+
     // ===== Helpers =====
     public void addAddress(CustomerAddress addr, boolean makeDefault) {
         addr.setCustomer(this);

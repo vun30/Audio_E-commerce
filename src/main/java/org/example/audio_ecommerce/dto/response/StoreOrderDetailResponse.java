@@ -45,6 +45,10 @@ public class StoreOrderDetailResponse {
     private List<StoreOrderItemResponse> items;
     private List<ShopVoucherAppliedResponse> shopVouchers;
     private PaymentMethod paymentMethod;
+    private BigDecimal platformFeeAmount;        // tiền phí nền tảng
+    private BigDecimal platformFeePercentage;    // % phí nền tảng
+    private BigDecimal netPayoutToStore;          // tiền shop thực nhận
+    private LocalDateTime confirmedAt;
     // ✅ voucher shop đã apply
 
 }

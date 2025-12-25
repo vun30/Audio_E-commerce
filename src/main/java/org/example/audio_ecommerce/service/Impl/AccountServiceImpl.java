@@ -670,6 +670,8 @@ public class AccountServiceImpl implements AccountService {
                 .status(CustomerStatus.ACTIVE)
                 .twoFactorEnabled(false)
                 .kycStatus(KycStatus.NONE)
+                .legalPoint(new BigDecimal("10"))
+                .buyable(true)
                 .build();
 
         customerRepository.save(customer);

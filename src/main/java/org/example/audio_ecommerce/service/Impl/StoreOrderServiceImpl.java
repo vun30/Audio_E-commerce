@@ -50,6 +50,12 @@ public class StoreOrderServiceImpl implements StoreOrderService {
         // Cập nhật status cho StoreOrder
         order.setStatus(status);
 
+        if (status == OrderStatus.AWAITING_SHIPMENT) {
+            if (order.getConfirmedAt() == null) { // chống set lại nhiều lần
+                order.setConfirmedAt(LocalDateTime.now());
+            }
+        }
+
         // ✅ Nếu store-order chuyển sang DELIVERY_SUCCESS → set deliveredAt
         if (status == OrderStatus.DELIVERY_SUCCESS) {
             order.setDeliveredAt(LocalDateTime.now());
@@ -398,12 +404,16 @@ public class StoreOrderServiceImpl implements StoreOrderService {
                 .shippingFee(defaultBigDecimal(order.getShippingFee()))
                 .grandTotal(defaultBigDecimal(order.getGrandTotal()))
                 .shopVouchers(parseShopVouchers(order))
+                .confirmedAt(order.getConfirmedAt())
                 .paymentMethod(order.getPaymentMethod())
                 .customerOrderId(customerOrder != null ? customerOrder.getId() : null)
                 .customerId(customer != null ? customer.getId() : null)
                 .customerName(customer != null ? customer.getFullName() : null)
                 .customerPhone(customer != null ? customer.getPhoneNumber() : null)
                 .customerMessage(customerOrder != null ? customerOrder.getMessage() : null)
+                .platformFeeAmount(defaultBigDecimal(order.getPlatformFeeAmount()))
+                .platformFeePercentage(defaultBigDecimal(order.getPlatformFeePercentage()))
+                .netPayoutToStore(defaultBigDecimal(order.getNetPayoutToStore()))
                 .shipReceiverName(order.getShipReceiverName())
                 .shipPhoneNumber(order.getShipPhoneNumber())
                 .shipCountry(order.getShipCountry())

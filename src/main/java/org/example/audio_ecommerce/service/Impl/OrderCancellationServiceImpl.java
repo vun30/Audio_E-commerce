@@ -5,6 +5,7 @@ import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.entity.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
+import org.example.audio_ecommerce.service.LegalPointService;
 import org.example.audio_ecommerce.service.NotificationCreatorService;
 import org.example.audio_ecommerce.service.OrderCancellationService;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
     private final ProductRepository productRepo;
     private final ProductVariantRepository productVariantRepo;
     private final NotificationCreatorService notificationCreatorService;
+    private final LegalPointService legalPointService;
 
     /**
      * KH hủy toàn bộ nếu CustomerOrder còn PENDING => refund ngay về ví KH, không cần shop duyệt
@@ -72,7 +74,11 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         // CustomerOrder -> CANCELLED
         order.setStatus(OrderStatus.CANCELLED);
         customerOrderRepo.save(order);
-
+        legalPointService.minusForCustomer(
+                order.getCustomer().getId(),
+                1,
+                "CUSTOMER_CANCEL_ORDER_PENDING orderCode=" + order.getOrderCode()
+        );
         // CUSTOMER
         notificationCreatorService.createAndSend(
                 NotificationTarget.CUSTOMER,
@@ -168,6 +174,13 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         if (allCancelled) {
             customerOrder.setStatus(OrderStatus.CANCELLED);
             customerOrderRepo.save(customerOrder);
+
+            // ✅ Trừ legalPoint CUSTOMER vì huỷ đã đi vào luồng shop duyệt
+            legalPointService.minusForCustomer(
+                    customerOrder.getCustomer().getId(),
+                    1,
+                    "CUSTOMER_CANCEL_APPROVED_BY_SHOP orderCode=" + customerOrder.getOrderCode()
+            );
         }
 
         // ================== 🔔 NOTIFICATION ==================
@@ -326,8 +339,14 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
         StoreOrder target = storeOrders.get(0);
 
         // Chỉ cho phép request khi đang AWAITING_SHIPMENT
-        if (target.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
-            return BaseResponse.error("StoreOrder must be AWAITING_SHIPMENT to request cancel");
+//        if (target.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
+//            return BaseResponse.error("StoreOrder must be AWAITING_SHIPMENT to request cancel");
+//        }
+        if (cancelRepo.existsByStoreOrder_IdAndStatus(target.getId(), CancellationRequestStatus.REQUESTED)) {
+            return BaseResponse.error("Bạn đã gửi yêu cầu huỷ cho đơn này rồi. Vui lòng chờ shop xử lý.");
+        }
+        if (customerCancelRepo.existsByCustomerOrder_IdAndStatus(co.getId(), CancellationRequestStatus.REQUESTED)) {
+            return BaseResponse.error("Bạn đã gửi yêu cầu huỷ cho đơn này rồi. Vui lòng chờ shop xử lý.");
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -350,6 +369,8 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
                 .status(CancellationRequestStatus.REQUESTED)
                 .requestedAt(LocalDateTime.now())
                 .build();
+
+
         cancelRepo.save(req);
 
         // ================== 🔔 NOTIFICATION ==================
