@@ -1,0 +1,25 @@
+<!doctype html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body style="font-family:Arial,sans-serif;">
+<h2>Xin chào <span th:text="${name}">User</span> 👋</h2>
+
+<p>Bạn vừa đăng ký tài khoản (<b th:text="${role}">CUSTOMER</b>).</p>
+<p>Vui lòng bấm nút dưới đây để xác nhận email và kích hoạt tài khoản:</p>
+
+<p>
+    <a th:href="${verifyLink}"
+       style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:8px;">
+        Xác nhận email
+    </a>
+</p>
+
+<p>Nếu nút không bấm được, copy link sau:</p>
+<p><a th:href="${verifyLink}" th:text="${verifyLink}">verifyLink</a></p>
+
+<hr/>
+<p th:if="${siteUrl != null}">
+    Truy cập website: <a th:href="${siteUrl}" th:text="${siteUrl}">siteUrl</a>
+</p>
+
+</body>
+</html>

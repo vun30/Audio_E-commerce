@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.util.UUID;
 import java.util.List;
+import java.util.Optional;
 
 public interface StoreAddressRepository extends JpaRepository<StoreAddressEntity, UUID> {
 
@@ -17,4 +18,6 @@ public interface StoreAddressRepository extends JpaRepository<StoreAddressEntity
     @Modifying
     @Query("UPDATE StoreAddressEntity a SET a.defaultAddress = false WHERE a.store.storeId = ?1")
     void removeDefaultFromAll(UUID storeId);
+
+    Optional<StoreAddressEntity> findFirstByStore_StoreIdAndDefaultAddressTrue(UUID storeId);
 }
