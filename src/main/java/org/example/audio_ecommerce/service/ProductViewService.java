@@ -36,5 +36,22 @@ public interface ProductViewService {
 
     ResponseEntity<BaseResponse> getActiveVouchersOfProduct(UUID productId, String type, String campaignType);
 
+    ResponseEntity<BaseResponse> getNearbyThumbnailView(
+            String status,
+            UUID categoryId,
+            UUID storeId,
+            String keyword,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            BigDecimal minRating,
+            Integer minReviewCount,
+            Integer minViewCount,
+            Integer minSellCount,
+            Pageable pageable,
+            String sortBy,
+            String sortDir
+    );
+
+
 
 }

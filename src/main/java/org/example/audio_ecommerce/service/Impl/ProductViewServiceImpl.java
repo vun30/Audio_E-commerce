@@ -7,10 +7,7 @@ import org.example.audio_ecommerce.entity.Enum.CampaignType;
 import org.example.audio_ecommerce.entity.Enum.ProductStatus;
 import org.example.audio_ecommerce.entity.Enum.ShopVoucherScopeType;
 import org.example.audio_ecommerce.entity.Enum.VoucherStatus;
-import org.example.audio_ecommerce.repository.PlatformCampaignProductRepository;
-import org.example.audio_ecommerce.repository.ProductRepository;
-import org.example.audio_ecommerce.repository.ShopVoucherProductRepository;
-import org.example.audio_ecommerce.repository.ShopVoucherRepository;
+import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.ProductViewService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,6 +27,8 @@ public class ProductViewServiceImpl implements ProductViewService {
     private final ShopVoucherProductRepository shopVoucherProductRepo;
     private final PlatformCampaignProductRepository platformCampaignProductRepo;
     private final ShopVoucherRepository shopVoucherRepository;
+    private final org.example.audio_ecommerce.util.SecurityUtils securityUtils;
+    private final CustomerRepository customerRepo;
 
     // =========================================================
     // 1) LIST THUMBNAIL VIEW + FILTER
@@ -546,6 +545,60 @@ public ResponseEntity<BaseResponse> getThumbnailView(
         )).toList();
     }
 
+    @Override
+    public ResponseEntity<BaseResponse> getNearbyThumbnailView(
+            String status,
+            UUID categoryId,
+            UUID storeId,
+            String keyword,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            BigDecimal minRating,
+            Integer minReviewCount,
+            Integer minViewCount,
+            Integer minSellCount,
+            Pageable pageable,
+            String sortBy,
+            String sortDir
+    ) {
+        // 1) Lấy customerId từ SecurityUtils của bạn
+        UUID customerId = securityUtils.getCurrentCustomerId();
+
+        Customer customer = customerRepo.findById(customerId)
+                .orElseThrow(() -> new RuntimeException("Customer not found"));
+
+        CustomerAddress addr = customer.getDefaultAddress();
+        if (addr == null || addr.getProvinceCode() == null || addr.getProvinceCode().isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(BaseResponse.error("❌ Customer does not have default address provinceCode"));
+        }
+
+        String provinceCode = addr.getProvinceCode().trim();
+
+        // 2) ✅ Gọi lại y hệt thumbnail view, chỉ khác provinceCode lấy từ customer
+        // districtCode/wardCode bạn muốn bỏ qua => truyền null
+        return this.getThumbnailView(
+                status,
+                categoryId,
+                storeId,
+                keyword,
+                provinceCode, // ✅ chỉ dựa vào mã tỉnh
+                null,
+                null,
+                minPrice,
+                maxPrice,
+                minRating,
+                minReviewCount,
+                minViewCount,
+                minSellCount,
+                pageable,
+                sortBy,
+                sortDir
+        );
+    }
+
+
+
     // =========================================================
     // FUZZY SEARCH
     // =========================================================
@@ -553,4 +606,58 @@ public ResponseEntity<BaseResponse> getThumbnailView(
         if (text == null || keyword == null) return false;
         return text.toLowerCase().contains(keyword.toLowerCase().trim());
     }
+
+    //Helper lấy default store addres
+    private StoreAddressEntity resolveDefaultStoreAddress(Store store) {
+        if (store == null || store.getStoreAddresses() == null) return null;
+        return store.getStoreAddresses().stream()
+                .filter(a -> Boolean.TRUE.equals(a.getDefaultAddress()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<Product> sortProducts(List<Product> products, String sortBy, String sortDir) {
+        if (products == null || products.isEmpty()) return List.of();
+
+        Comparator<Product> comparator;
+        String safeSortBy = sortBy != null ? sortBy.toLowerCase() : "name";
+
+        switch (safeSortBy) {
+            case "price" -> comparator = Comparator.comparing(p -> {
+                BigDecimal basePrice = p.getFinalPrice() != null ? p.getFinalPrice() : p.getPrice();
+                if (p.getVariants() != null && !p.getVariants().isEmpty()) {
+                    return p.getVariants().stream()
+                            .map(ProductVariantEntity::getVariantPrice)
+                            .filter(Objects::nonNull)
+                            .min(BigDecimal::compareTo)
+                            .orElse(basePrice);
+                }
+                return basePrice;
+            }, Comparator.nullsLast(BigDecimal::compareTo));
+
+            case "view", "viewcount" ->
+                    comparator = Comparator.comparing(p -> Optional.ofNullable(p.getViewCount()).orElse(0));
+
+            case "review", "reviewcount" ->
+                    comparator = Comparator.comparing(p -> Optional.ofNullable(p.getReviewCount()).orElse(0));
+
+            case "rating", "ratingaverage" ->
+                    comparator = Comparator.comparing(
+                            p -> Optional.ofNullable(p.getRatingAverage()).orElse(BigDecimal.ZERO)
+                    );
+
+            case "sell", "sellcount" ->
+                    comparator = Comparator.comparing(p -> Optional.ofNullable(p.getSellCount()).orElse(0));
+
+            default ->
+                    comparator = Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER);
+        }
+
+        if ("desc".equalsIgnoreCase(sortDir)) {
+            comparator = comparator.reversed();
+        }
+
+        return products.stream().sorted(comparator).toList();
+    }
+
 }
