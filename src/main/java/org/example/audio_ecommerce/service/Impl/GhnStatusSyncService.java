@@ -312,13 +312,13 @@ public class GhnStatusSyncService {
         storeOrderRepo.save(storeOrder);
         log.info("✅ [GHN Sync] Cập nhật StoreOrder {} → status={} deliveredAt={}",
                 storeOrder.getId(), storeOrder.getStatus(), storeOrder.getDeliveredAt());
-        // ==== Cập nhật nợ cho StoreOrder ====
-        try {
-            storeOrderDebtCron.recalcDebtAndWalletForOrder(storeOrder.getId(), mappedStatus);
-        } catch (Exception e) {
-            log.error("❌ [GHN Sync] recalc debt failed for storeOrderId={} : {}",
-                    storeOrder.getId(), e.getMessage(), e);
-        }
+//        // ==== Cập nhật nợ cho StoreOrder ====
+//        try {
+//            storeOrderDebtCron.recalcDebtAndWalletForOrder(storeOrder.getId(), mappedStatus);
+//        } catch (Exception e) {
+//            log.error("❌ [GHN Sync] recalc debt failed for storeOrderId={} : {}",
+//                    storeOrder.getId(), e.getMessage(), e);
+//        }
 
         // ==== Cập nhật CustomerOrder ====
         CustomerOrder customerOrder = storeOrder.getCustomerOrder();
