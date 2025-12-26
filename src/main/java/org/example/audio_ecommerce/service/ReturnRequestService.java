@@ -4,6 +4,7 @@ import org.example.audio_ecommerce.dto.request.*;
 import org.example.audio_ecommerce.dto.response.ReturnPackageFeeResponse;
 import org.example.audio_ecommerce.dto.response.ReturnPreviewResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
+import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -33,6 +34,11 @@ public interface ReturnRequestService {
             ReturnShopReceiveRequest req
     );
     ReturnRequestResponse disputeToAdmin(UUID returnRequestId, ReturnDisputeRequest req);
+
+    // ADMIN
+    ReturnRequestResponse updateReturnRequestStatus(UUID returnRequestId, ReturnStatus newStatus);
+
+    Page<ReturnRequestResponse> listAllReturnRequests(Pageable pageable);
 
     ReturnRequestResponse shopConfirmReceivedAfterDelivered(UUID returnRequestId);
 
