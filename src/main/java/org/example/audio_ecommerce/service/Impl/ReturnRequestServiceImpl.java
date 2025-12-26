@@ -386,7 +386,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                         : pickupAddr.getStreet()
         );
         r.setCustomerPhone(pickupAddr.getPhoneNumber());
-        r.setStatus(ReturnStatus.PACKAGE_SET);
+//        r.setStatus(ReturnStatus.PACKAGE_SET);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
         fillFeeWhenCustomerHasPackage(r, fee);
