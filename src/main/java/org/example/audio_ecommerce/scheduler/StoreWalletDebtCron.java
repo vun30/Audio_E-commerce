@@ -20,49 +20,39 @@ public class StoreWalletDebtCron {
     private final ReturnShippingFeeRepository returnShippingFeeRepository;
     private final StoreWalletRepository storeWalletRepository;
 
-    @Scheduled(cron = "*/10 * * * * *") // mỗi 30s
+    @Scheduled(cron = "*/10 * * * * *")
     @Transactional
     public void recalcStoreDebtBalance() {
 
-
         Map<UUID, BigDecimal> debtMap = new HashMap<>();
 
-        // 1️⃣ Nợ từ StoreOrder
         for (Object[] row : storeOrderRepository.sumDebtFromOrdersByStore()) {
-            UUID storeId = (UUID) row[0];
-            BigDecimal amount = (BigDecimal) row[1];
-            debtMap.put(storeId, amount);
+            debtMap.put((UUID) row[0], nz((BigDecimal) row[1]));
         }
 
-        // 2️⃣ Nợ từ ReturnShippingFee
         for (Object[] row : returnShippingFeeRepository.sumDebtFromReturnFeesByStore()) {
-            UUID storeId = (UUID) row[0];
-            BigDecimal amount = (BigDecimal) row[1];
-            debtMap.merge(storeId, amount, BigDecimal::add);
+            debtMap.merge((UUID) row[0], nz((BigDecimal) row[1]), BigDecimal::add);
         }
 
-
-        // 3️⃣ Update StoreWallet
         int updated = 0;
-        for (Map.Entry<UUID, BigDecimal> entry : debtMap.entrySet()) {
-            UUID storeId = entry.getKey();
-            BigDecimal newDebt = entry.getValue();
 
-            StoreWallet wallet = storeWalletRepository
-                    .findByStore_StoreId(storeId)
-                    .orElse(null);
+        // ✅ cập nhật tất cả store wallet (kể cả về 0)
+        List<StoreWallet> wallets = storeWalletRepository.findAll();
 
-            if (wallet == null) continue;
+        for (StoreWallet w : wallets) {
+            UUID storeId = w.getStore().getStoreId(); // tùy entity bạn
+            BigDecimal newDebt = debtMap.getOrDefault(storeId, BigDecimal.ZERO);
 
-            if (wallet.getDebtBalance().compareTo(newDebt) != 0) {
-                wallet.setDebtBalance(newDebt);
-                storeWalletRepository.save(wallet);
+            BigDecimal oldDebt = nz(w.getDebtBalance());
+            if (oldDebt.compareTo(newDebt) != 0) {
+                w.setDebtBalance(newDebt);
                 updated++;
             }
         }
 
         if (updated > 0) {
-            log.info("StoreWalletDebtCron updated debtBalance for {} stores", updated);
+            storeWalletRepository.saveAll(wallets);
+            log.info("updated debtBalance for {} stores", updated);
         }
     }
 
