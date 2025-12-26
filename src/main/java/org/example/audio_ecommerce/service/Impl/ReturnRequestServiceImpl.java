@@ -146,7 +146,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         UUID shopId = orderItem.getStoreId();
         UUID productId = orderItem.getRefId();
         String productName = orderItem.getName();
-        BigDecimal itemPrice = orderItem.getFinalLineTotal();
+        BigDecimal itemPrice = orderItem.getFinalLineTotal(); // hoặc lineTotal nếu hoàn theo cả dòng
 
         // 2️⃣ Tạo ReturnRequest
         ReturnRequest entity = ReturnRequest.builder()
@@ -159,42 +159,40 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .reasonType(req.getReasonType())
                 .reason(req.getReason())
                 .customerVideoUrl(req.getCustomerVideoUrl())
-                .customerImageUrls(Optional.ofNullable(req.getCustomerImageUrls()).orElseGet(ArrayList::new))
+                .customerImageUrls(
+                        Optional.ofNullable(req.getCustomerImageUrls())
+                                .orElseGet(ArrayList::new)
+                )
                 .status(ReturnStatus.PENDING)
                 .faultType(ReturnFaultType.UNKNOWN)
                 .build();
 
         entity = returnRepo.save(entity);
 
-        // 3️⃣ Cập nhật status CustomerOrder + StoreOrder (status-only)
+        // 3️⃣ Cập nhật status CustomerOrder + StoreOrder
         CustomerOrder customerOrder = orderItem.getCustomerOrder();
 
-        // ✅ chỉ đổi trạng thái nếu đơn đã giao thành công
-        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS
-                || customerOrder.getStatus() == OrderStatus.COMPLETED) {
-
-            // ❌ KHÔNG setCreatedAt - createdAt là audit field
-            // customerOrder.setCreatedAt(LocalDateTime.now());
-
-            // ✅ Update đúng 1 field status để tránh ghi đè field khác
-            customerOrderRepository.updateStatusOnly(customerOrder.getId(), OrderStatus.RETURN_REQUESTED);
+        // chỉ đổi trạng thái nếu đơn đã giao thành công
+        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS || customerOrder.getStatus() == OrderStatus.COMPLETED) {
+            customerOrder.setStatus(OrderStatus.RETURN_REQUESTED);
+            customerOrder.setCreatedAt(LocalDateTime.now()); // nếu có field này
+            customerOrderRepository.save(customerOrder);
         }
 
         // Tìm storeOrder tương ứng với shopId của item này
         StoreOrder targetStoreOrder = storeOrderRepository
                 .findAllByCustomerOrder_Id(customerOrder.getId()).stream()
-                .filter(so -> so.getStore() != null && so.getStore().getStoreId().equals(shopId))
+                .filter(so -> so.getStore() != null
+                        && so.getStore().getStoreId().equals(shopId))
                 .findFirst()
                 .orElse(null);
 
-        if (targetStoreOrder != null
-                && targetStoreOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
+        if (targetStoreOrder != null &&
+                targetStoreOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
 
-            // ❌ KHÔNG setCreatedAt - createdAt là audit field
-            // targetStoreOrder.setCreatedAt(LocalDateTime.now());
-
-            // ✅ Update status-only => không đụng totalDebtOrder
-            storeOrderRepository.updateStatusOnly(targetStoreOrder.getId(), OrderStatus.RETURN_REQUESTED);
+            targetStoreOrder.setStatus(OrderStatus.RETURN_REQUESTED);
+            targetStoreOrder.setCreatedAt(LocalDateTime.now()); // nếu em có field
+            storeOrderRepository.save(targetStoreOrder);
         }
 
         return toResponse(entity);
