@@ -1563,10 +1563,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Transactional
     public void autoEscalateToDisputeWhenShopNotCreateGhn() {
         // ví dụ: 24h (bạn muốn 6h/12h/48h thì đổi ở đây)
-        LocalDateTime deadline = LocalDateTime.now().minusMinutes(5);
+        LocalDateTime deadline = LocalDateTime.now().minusMinutes(10);
 
         List<ReturnRequest> list =
-                returnRepo.findUnresponsiveReturns(ReturnStatus.PACKAGE_SET, deadline);
+                returnRepo.findUnresponsiveReturns(ReturnStatus.APPROVED, deadline);
 
         for (ReturnRequest r : list) {
             // nếu đã tạo GHN rồi thì bỏ qua
