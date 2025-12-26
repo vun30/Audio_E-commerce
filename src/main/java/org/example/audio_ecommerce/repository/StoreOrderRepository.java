@@ -14,7 +14,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -125,17 +124,13 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
     List<StoreOrder> findByStatusAndStoreScoredFalse(OrderStatus status);
 
     @Query("""
-    select o from StoreOrder o
-    where (o.paidByShop = false or o.paidByShop is null)
-      and o.shippingFeeReal is not null
-      and o.shippingFeeReal > 0
-      and o.status not in (
-            org.example.audio_ecommerce.entity.Enum.OrderStatus.RETURN_REQUESTED,
-            org.example.audio_ecommerce.entity.Enum.OrderStatus.RETURNING,
-            org.example.audio_ecommerce.entity.Enum.OrderStatus.RETURNED
-      )
-""")
+                select o from StoreOrder o
+                where o.paidByShop = false
+                  and o.shippingFeeReal is not null
+                  and o.shippingFeeReal > 0
+            """)
     List<StoreOrder> findOrdersForDebtCron();
+
     @Query("""
                 select o.store.storeId, coalesce(sum(o.totalDebtOrder), 0)
                 from StoreOrder o
@@ -579,10 +574,5 @@ WHERE (:from IS NULL OR so.created_at >= :from)
             @Param("status") OrderStatus status,
             @Param("deadline") LocalDateTime deadline
     );
-
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("update StoreOrder o set o.status = :newStatus where o.id = :orderId")
-    int updateStatusOnly(@Param("orderId") UUID orderId,
-                         @Param("newStatus") OrderStatus newStatus);
 
 }
