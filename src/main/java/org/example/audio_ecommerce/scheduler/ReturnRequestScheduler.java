@@ -17,5 +17,6 @@ public class ReturnRequestScheduler {
         returnRequestService.autoCancelUnshippedReturns();
         returnRequestService.autoRefundForUnresponsiveShop();
         returnRequestService.autoHandleGhnPickupTimeout();
+        returnRequestService.autoEscalateToDisputeWhenShopNotCreateGhn();
     }
 }
