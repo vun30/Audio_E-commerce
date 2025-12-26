@@ -55,14 +55,6 @@ public class StoreOrderDebtCron {
                 continue;
             }
 
-            // ✅ BỎ QUA LUÔN NHÓM HOÀN / TRẢ
-            // (phí hoàn đã tách sang bảng ReturnShippingFee, tránh cron ghi đè mất SHIP_DIFF)
-            if (status == OrderStatus.RETURN_REQUESTED
-                    || status == OrderStatus.RETURNING
-                    || status == OrderStatus.RETURNED) {
-                continue;
-            }
-
             // 2) BỎ QUA 3 TRẠNG THÁI
             if (status == OrderStatus.UNPAID
                     || status == OrderStatus.PENDING
@@ -107,7 +99,6 @@ public class StoreOrderDebtCron {
     }
 
 
-
 //    @Transactional
 //    public void recalcDebtForOrder(UUID storeOrderId, OrderStatus status) {
 //
@@ -136,50 +127,39 @@ public class StoreOrderDebtCron {
      */
     private BigDecimal computeDebt(StoreOrder o, OrderStatus status) {
 
-        // 1) ĐÃ THANH TOÁN -> KHÔNG ĐỤNG (trả null để caller "continue")
+        // ✅ ĐÃ THANH TOÁN NỢ -> BỎ QUA (không đụng vào nữa)
         if (Boolean.TRUE.equals(o.getPaidByShop())) return null;
 
         if (status == null) return null;
 
-        // ✅ CANCELLED -> NỢ = 0 (ưu tiên trước)
-        if (status == OrderStatus.CANCELLED) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-            // hoặc BigDecimal.ZERO nếu bạn muốn y hệt cron (cron set 0 không scale)
-        }
-
-        // ✅ BỎ QUA LUÔN NHÓM HOÀN / TRẢ
-        if (status == OrderStatus.RETURN_REQUESTED
-                || status == OrderStatus.RETURNING
-                || status == OrderStatus.RETURNED) {
-            return null;
-        }
-
-        // ✅ BỎ QUA 3 TRẠNG THÁI
-        if (status == OrderStatus.UNPAID
-                || status == OrderStatus.PENDING
-                || status == OrderStatus.CONFIRMED) {
-            return null;
-        }
-
         BigDecimal R = nvl(o.getShippingFeeReal());
-        if (R.compareTo(BigDecimal.ZERO) <= 0) return null; // không có shipReal thì không tính
-
         BigDecimal E = nvl(o.getShippingFee());
 
-        // ✅ ƯU TIÊN: có return charge -> 1.5R
+        // ✅ CANCELLED -> XÓA NỢ
+        if (status == OrderStatus.CANCELLED) {
+            return BigDecimal.ZERO;
+        }
+
+        // ✅ nếu shipReal chưa có / <=0 thì không tính (trừ CANCELLED đã xử lý ở trên)
+        if (R.compareTo(BigDecimal.ZERO) <= 0) return null;
+
+        // ✅ Nếu áp dụng phí quay đầu / return charge -> nợ = 1.5R
         if (Boolean.TRUE.equals(o.getReturnChargeApplied())) {
             return R.multiply(new BigDecimal("1.5"))
                     .setScale(2, RoundingMode.HALF_UP);
         }
 
-        // ✅ Không return charge
-        if (o.getDeliveredAt() != null) {
-            // delivered -> shipReal - shipEstimated
-            return R.subtract(E).max(BigDecimal.ZERO)
-                    .setScale(2, RoundingMode.HALF_UP);
-        } else {
-            // chưa delivered -> nợ = shipReal
-            return R.setScale(2, RoundingMode.HALF_UP);
+        switch (status) {
+            case SHIPPING:
+            case OUT_FOR_DELIVERY:
+            case DELIVERED_WAITING_CONFIRM:
+                return R;
+
+            case DELIVERY_SUCCESS:
+                return R.subtract(E).max(BigDecimal.ZERO);
+
+            default:
+                return null;
         }
     }
 

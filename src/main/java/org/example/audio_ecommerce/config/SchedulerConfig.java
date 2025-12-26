@@ -12,7 +12,7 @@ public class SchedulerConfig {
     @Bean
     public ThreadPoolTaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(10); // Number of threads in the pool
+        scheduler.setPoolSize(6); // Number of threads in the pool
         scheduler.setThreadNamePrefix("scheduled-task-");
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(60);
