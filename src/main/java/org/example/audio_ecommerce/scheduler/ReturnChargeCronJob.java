@@ -24,7 +24,7 @@ public class ReturnChargeCronJob {
     /**
      * Chạy mỗi 5 phút
      */
-    @Scheduled(cron = "0 */1 * * * *")
+//@Scheduled(cron = "0 */1 * * * *")
     @Transactional
     public void applyReturnChargeForReturningOrders() {
 

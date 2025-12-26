@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,4 +30,6 @@ from StoreWallet w
 """)
     BigDecimal sumAllStoreDebtBalance();
 
+
+    List<StoreWallet> findAllByStore_StoreIdIn(Collection<UUID> storeIds);
 }
