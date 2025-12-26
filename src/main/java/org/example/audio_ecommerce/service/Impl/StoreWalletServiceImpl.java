@@ -328,50 +328,43 @@ public class StoreWalletServiceImpl implements StoreWalletService {
         storeWalletTransactionRepository.save(tx);
 
         // =========================================================
-        // 8.1) LOAD PLATFORM WALLET (QUAN TRỌNG)
-        // =========================================================
+// 8.1) LOAD PLATFORM WALLET (QUAN TRỌNG)
+// =========================================================
         PlatformWallet platformWallet = platformWalletRepository
                 .findMainPlatformWallet()
-                .orElseThrow(() ->
-                        new RuntimeException("❌ Không tìm thấy PlatformWallet chính"));
+                .orElseThrow(() -> new RuntimeException("❌ Không tìm thấy PlatformWallet chính"));
 
-        // =========================================================
-        // 8.2) PLATFORM WALLET SNAPSHOT
-        // =========================================================
+// =========================================================
+// ✅ 8.2) KHÔNG UPDATE CASH BALANCE - chỉ snapshot
+// =========================================================
         BigDecimal platformBefore = nz(platformWallet.getCashBalance());
-        BigDecimal platformAfter = platformBefore.add(totalToPay);
+        BigDecimal platformAfter  = platformBefore; // ✅ không đổi
 
-        platformWallet.setCashBalance(platformAfter);
-        platformWallet.setUpdatedAt(now);
-        platformWalletRepository.save(platformWallet);
-
-        // =========================================================
-        // 8.3) PLATFORM TRANSACTION (LEDGER)
-        // =========================================================
+// =========================================================
+// ✅ 8.3) PLATFORM TRANSACTION (LEDGER ONLY)
+// =========================================================
         PlatformTransaction flat = PlatformTransaction.builder()
-                // link
                 .wallet(platformWallet)
                 .storeId(storeId)
 
                 // money
                 .amount(totalToPay)
 
-                // ledger meta (BẮT BUỘC)
+                // ledger meta
                 .type(TransactionType.DEBT_PAYMENT)
                 .status(TransactionStatus.SUCCESS)
                 .channel(PaymentChannel.INTERNAL)
                 .bucket(WalletBucket.CASH)
                 .direction(TxDirection.IN)
 
-                // snapshot
+                // snapshot (không đổi)
                 .balanceBefore(platformBefore)
                 .balanceAfter(platformAfter)
 
                 // audit
-                .description("Store pay debt from defaultBalance | storeTx=" + tx.getTransactionId())
+                .description("Store pay debt (ledger-only, no wallet update) | storeTx=" + tx.getTransactionId())
                 .createdAt(now)
                 .updatedAt(now)
-
                 .build();
 
         platformTransactionRepository.save(flat);
