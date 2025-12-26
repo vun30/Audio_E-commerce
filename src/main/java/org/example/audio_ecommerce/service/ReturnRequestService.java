@@ -44,7 +44,7 @@ public interface ReturnRequestService {
             ReturnDisputeResolveRequest req
     );
     void rejectReturnByShop(UUID returnRequestId, ReturnRejectRequest req);
-
+    ReturnRequestResponse adminRefundDisputeToCustomer(UUID returnRequestId, String note);
     // AUTO
     void autoRefundForUnresponsiveShop();
     void autoApprovePendingReturns();
