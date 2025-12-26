@@ -47,6 +47,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final LegalPointService legalPointService;
     private final CustomerRepository customerRepo;
     private final NotificationCreatorService notificationCreatorService;
+    private final WalletRepository walletRepo;
+    private final WalletTransactionRepository walletTxnRepo;
+    private final PlatformWalletRepository platformWalletRepo;
+    private final PlatformTransactionRepository platformTxnRepo;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -1285,6 +1289,147 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         return toResponse(r);
     }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse adminRefundDisputeToCustomer(UUID returnRequestId, String note) {
+
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+
+        // ✅ Chỉ cho admin hoàn tiền khi đang DISPUTE (hoặc bạn có thể nới rộng thêm status khác)
+        if (r.getStatus() != ReturnStatus.DISPUTE) {
+            throw new IllegalStateException("Only DISPUTE can be refunded by admin");
+        }
+
+        // ✅ “Customer thắng” => faultType phải là SHOP (tức shop sai)
+        // Nếu bạn đang set ngược thì đổi điều kiện theo logic của bạn.
+        if (r.getFaultType() != ReturnFaultType.SHOP) {
+            throw new IllegalStateException("Admin can refund only when customer wins (faultType=SHOP)");
+        }
+
+        // ✅ Chống bấm lặp (đã refunded)
+        if (r.getStatus() == ReturnStatus.REFUNDED) {
+            return toResponse(r);
+        }
+
+        // =========================
+        // AMOUNT
+        // =========================
+        BigDecimal amount = r.getItemPrice() != null ? r.getItemPrice() : BigDecimal.ZERO;
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalStateException("Invalid refund amount (itemPrice is empty)");
+        }
+
+        // =========================
+        // IDEMPOTENCY
+        // =========================
+        String idemKey = "DISPUTE_REFUND_RETURN_" + r.getId();
+        if (platformTxnRepo.existsByIdempotencyKey(idemKey)) {
+            // Nếu đã có transaction platform => coi như đã refund trước đó
+            // Bạn có thể check thêm walletTxn nếu muốn
+            r.setStatus(ReturnStatus.REFUNDED);
+            r.setUpdatedAt(LocalDateTime.now());
+            return toResponse(returnRepo.save(r));
+        }
+
+        // =========================
+        // LOAD WALLETS
+        // =========================
+        Wallet customerWallet = walletRepo.findByCustomer_Id(r.getCustomerId())
+                .orElseThrow(() -> new NoSuchElementException("Customer wallet not found"));
+
+        PlatformWallet platformWallet = platformWalletRepo
+                .findByOwnerTypeAndOwnerId(WalletOwnerType.PLATFORM, null)
+                .orElseThrow(() -> new NoSuchElementException("Platform wallet not found"));
+
+        // =========================
+        // CHECK FUNDS
+        // =========================
+        BigDecimal platformBefore = platformWallet.getCashBalance();
+        if (platformBefore.compareTo(amount) < 0) {
+            throw new IllegalStateException("Platform cashBalance is not enough to refund");
+        }
+
+        BigDecimal customerBefore = customerWallet.getBalance();
+
+        // =========================
+        // UPDATE BALANCES
+        // =========================
+        platformWallet.setCashBalance(platformBefore.subtract(amount));
+        platformWallet.setUpdatedAt(LocalDateTime.now());
+        platformWalletRepo.save(platformWallet);
+
+        customerWallet.setBalance(customerBefore.add(amount));
+        customerWallet.setLastTransactionAt(LocalDateTime.now());
+        customerWallet.setUpdatedAt(LocalDateTime.now());
+        walletRepo.save(customerWallet);
+
+        // =========================
+        // SAVE PLATFORM TXN
+        // =========================
+        PlatformTransaction pTxn = PlatformTransaction.builder()
+                .wallet(platformWallet)
+                .orderId(r.getOrderItemId())          // nếu bạn muốn gắn orderId khác thì chỉnh
+                .storeId(r.getShopId())
+                .customerId(r.getCustomerId())
+                .amount(amount)
+                .type(TransactionType.REFUND)         // ✅ đổi theo enum thật của bạn
+                .status(TransactionStatus.DONE)
+                .channel(PaymentChannel.INTERNAL)     // ✅ đổi theo enum thật của bạn
+                .bucket(WalletBucket.CASH)            // ✅ đổi theo enum thật của bạn
+                .direction(TxDirection.OUT)
+                .balanceBefore(platformBefore)
+                .balanceAfter(platformBefore.subtract(amount))
+                .idempotencyKey(idemKey)
+                .description("ADMIN refund dispute to customer. returnRequestId=" + r.getId()
+                        + (note != null ? (" | note=" + note) : ""))
+                .metadataJson("{\"returnRequestId\":\"" + r.getId() + "\"}")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        platformTxnRepo.save(pTxn);
+
+        // =========================
+        // SAVE WALLET TXN (CUSTOMER)
+        // =========================
+        WalletTransaction wTxn = WalletTransaction.builder()
+                .wallet(customerWallet)
+                .amount(amount)
+                .transactionType(WalletTransactionType.REFUND) // ✅ đổi theo enum thật của bạn
+                .status(WalletTransactionStatus.SUCCESS)
+                .description("Refund from dispute (admin). returnRequestId=" + r.getId())
+                .balanceBefore(customerBefore)
+                .balanceAfter(customerBefore.add(amount))
+                .orderId(r.getOrderItemId()) // hoặc null / customerOrderId tuỳ bạn
+                .externalRef(idemKey)
+                .build();
+        walletTxnRepo.save(wTxn);
+
+        // =========================
+        // UPDATE RETURN STATUS
+        // =========================
+        r.setStatus(ReturnStatus.REFUNDED);
+        r.setFinalDecision(true);
+        r.setFinalDecisionAt(LocalDateTime.now());
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+
+        // (Optional) notify customer
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_REFUNDED,
+                "Hoàn tiền tranh chấp thành công",
+                "Admin đã hoàn tiền vào ví của bạn.",
+                "/customer/wallet",
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
+        return toResponse(r);
+    }
+
 
     private void refundAndDeductLegalPointIfNeeded(ReturnRequest r) {
 

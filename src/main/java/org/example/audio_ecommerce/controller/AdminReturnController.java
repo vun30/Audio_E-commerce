@@ -3,7 +3,9 @@ package org.example.audio_ecommerce.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.example.audio_ecommerce.dto.request.AdminRefundDisputeRequest;
 import org.example.audio_ecommerce.dto.request.ReturnDisputeResolveRequest;
+import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.example.audio_ecommerce.service.CustomerReturnComplaintService;
 import org.example.audio_ecommerce.service.ReturnRequestService;
@@ -11,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -80,5 +83,15 @@ public class AdminReturnController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void processAutoRefundComplaints() {
         complaintService.processAutoRefundComplaints();
+    }
+
+    @PostMapping("/{id}/dispute/refund")
+    public ResponseEntity<BaseResponse<ReturnRequestResponse>> refundDisputeToCustomer(
+            @PathVariable("id") UUID returnRequestId,
+            @RequestBody(required = false) AdminRefundDisputeRequest req
+    ) {
+        String note = (req != null) ? req.getNote() : null;
+        ReturnRequestResponse resp = returnService.adminRefundDisputeToCustomer(returnRequestId, note);
+        return ResponseEntity.ok(BaseResponse.success("Success",resp));
     }
 }
