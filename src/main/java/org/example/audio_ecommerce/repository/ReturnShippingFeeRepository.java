@@ -155,5 +155,8 @@ public interface ReturnShippingFeeRepository extends JpaRepository<ReturnShippin
 """)
     List<ReturnShippingFee> findUnpaidShopReturnFeesByStoreId(@Param("storeId") UUID storeId);
 
+    // ✅ ĐÚNG vì field là storeId (UUID), không phải store
+    List<ReturnShippingFee> findAllByStoreId(UUID storeId);
+
 }
 

@@ -66,15 +66,16 @@ public interface PlatformWalletService {
 
     List<PlatformGrowthChartPoint> getPlatformGrowthChartByYear();
 
-    FlatGhnShipFeeOverviewResponse getFlatGhnShipFeeOverview(
-            LocalDateTime from,
-            LocalDateTime to
-    );
-
-    FlatStoreDebtSummaryResponse getFlatStoreDebtSummary(LocalDateTime from, LocalDateTime to);
-
-    BigDecimal getTotalCustomerShipPaid(LocalDateTime from, LocalDateTime to);
-
-    ReturnShipFeeSummaryResponse getReturnShipFeeSummary(LocalDateTime from, LocalDateTime to);
-
+//    FlatGhnShipFeeOverviewResponse getFlatGhnShipFeeOverview(
+//            LocalDateTime from,
+//            LocalDateTime to
+//    );
+//
+//    FlatStoreDebtSummaryResponse getFlatStoreDebtSummary(LocalDateTime from, LocalDateTime to);
+//
+//    BigDecimal getTotalCustomerShipPaid(LocalDateTime from, LocalDateTime to);
+//
+//    ReturnShipFeeSummaryResponse getReturnShipFeeSummary(LocalDateTime from, LocalDateTime to);
+//
+//
 }

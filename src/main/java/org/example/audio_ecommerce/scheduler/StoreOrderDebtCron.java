@@ -44,6 +44,17 @@ public class StoreOrderDebtCron {
             OrderStatus status = o.getStatus();
             if (status == null) continue;
 
+            // ✅ CANCELLED -> NỢ = 0 (ưu tiên trước mọi check shipReal)
+            if (status == OrderStatus.CANCELLED) {
+                BigDecimal old = nvl(o.getTotalDebtOrder());
+                if (old.compareTo(BigDecimal.ZERO) != 0) {
+                    o.setTotalDebtOrder(BigDecimal.ZERO);
+                    storeOrderRepository.save(o);
+                    updated++;
+                }
+                continue;
+            }
+
             // 2) BỎ QUA 3 TRẠNG THÁI
             if (status == OrderStatus.UNPAID
                     || status == OrderStatus.PENDING
