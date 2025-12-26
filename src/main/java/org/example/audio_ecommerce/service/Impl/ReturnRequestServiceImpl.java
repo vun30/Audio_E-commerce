@@ -1239,7 +1239,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                                 .storeId(r.getShopId())
                                 .ghnOrderCode(null)              // chưa có
                                 .shippingFee(BigDecimal.ZERO)    // ✅ vì chưa có phí
-                                .payer("UNKNOWN")                   // sẽ set lại ngay dưới
+                                .payer("SHOP")                   // sẽ set lại ngay dưới
                                 .chargedToShop(BigDecimal.ZERO)
                                 .shopFault(null)
                                 .paidByShop(false)
