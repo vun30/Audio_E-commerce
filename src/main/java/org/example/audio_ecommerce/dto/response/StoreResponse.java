@@ -50,6 +50,7 @@ public class StoreResponse {
     @Schema(description = "ID tài khoản chủ cửa hàng", example = "0a1b2c3d-4e5f-6789-abcd-ef0123456789")
     private UUID accountId;
 
+    private BigDecimal legalPoint;
     // =========================================================
     // 🏢 DANH SÁCH ĐỊA CHỈ CHI NHÁNH / KHO CỦA CỬA HÀNG
     // =========================================================

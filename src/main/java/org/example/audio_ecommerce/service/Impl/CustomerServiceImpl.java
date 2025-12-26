@@ -250,6 +250,7 @@ public class CustomerServiceImpl implements CustomerService {
                 .unpaidOrderCount(c.getUnpaidOrderCount())
                 .lastOrderDate(c.getLastOrderDate())
                 .preferredCategory(c.getPreferredCategory())
+                .legalPoint(c.getLegalPoint())
                 .build();
     }
 

@@ -9,10 +9,7 @@ import org.example.audio_ecommerce.dto.response.ReturnPackageFeeResponse;
 import org.example.audio_ecommerce.dto.response.ReturnPreviewResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.example.audio_ecommerce.entity.*;
-import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.Enum.ReturnFaultType;
-import org.example.audio_ecommerce.entity.Enum.ReturnReasonType;
-import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
+import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.*;
 import org.example.audio_ecommerce.util.SecurityUtils;
@@ -49,6 +46,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final LegalPointService legalPointService;
     private final CustomerRepository customerRepo;
+    private final NotificationCreatorService notificationCreatorService;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -169,17 +167,29 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         entity = returnRepo.save(entity);
 
-        // 3️⃣ Cập nhật status CustomerOrder + StoreOrder
-        CustomerOrder customerOrder = orderItem.getCustomerOrder();
+        notificationCreatorService.createAndSend(
+                NotificationTarget.STORE,
+                shopId,
+                NotificationType.RETURN_REQUESTED,
+                "Yêu cầu trả hàng mới",
+                "Khách hàng đã tạo yêu cầu trả hàng cho sản phẩm: " + productName,
+                "/shop/returns/" + entity.getId(),
+                null,
+                Map.of(
+                        "returnRequestId", entity.getId().toString(),
+                        "orderItemId", orderItem.getId().toString()
+                )
+        );
 
-        // chỉ đổi trạng thái nếu đơn đã giao thành công
-        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS || customerOrder.getStatus() == OrderStatus.COMPLETED) {
-            customerOrder.setStatus(OrderStatus.RETURN_REQUESTED);
-            customerOrder.setCreatedAt(LocalDateTime.now()); // nếu có field này
+
+        // 3️⃣ KHÔNG đổi OrderStatus nữa - chỉ set returnState
+        CustomerOrder customerOrder = orderItem.getCustomerOrder();
+        if (customerOrder != null) {
+            customerOrder.setReturnState(OrderReturnState.REQUESTED);
             customerOrderRepository.save(customerOrder);
         }
 
-        // Tìm storeOrder tương ứng với shopId của item này
+// Tìm storeOrder tương ứng với shopId của item này
         StoreOrder targetStoreOrder = storeOrderRepository
                 .findAllByCustomerOrder_Id(customerOrder.getId()).stream()
                 .filter(so -> so.getStore() != null
@@ -187,11 +197,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .findFirst()
                 .orElse(null);
 
-        if (targetStoreOrder != null &&
-                targetStoreOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
-
-            targetStoreOrder.setStatus(OrderStatus.RETURN_REQUESTED);
-            targetStoreOrder.setCreatedAt(LocalDateTime.now()); // nếu em có field
+        if (targetStoreOrder != null) {
+            targetStoreOrder.setReturnState(OrderReturnState.REQUESTED);
             storeOrderRepository.save(targetStoreOrder);
         }
 
@@ -453,6 +460,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setStatus(ReturnStatus.APPROVED);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_APPROVED,
+                "Yêu cầu trả hàng được chấp nhận",
+                "Shop đã chấp nhận yêu cầu trả hàng. Vui lòng đóng gói và gửi hàng.",
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
     }
 
     @Override
@@ -630,6 +649,21 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
 
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_SHIPPING,
+                "Đơn trả hàng đang vận chuyển",
+                "Shop đã tạo đơn vận chuyển trả hàng. Mã GHN: " + r.getGhnOrderCode(),
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of(
+                        "returnRequestId", r.getId().toString(),
+                        "ghnOrderCode", r.getGhnOrderCode()
+                )
+        );
+
+
         // 5️⃣ Lưu GHN_ORDER (nếu muốn track chung)
         try {
             CreateGhnOrderRequest ghiReq = CreateGhnOrderRequest.builder()
@@ -787,7 +821,35 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // admin phán shop chịu phí ship return (ghi vào ReturnShippingFee)
         applyAdminPayerToReturnShippingFee(r);
 
+        // Notify CUSTOMER
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_RESOLVED,
+                "Kết quả xử lý trả hàng",
+                "Admin đã xử lý tranh chấp trả hàng.",
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
+// Notify SHOP
+        notificationCreatorService.createAndSend(
+                NotificationTarget.STORE,
+                r.getShopId(),
+                NotificationType.RETURN_RESOLVED,
+                "Kết quả xử lý trả hàng",
+                "Admin đã đưa ra quyết định cho yêu cầu trả hàng.",
+                "/shop/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
+
         return toResponse(returnRepo.save(r));
+
+
+
     }
 
 
@@ -939,6 +1001,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_REJECTED,
+                "Yêu cầu trả hàng bị từ chối",
+                "Shop đã từ chối yêu cầu trả hàng của bạn.",
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
     }
 
     /**
@@ -1088,8 +1162,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AccessDeniedException("Not your return request");
         }
 
-        // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop)
-        if (r.getStatus() == ReturnStatus.DELIVERED) {
+        // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop) chấmm
+        if (r.getStatus() != ReturnStatus.DELIVERED) { // chấm
             throw new IllegalStateException("ReturnRequest must be DELIVERED to confirm");
         }
 
@@ -1109,6 +1183,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setStatus(ReturnStatus.REFUNDED);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_REFUNDED,
+                "Hoàn tiền thành công",
+                "Số tiền đã được hoàn vào ví của bạn.",
+                "/customer/wallet",
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
 
         // Refund tiền + trừ legal point nếu shop fault (reuse logic hiện có) :contentReference[oaicite:3]{index=3}
         refundAndDeductLegalPointIfNeeded(r);
@@ -1182,6 +1268,72 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
     }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse cancelReturnRequestByCustomer(UUID returnRequestId, String reason) {
+        UUID customerId = securityUtils.getCurrentCustomerId();
+
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+
+        if (!Objects.equals(r.getCustomerId(), customerId)) {
+            throw new AccessDeniedException("Not your return request");
+        }
+
+        if (Boolean.TRUE.equals(r.isFinalDecision())) {
+            throw new IllegalStateException("Return request is closed by admin decision.");
+        }
+
+        // Chỉ cho huỷ khi chưa phát sinh vận chuyển / tranh chấp
+        boolean canCancel =
+                r.getStatus() == ReturnStatus.PENDING
+                        || (r.getStatus() == ReturnStatus.APPROVED && (r.getGhnOrderCode() == null || r.getGhnOrderCode().isBlank()));
+
+        if (!canCancel) {
+            throw new IllegalStateException("Cannot cancel return request at status: " + r.getStatus());
+        }
+
+        r.setStatus(ReturnStatus.CANCELLED_BY_CUSTOMER);
+        // lưu reason vào field có sẵn nếu bạn muốn (tạm dùng reason)
+        if (reason != null && !reason.isBlank()) {
+            r.setReason("[CANCELLED_BY_CUSTOMER] " + reason);
+        }
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+
+        // Update returnState cho order về NONE nếu không còn return active (đơn giản: set NONE)
+        CustomerOrderItem orderItem = customerOrderItemRepo.findById(r.getOrderItemId()).orElse(null);
+        if (orderItem != null && orderItem.getCustomerOrder() != null) {
+            CustomerOrder co = orderItem.getCustomerOrder();
+            co.setReturnState(OrderReturnState.CANCELLED);
+            customerOrderRepository.save(co);
+
+            StoreOrder so = storeOrderRepository.findAllByCustomerOrder_Id(co.getId()).stream()
+                    .filter(x -> x.getStore() != null && Objects.equals(x.getStore().getStoreId(), r.getShopId()))
+                    .findFirst().orElse(null);
+
+            if (so != null) {
+                so.setReturnState(OrderReturnState.CANCELLED);
+                storeOrderRepository.save(so);
+            }
+        }
+
+        // Notify SHOP (optional)
+        notificationCreatorService.createAndSend(
+                NotificationTarget.STORE,
+                r.getShopId(),
+                NotificationType.RETURN_CANCELLED,
+                "Yêu cầu trả hàng đã bị huỷ",
+                "Khách hàng đã huỷ yêu cầu trả hàng #" + r.getId(),
+                "/shop/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
+        return toResponse(r);
+    }
+
 
     @Transactional
     public void finalizeReturnShippingPayer(ReturnRequest r) {

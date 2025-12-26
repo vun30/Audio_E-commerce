@@ -331,6 +331,7 @@ public class StoreServiceImpl implements StoreService {
                 .email(store.getEmail())
                 .rating(store.getRating())
                 .status(store.getStatus())
+                .legalPoint(store.getLegalPoint())
                 .accountId(store.getAccount().getId())
                 .storeAddresses(addrResponses)
                 .build();
