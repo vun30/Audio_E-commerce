@@ -47,6 +47,14 @@ public class StoreOrderServiceImpl implements StoreOrderService {
             throw new IllegalArgumentException("Store does not own this order");
         }
 
+        Store store = order.getStore();
+
+        if (store.getStatus() != StoreStatus.ACTIVE) {
+            throw new IllegalStateException(
+                    "Store is not ACTIVE. Current status = " + store.getStatus()
+            );
+        }
+
         // Cập nhật status cho StoreOrder
         order.setStatus(status);
 
