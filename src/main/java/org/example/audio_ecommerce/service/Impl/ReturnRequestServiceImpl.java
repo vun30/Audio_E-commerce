@@ -9,10 +9,7 @@ import org.example.audio_ecommerce.dto.response.ReturnPackageFeeResponse;
 import org.example.audio_ecommerce.dto.response.ReturnPreviewResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
 import org.example.audio_ecommerce.entity.*;
-import org.example.audio_ecommerce.entity.Enum.OrderStatus;
-import org.example.audio_ecommerce.entity.Enum.ReturnFaultType;
-import org.example.audio_ecommerce.entity.Enum.ReturnReasonType;
-import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
+import org.example.audio_ecommerce.entity.Enum.*;
 import org.example.audio_ecommerce.repository.*;
 import org.example.audio_ecommerce.service.*;
 import org.example.audio_ecommerce.util.SecurityUtils;
@@ -49,6 +46,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final LegalPointService legalPointService;
     private final CustomerRepository customerRepo;
+    private final NotificationCreatorService notificationCreatorService;
 
     @Value("${ghn.token}")
     private String ghnToken;
@@ -169,13 +167,25 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         entity = returnRepo.save(entity);
 
-        // 3️⃣ Cập nhật status CustomerOrder + StoreOrder
-        CustomerOrder customerOrder = orderItem.getCustomerOrder();
+        notificationCreatorService.createAndSend(
+                NotificationTarget.STORE,
+                shopId,
+                NotificationType.RETURN_REQUESTED,
+                "Yêu cầu trả hàng mới",
+                "Khách hàng đã tạo yêu cầu trả hàng cho sản phẩm: " + productName,
+                "/shop/returns/" + entity.getId(),
+                null,
+                Map.of(
+                        "returnRequestId", entity.getId().toString(),
+                        "orderItemId", orderItem.getId().toString()
+                )
+        );
 
-        // chỉ đổi trạng thái nếu đơn đã giao thành công
-        if (customerOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS || customerOrder.getStatus() == OrderStatus.COMPLETED) {
-            customerOrder.setStatus(OrderStatus.RETURN_REQUESTED);
-            customerOrder.setCreatedAt(LocalDateTime.now()); // nếu có field này
+
+        // 3️⃣ KHÔNG đổi OrderStatus nữa - chỉ set returnState
+        CustomerOrder customerOrder = orderItem.getCustomerOrder();
+        if (customerOrder != null) {
+            customerOrder.setReturnState(OrderReturnState.REQUESTED);
             customerOrderRepository.save(customerOrder);
         }
 
@@ -187,11 +197,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .findFirst()
                 .orElse(null);
 
-        if (targetStoreOrder != null &&
-                targetStoreOrder.getStatus() == OrderStatus.DELIVERY_SUCCESS) {
-
-            targetStoreOrder.setStatus(OrderStatus.RETURN_REQUESTED);
-            targetStoreOrder.setCreatedAt(LocalDateTime.now()); // nếu em có field
+        if (targetStoreOrder != null) {
+            targetStoreOrder.setReturnState(OrderReturnState.REQUESTED);
             storeOrderRepository.save(targetStoreOrder);
         }
 
@@ -300,7 +307,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         feeReq.setFrom_ward_code(pickupAddr.getWardCode());
         feeReq.setTo_district_id(toDistrictId);
         feeReq.setTo_ward_code(storeAddr.getWardCode());
-        
+
         // Ensure dimensions are valid positive integers
         int length = Math.max(req.getLength().intValue(), 1);
         int width = Math.max(req.getWidth().intValue(), 1);
@@ -309,7 +316,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // Also ensure it doesn't exceed reasonable limits (GHN might have upper limits)
         int weightInGrams = req.getWeight().multiply(BigDecimal.valueOf(1000)).intValue();
         int weight = Math.max(Math.min(weightInGrams, 50000), 1); // Clamp between 1g and 50kg (50000g)
-        
+
         feeReq.setLength(length);
         feeReq.setWidth(width);
         feeReq.setHeight(height);
@@ -342,14 +349,14 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 throw new IllegalStateException("GHN fee API missing total/service_fee");
             }
         } catch (Exception e) {
-            log.error("[RETURN FEE] Failed calculate GHN return fee for request {}: {}", 
+            log.error("[RETURN FEE] Failed calculate GHN return fee for request {}: {}",
                     returnRequestId, e.getMessage(), e);
             // Add more detailed logging to help debug the issue
-            log.error("[RETURN FEE] Request details - Length: {}, Width: {}, Height: {}, Weight: {}", 
+            log.error("[RETURN FEE] Request details - Length: {}, Width: {}, Height: {}, Weight: {}",
                     length, width, height, weight);
-            log.error("[RETURN FEE] District IDs - From: {}, To: {}", 
+            log.error("[RETURN FEE] District IDs - From: {}, To: {}",
                     pickupAddr.getDistrictId(), toDistrictId);
-            log.error("[RETURN FEE] Ward Codes - From: {}, To: {}", 
+            log.error("[RETURN FEE] Ward Codes - From: {}, To: {}",
                     pickupAddr.getWardCode(), storeAddr.getWardCode());
             throw new RuntimeException("Failed to calculate return shipping fee", e);
         }
@@ -453,6 +460,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setStatus(ReturnStatus.APPROVED);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_APPROVED,
+                "Yêu cầu trả hàng được chấp nhận",
+                "Shop đã chấp nhận yêu cầu trả hàng. Vui lòng đóng gói và gửi hàng.",
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
     }
 
     @Override
@@ -521,6 +540,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // 2️⃣ Build body GHN create-order (return: customer → shop)
         GhnCreateOrderRequest body = GhnCreateOrderRequest.builder().build();
+        log.info("[GHN RETURN][REQ] from_name='{}', from_phone='{}', from_address='{}', " +
+                        "to_name='{}', to_phone='{}', weight={}, length={}, width={}, height={}",
+                r.getProductName() != null ? "Customer return - " + r.getProductName() : "Customer",
+                r.getCustomerPhone(),
+                r.getPickupAddressLine(),
+                store.getStoreName(),
+                store.getPhoneNumber(),
+                r.getPackageWeight() != null ? r.getPackageWeight().intValue() : null,
+                r.getPackageLength() != null ? r.getPackageLength().intValue() : null,
+                r.getPackageWidth() != null ? r.getPackageWidth().intValue() : null,
+                r.getPackageHeight() != null ? r.getPackageHeight().intValue() : null
+        );
 
         // FROM = CUSTOMER
         body.setFrom_name(r.getProductName() != null ? "Customer return - " + r.getProductName() : "Customer");
@@ -551,12 +582,30 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         body.setPayment_type_id(1);
 
 
-        // Service & kích thước
         body.setService_type_id(2);
-        body.setWeight(r.getPackageWeight().intValue());
-        body.setLength(r.getPackageLength().intValue());
-        body.setWidth(r.getPackageWidth().intValue());
-        body.setHeight(r.getPackageHeight().intValue());
+
+// ✅ validate trước
+        if (r.getPackageWeight() == null || r.getPackageWeight().compareTo(BigDecimal.ZERO) <= 0
+                || r.getPackageLength() == null || r.getPackageLength().compareTo(BigDecimal.ZERO) <= 0
+                || r.getPackageWidth() == null || r.getPackageWidth().compareTo(BigDecimal.ZERO) <= 0
+                || r.getPackageHeight() == null || r.getPackageHeight().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalStateException("Missing/invalid package info. Customer must set package first.");
+        }
+
+// ✅ length/width/height: int >=1
+        int length = Math.max(r.getPackageLength().intValue(), 1);
+        int width  = Math.max(r.getPackageWidth().intValue(), 1);
+        int height = Math.max(r.getPackageHeight().intValue(), 1);
+
+// ✅ weight: KG -> grams, int >=1
+        int weightInGrams = r.getPackageWeight().multiply(BigDecimal.valueOf(1000)).intValue();
+        int weight = Math.max(weightInGrams, 1);
+
+        body.setLength(length);
+        body.setWidth(width);
+        body.setHeight(height);
+        body.setWeight(weight);
+
 
         body.setRequired_note("KHONGCHOXEMHANG");
         body.setNote("Return hàng đơn: " + r.getId());
@@ -570,10 +619,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .name(r.getProductName())
                 .code(r.getProductId() != null ? r.getProductId().toString() : null)
                 .quantity(1)
-                .weight(r.getPackageWeight().intValue())
-                .length(r.getPackageLength().intValue())
-                .width(r.getPackageWidth().intValue())
-                .height(r.getPackageHeight().intValue())
+                .weight(weight)
+                .length(length)
+                .width(width)
+                .height(height)
                 .build();
         body.setItems(List.of(item));
 
@@ -629,6 +678,21 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setTrackingStatus("CREATED_WAITING_SYNC");
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_SHIPPING,
+                "Đơn trả hàng đang vận chuyển",
+                "Shop đã tạo đơn vận chuyển trả hàng. Mã GHN: " + r.getGhnOrderCode(),
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of(
+                        "returnRequestId", r.getId().toString(),
+                        "ghnOrderCode", r.getGhnOrderCode()
+                )
+        );
+
 
         // 5️⃣ Lưu GHN_ORDER (nếu muốn track chung)
         try {
@@ -787,7 +851,35 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // admin phán shop chịu phí ship return (ghi vào ReturnShippingFee)
         applyAdminPayerToReturnShippingFee(r);
 
+        // Notify CUSTOMER
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_RESOLVED,
+                "Kết quả xử lý trả hàng",
+                "Admin đã xử lý tranh chấp trả hàng.",
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
+// Notify SHOP
+        notificationCreatorService.createAndSend(
+                NotificationTarget.STORE,
+                r.getShopId(),
+                NotificationType.RETURN_RESOLVED,
+                "Kết quả xử lý trả hàng",
+                "Admin đã đưa ra quyết định cho yêu cầu trả hàng.",
+                "/shop/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
+
         return toResponse(returnRepo.save(r));
+
+
+
     }
 
 
@@ -939,6 +1031,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_REJECTED,
+                "Yêu cầu trả hàng bị từ chối",
+                "Shop đã từ chối yêu cầu trả hàng của bạn.",
+                "/customer/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
     }
 
     /**
@@ -1088,17 +1192,17 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AccessDeniedException("Not your return request");
         }
 
-        // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop)
-        if (r.getStatus() == ReturnStatus.DELIVERED) {
+        // Chỉ confirm khi đang SHIPPING (đang trả hàng về shop) chấmm
+        if (r.getStatus() != ReturnStatus.DELIVERED) { // chấm
             throw new IllegalStateException("ReturnRequest must be DELIVERED to confirm");
         }
 
         // Chỉ confirm khi GHN đã giao trả về shop
         // tuỳ bạn map trackingStatus, ở code bạn đang dùng "delivered" cho auto refund
-        ReturnStatus tracking = r.getStatus();
-        if (!tracking.equals(ReturnStatus.SHIPPING)) {
-            throw new IllegalStateException("GHN has not delivered return package to shop yet");
-        }
+//        ReturnStatus tracking = r.getStatus();
+//        if (!tracking.equals(ReturnStatus.SHIPPING)) {
+//            throw new IllegalStateException("GHN has not delivered return package to shop yet");
+//        }
 
         // Nếu admin đã phán SHOP thắng -> đóng luồng, không cho refund/confirm
         if (r.isFinalDecision()) {
@@ -1109,6 +1213,18 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         r.setStatus(ReturnStatus.REFUNDED);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.CUSTOMER,
+                r.getCustomerId(),
+                NotificationType.RETURN_REFUNDED,
+                "Hoàn tiền thành công",
+                "Số tiền đã được hoàn vào ví của bạn.",
+                "/customer/wallet",
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
+
 
         // Refund tiền + trừ legal point nếu shop fault (reuse logic hiện có) :contentReference[oaicite:3]{index=3}
         refundAndDeductLegalPointIfNeeded(r);
@@ -1161,23 +1277,26 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
     private void refundAndDeductLegalPointIfNeeded(ReturnRequest r) {
 
-        // 1️⃣ Refund tiền – FAIL là throw → KHÔNG trừ điểm
+        // 1) Refund tiền – FAIL thì throw -> KHÔNG trừ điểm
         walletService.refundForReturn(r);
 
-        // 2️⃣ Chỉ trừ điểm nếu lỗi SHOP
-        if (r.getFaultType() != ReturnFaultType.SHOP) {
+        // 2) chống trừ lặp
+        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) return;
+
+        // 3) trừ điểm theo fault
+        if (r.getFaultType() == ReturnFaultType.CUSTOMER) {
+            // ✅ Trừ điểm CUSTOMER (ví dụ -1)
+            legalPointService.minusForCustomer(r.getCustomerId(), 1,
+                    "RETURN_FAULT_CUSTOMER returnRequest=" + r.getId());
+
+        } else if (r.getFaultType() == ReturnFaultType.SHOP) {
+            // (tuỳ bạn) nếu bạn vẫn muốn trừ store khi shop sai thì giữ
+            legalPointService.minusForStore(r.getShopId(), 1);
+        } else {
             return;
         }
 
-        // 3️⃣ Chống trừ lặp
-        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) {
-            return;
-        }
-
-        // 4️⃣ Trừ 1 legal point
-        legalPointService.minusForStore(r.getShopId(), 1);
-
-        // 5️⃣ Đánh dấu đã trừ
+        // 4) đánh dấu đã xử lý
         r.setLegalPointDeducted(true);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
@@ -1276,14 +1395,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         feeLog.setShippingFee(fee);
 
         // giữ payer hiện tại (nếu admin đã phán thì dùng payer đó)
-        String payer = feeLog.getPayer();
-        if ("SHOP".equalsIgnoreCase(payer)) {
-            feeLog.setChargedToShop(fee);
-            feeLog.setPaidByShop(false);
-        } else {
-            feeLog.setChargedToShop(BigDecimal.ZERO);
-            feeLog.setPaidByShop(false);
-        }
+        feeLog.setPayer("SHOP");
+        feeLog.setChargedToShop(fee);
+        feeLog.setPaidByShop(true);
+        feeLog.setShopFault(true); // optional
 
         shippingFeeRepo.save(feeLog);
     }

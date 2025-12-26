@@ -247,6 +247,7 @@ public class CustomerServiceImpl implements CustomerService {
                 .orderCount(c.getOrderCount())
                 .cancelCount(c.getCancelCount())
                 .returnCount(c.getReturnCount())
+                .legalPoint(c.getLegalPoint())
                 .unpaidOrderCount(c.getUnpaidOrderCount())
                 .lastOrderDate(c.getLastOrderDate())
                 .preferredCategory(c.getPreferredCategory())

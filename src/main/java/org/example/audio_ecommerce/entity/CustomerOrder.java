@@ -2,6 +2,7 @@ package org.example.audio_ecommerce.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.OrderReturnState;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 
@@ -118,6 +119,11 @@ public class CustomerOrder {
     @Builder.Default
     @Column(name = "customer_rewarded", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean customerRewarded = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "return_state", nullable = false, length = 20)
+    @Builder.Default
+    private OrderReturnState returnState = OrderReturnState.NONE;
 
     @PrePersist
     @PreUpdate
