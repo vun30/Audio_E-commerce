@@ -1379,7 +1379,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .balanceBefore(platformBefore)
                 .balanceAfter(platformBefore.subtract(amount))
                 .idempotencyKey(idemKey)
-                .description("ADMIN refund dispute to customer. returnRequestId=" + r.getId()
+                .description("ADMIN hoàn tiền tranh chấp cho người mua. returnRequestId=" + r.getId()
                         + (note != null ? (" | note=" + note) : ""))
                 .metadataJson("{\"returnRequestId\":\"" + r.getId() + "\"}")
                 .createdAt(LocalDateTime.now())
@@ -1395,7 +1395,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .amount(amount)
                 .transactionType(WalletTransactionType.REFUND) // ✅ đổi theo enum thật của bạn
                 .status(WalletTransactionStatus.SUCCESS)
-                .description("Refund from dispute (admin). returnRequestId=" + r.getId())
+                .description("Hoàn tiền do admin xử lý tranh chấp")
                 .balanceBefore(customerBefore)
                 .balanceAfter(customerBefore.add(amount))
                 .orderId(r.getOrderItemId()) // hoặc null / customerOrderId tuỳ bạn
