@@ -839,12 +839,13 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new IllegalStateException("Only DISPUTE can be resolved by admin");
         }
 
-        // lưu phán quyết
+        // ✅ lưu phán quyết trước
         r.setFaultType(req.getFaultType()); // SHOP / CUSTOMER
         r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
 
         // =================================================
-        // ✅ CASE 1: SHOP THẮNG → ĐÓNG LUỒNG, KHÔNG RETURN
+        // ✅ CASE 1: CUSTOMER SAI -> SHOP THẮNG -> đóng luồng
         // =================================================
         if (req.getFaultType() == ReturnFaultType.CUSTOMER) {
             r.setStatus(ReturnStatus.DISPUTE_RESOLVED_SHOP);
@@ -852,50 +853,46 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             r.setFinalDecisionAt(LocalDateTime.now());
             r.setAdminForcedContinue(false);
 
+            // (optional) notify 2 bên
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.CUSTOMER,
+                    r.getCustomerId(),
+                    NotificationType.RETURN_RESOLVED,
+                    "Kết quả xử lý trả hàng",
+                    "Admin đã xử lý tranh chấp. Kết quả: bạn không đủ điều kiện hoàn tiền.",
+                    "/customer/returns/" + r.getId(),
+                    null,
+                    Map.of("returnRequestId", r.getId().toString())
+            );
+
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.STORE,
+                    r.getShopId(),
+                    NotificationType.RETURN_RESOLVED,
+                    "Kết quả xử lý trả hàng",
+                    "Admin đã xử lý tranh chấp. Kết quả: shop thắng tranh chấp.",
+                    "/shop/returns/" + r.getId(),
+                    null,
+                    Map.of("returnRequestId", r.getId().toString())
+            );
+
             return toResponse(returnRepo.save(r));
         }
 
         // =================================================
-        // ✅ CASE 2: CUSTOMER THẮNG → QUAY VỀ FLOW BÌNH THƯỜNG
-        //     => status phải là APPROVED để customer set package và shop tạo GHN
+        // ✅ CASE 2: SHOP SAI -> CUSTOMER THẮNG -> REFUND NGAY
         // =================================================
-        r.setStatus(ReturnStatus.APPROVED);          // 🔥 QUAN TRỌNG
-        r.setFinalDecision(false);
-        r.setAdminForcedContinue(true);
-
-        // admin phán shop chịu phí ship return (ghi vào ReturnShippingFee)
-        applyAdminPayerToReturnShippingFee(r);
-
-        // Notify CUSTOMER
-        notificationCreatorService.createAndSend(
-                NotificationTarget.CUSTOMER,
-                r.getCustomerId(),
-                NotificationType.RETURN_RESOLVED,
-                "Kết quả xử lý trả hàng",
-                "Admin đã xử lý tranh chấp trả hàng.",
-                "/customer/returns/" + r.getId(),
-                null,
-                Map.of("returnRequestId", r.getId().toString())
+        // adminRefundDisputeToCustomer đã:
+        // - trừ cashBalance platform, + ví customer
+        // - lưu PlatformTransaction + WalletTransaction
+        // - set status REFUNDED + finalDecision=true
+        // - notify customer
+        return adminRefundDisputeToCustomer(
+                r.getId(),
+                req.getAdminNote() // nếu DTO bạn chưa có note thì truyền null
         );
-
-// Notify SHOP
-        notificationCreatorService.createAndSend(
-                NotificationTarget.STORE,
-                r.getShopId(),
-                NotificationType.RETURN_RESOLVED,
-                "Kết quả xử lý trả hàng",
-                "Admin đã đưa ra quyết định cho yêu cầu trả hàng.",
-                "/shop/returns/" + r.getId(),
-                null,
-                Map.of("returnRequestId", r.getId().toString())
-        );
-
-
-        return toResponse(returnRepo.save(r));
-
-
-
     }
+
 
 
 
