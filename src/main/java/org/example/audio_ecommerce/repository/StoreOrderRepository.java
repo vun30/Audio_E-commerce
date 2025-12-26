@@ -7,8 +7,9 @@ import org.example.audio_ecommerce.entity.Enum.StoreStatus;
 import org.example.audio_ecommerce.entity.Store;
 import org.example.audio_ecommerce.entity.StoreOrder;
 import org.example.audio_ecommerce.repository.projection.FlatOrderAgg2;
+import org.example.audio_ecommerce.repository.projection.StoreDebtAgg;
 import org.example.audio_ecommerce.service.Projection.FlatDebtOrderRow;
-import org.example.audio_ecommerce.service.Projection.FlatOrderAgg;
+import org.example.audio_ecommerce.service.Projection.FlatShipAgg;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -440,20 +441,130 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
                                   @Param("toExclusive") LocalDateTime toExclusive);
 
 
+    @Query("""
+                select coalesce(sum(o.totalDebtOrder), 0)
+                from StoreOrder o
+                where o.store.storeId = :storeId
+                  and (o.paidByShop = false or o.paidByShop is null)
+            """)
+    BigDecimal sumDebtOrdersByStoreId(@Param("storeId") UUID storeId);
 
     @Query("""
-    select coalesce(sum(o.totalDebtOrder), 0)
-    from StoreOrder o
-    where o.store.storeId = :storeId
-      and (o.paidByShop = false or o.paidByShop is null)
-""")
-    BigDecimal sumDebtOrdersByStoreId(@Param("storeId") UUID storeId);
+                select o
+                from StoreOrder o
+                where o.store.storeId = :storeId
+                  and o.paidByShop = false
+                  and o.totalDebtOrder > 0
+                  and o.status in :endStatuses
+                order by o.createdAt desc
+            """)
+    List<StoreOrder> findUnpaidDebtEndOrdersByStore(
+            @Param("storeId") UUID storeId,
+            @Param("endStatuses") List<OrderStatus> endStatuses
+    );
 
     List<StoreOrder> findByStatusAndPaymentMethodAndCodCollectedFalse(
             OrderStatus status,
             PaymentMethod paymentMethod
     );
 
+
+    @Query(value = """
+            SELECT
+              COALESCE(SUM(
+                CASE
+                  WHEN so.shipping_fee_real IS NOT NULL
+                   AND so.shipping_fee_real > 0
+                   AND so.delivered_at IS NOT NULL
+                  THEN so.shipping_fee_real
+                  ELSE 0
+                END
+              ),0) AS orderShipDelivered,
+            
+              COALESCE(SUM(
+                CASE
+                  WHEN so.shipping_fee_real IS NOT NULL
+                   AND so.shipping_fee_real > 0
+                   AND so.return_charge_applied = 1
+                   AND so.delivered_at IS NULL          -- ✅ FIX: tránh double count
+                  THEN so.shipping_fee_real * 1.5
+                  ELSE 0
+                END
+              ),0) AS orderShipReturning15
+            
+            FROM store_order so
+            WHERE (:from IS NULL OR so.created_at >= :from)
+              AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
+            """, nativeQuery = true)
+    FlatShipAgg aggGhnShipFeeFromOrders(@Param("from") LocalDateTime from,
+                                        @Param("toExclusive") LocalDateTime toExclusive);
+
+
+    @Query(value = """
+SELECT
+  COALESCE(SUM(
+    CASE
+      WHEN (so.paid_by_shop = 0 OR so.paid_by_shop IS NULL)
+       AND so.shipping_fee_real IS NOT NULL AND so.shipping_fee_real > 0
+      THEN
+        CASE
+          -- DELIVERED: shop nợ = max(real - estimate, 0)
+          WHEN so.delivered_at IS NOT NULL
+            THEN GREATEST(COALESCE(so.shipping_fee_real,0) - COALESCE(so.shipping_fee,0), 0)
+
+          -- BOOM: shop nợ = real * 1.5
+          WHEN so.return_charge_applied = 1
+            THEN COALESCE(so.shipping_fee_real,0) * 1.5
+
+          ELSE 0
+        END
+      ELSE 0
+    END
+  ),0) AS storeDebtOutstandingToFlat,
+
+  COALESCE(SUM(
+    CASE
+      WHEN so.paid_by_shop = 1
+       AND so.shipping_fee_real IS NOT NULL AND so.shipping_fee_real > 0
+      THEN
+        CASE
+          WHEN so.delivered_at IS NOT NULL
+            THEN GREATEST(COALESCE(so.shipping_fee_real,0) - COALESCE(so.shipping_fee,0), 0)
+          WHEN so.return_charge_applied = 1
+            THEN COALESCE(so.shipping_fee_real,0) * 1.5
+          ELSE 0
+        END
+      ELSE 0
+    END
+  ),0) AS storeDebtPaidToFlat
+FROM store_order so
+WHERE (:from IS NULL OR so.created_at >= :from)
+  AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
+""", nativeQuery = true)
+    StoreDebtAgg aggStoreDebtToFlat(@Param("from") LocalDateTime from,
+                                    @Param("toExclusive") LocalDateTime toExclusive);
+
+    @Query(value = """
+            SELECT COALESCE(SUM(
+              CASE
+                WHEN so.shipping_fee_real IS NOT NULL AND so.shipping_fee_real > 0
+                THEN
+                  CASE
+                    WHEN so.delivered_at IS NOT NULL
+                      THEN COALESCE(so.shipping_fee_real,0)
+                    WHEN so.return_charge_applied = 1
+                      THEN COALESCE(so.shipping_fee_real,0) * 1.5
+                    ELSE 0
+                  END
+                ELSE 0
+              END
+            ),0)
+            FROM store_order so
+            WHERE (:from IS NULL OR so.created_at >= :from)
+              AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
+            """, nativeQuery = true)
+    BigDecimal sumFlatDebtToGHNFromOrders(@Param("from") LocalDateTime from,
+                                          @Param("toExclusive") LocalDateTime toExclusive);
     // 12h không confirm (status còn PENDING)
     List<StoreOrder> findAllByStatusAndCreatedAtBefore(OrderStatus status, LocalDateTime time);
 

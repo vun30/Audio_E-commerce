@@ -35,7 +35,7 @@ public class ReturnShippingFee extends BaseEntity {
     // ===== AI CHỊU PHÍ SHIP? =====
     @Builder.Default
     @Column(nullable = false, length = 20)
-    private String payer = "UNKNOWN"; // hoặc CUSTOMER
+    private String payer = "SHOP"; // hoặc CUSTOMER
 
     // ===== TÍNH TOÁN CHO SHOP =====
     // Số tiền thực tế sẽ trừ vào shop khi đối soát

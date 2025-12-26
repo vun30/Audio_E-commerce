@@ -540,18 +540,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // 2️⃣ Build body GHN create-order (return: customer → shop)
         GhnCreateOrderRequest body = GhnCreateOrderRequest.builder().build();
-        log.info("[GHN RETURN][REQ] from_name='{}', from_phone='{}', from_address='{}', " +
-                        "to_name='{}', to_phone='{}', weight={}, length={}, width={}, height={}",
-                r.getProductName() != null ? "Customer return - " + r.getProductName() : "Customer",
-                r.getCustomerPhone(),
-                r.getPickupAddressLine(),
-                store.getStoreName(),
-                store.getPhoneNumber(),
-                r.getPackageWeight() != null ? r.getPackageWeight().intValue() : null,
-                r.getPackageLength() != null ? r.getPackageLength().intValue() : null,
-                r.getPackageWidth() != null ? r.getPackageWidth().intValue() : null,
-                r.getPackageHeight() != null ? r.getPackageHeight().intValue() : null
-        );
 
         // FROM = CUSTOMER
         body.setFrom_name(r.getProductName() != null ? "Customer return - " + r.getProductName() : "Customer");
@@ -582,30 +570,12 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         body.setPayment_type_id(1);
 
 
+        // Service & kích thước
         body.setService_type_id(2);
-
-// ✅ validate trước
-        if (r.getPackageWeight() == null || r.getPackageWeight().compareTo(BigDecimal.ZERO) <= 0
-                || r.getPackageLength() == null || r.getPackageLength().compareTo(BigDecimal.ZERO) <= 0
-                || r.getPackageWidth() == null || r.getPackageWidth().compareTo(BigDecimal.ZERO) <= 0
-                || r.getPackageHeight() == null || r.getPackageHeight().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalStateException("Missing/invalid package info. Customer must set package first.");
-        }
-
-// ✅ length/width/height: int >=1
-        int length = Math.max(r.getPackageLength().intValue(), 1);
-        int width  = Math.max(r.getPackageWidth().intValue(), 1);
-        int height = Math.max(r.getPackageHeight().intValue(), 1);
-
-// ✅ weight: KG -> grams, int >=1
-        int weightInGrams = r.getPackageWeight().multiply(BigDecimal.valueOf(1000)).intValue();
-        int weight = Math.max(weightInGrams, 1);
-
-        body.setLength(length);
-        body.setWidth(width);
-        body.setHeight(height);
-        body.setWeight(weight);
-
+        body.setWeight(r.getPackageWeight().intValue());
+        body.setLength(r.getPackageLength().intValue());
+        body.setWidth(r.getPackageWidth().intValue());
+        body.setHeight(r.getPackageHeight().intValue());
 
         body.setRequired_note("KHONGCHOXEMHANG");
         body.setNote("Return hàng đơn: " + r.getId());
@@ -619,10 +589,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .name(r.getProductName())
                 .code(r.getProductId() != null ? r.getProductId().toString() : null)
                 .quantity(1)
-                .weight(weight)
-                .length(length)
-                .width(width)
-                .height(height)
+                .weight(r.getPackageWeight().intValue())
+                .length(r.getPackageLength().intValue())
+                .width(r.getPackageWidth().intValue())
+                .height(r.getPackageHeight().intValue())
                 .build();
         body.setItems(List.of(item));
 
@@ -1199,10 +1169,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // Chỉ confirm khi GHN đã giao trả về shop
         // tuỳ bạn map trackingStatus, ở code bạn đang dùng "delivered" cho auto refund
-//        ReturnStatus tracking = r.getStatus();
-//        if (!tracking.equals(ReturnStatus.SHIPPING)) {
-//            throw new IllegalStateException("GHN has not delivered return package to shop yet");
-//        }
+        ReturnStatus tracking = r.getStatus();
+        if (!tracking.equals(ReturnStatus.SHIPPING)) {
+            throw new IllegalStateException("GHN has not delivered return package to shop yet");
+        }
 
         // Nếu admin đã phán SHOP thắng -> đóng luồng, không cho refund/confirm
         if (r.isFinalDecision()) {
@@ -1277,26 +1247,23 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
     private void refundAndDeductLegalPointIfNeeded(ReturnRequest r) {
 
-        // 1) Refund tiền – FAIL thì throw -> KHÔNG trừ điểm
+        // 1️⃣ Refund tiền – FAIL là throw → KHÔNG trừ điểm
         walletService.refundForReturn(r);
 
-        // 2) chống trừ lặp
-        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) return;
-
-        // 3) trừ điểm theo fault
-        if (r.getFaultType() == ReturnFaultType.CUSTOMER) {
-            // ✅ Trừ điểm CUSTOMER (ví dụ -1)
-            legalPointService.minusForCustomer(r.getCustomerId(), 1,
-                    "RETURN_FAULT_CUSTOMER returnRequest=" + r.getId());
-
-        } else if (r.getFaultType() == ReturnFaultType.SHOP) {
-            // (tuỳ bạn) nếu bạn vẫn muốn trừ store khi shop sai thì giữ
-            legalPointService.minusForStore(r.getShopId(), 1);
-        } else {
+        // 2️⃣ Chỉ trừ điểm nếu lỗi SHOP
+        if (r.getFaultType() != ReturnFaultType.SHOP) {
             return;
         }
 
-        // 4) đánh dấu đã xử lý
+        // 3️⃣ Chống trừ lặp
+        if (Boolean.TRUE.equals(r.getLegalPointDeducted())) {
+            return;
+        }
+
+        // 4️⃣ Trừ 1 legal point
+        legalPointService.minusForStore(r.getShopId(), 1);
+
+        // 5️⃣ Đánh dấu đã trừ
         r.setLegalPointDeducted(true);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
@@ -1461,10 +1428,14 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         feeLog.setShippingFee(fee);
 
         // giữ payer hiện tại (nếu admin đã phán thì dùng payer đó)
-        feeLog.setPayer("SHOP");
-        feeLog.setChargedToShop(fee);
-        feeLog.setPaidByShop(true);
-        feeLog.setShopFault(true); // optional
+        String payer = feeLog.getPayer();
+        if ("SHOP".equalsIgnoreCase(payer)) {
+            feeLog.setChargedToShop(fee);
+            feeLog.setPaidByShop(false);
+        } else {
+            feeLog.setChargedToShop(BigDecimal.ZERO);
+            feeLog.setPaidByShop(false);
+        }
 
         shippingFeeRepo.save(feeLog);
     }

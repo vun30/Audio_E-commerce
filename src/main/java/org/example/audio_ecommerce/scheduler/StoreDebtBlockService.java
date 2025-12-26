@@ -39,7 +39,7 @@ public class StoreDebtBlockService {
     private String siteUrl;
 
     @Scheduled(cron = "*/30 * * * * *") // mỗi 30 giây
-    @Transactional
+//    @Transactional
     public void scanAndBlockStoresByDebt() {
 
         LocalDateTime now = LocalDateTime.now();

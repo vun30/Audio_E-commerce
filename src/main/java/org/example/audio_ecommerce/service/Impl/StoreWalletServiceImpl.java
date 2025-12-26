@@ -458,6 +458,10 @@ public class StoreWalletServiceImpl implements StoreWalletService {
 
         Stream<DebtComponentItemResponse> orderComponents = orders.stream()
                 .filter(o -> o.getStore() != null && storeId.equals(o.getStore().getStoreId()))
+
+                // ✅ CÁCH 1: bỏ qua đơn CANCELLED (không đưa lên breakdown)
+                .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
+
                 .flatMap(o -> {
                     BigDecimal R = nvl(o.getShippingFeeReal());
                     BigDecimal E = nvl(o.getShippingFee());
@@ -468,11 +472,6 @@ public class StoreWalletServiceImpl implements StoreWalletService {
                     boolean paid = Boolean.TRUE.equals(o.getPaidByShop());
                     String st = paid ? "PAID" : "UNPAID";
 
-                    // =========================================================
-                    // 1) SHIP_DIFF
-                    // - Luôn chỉ phát sinh khi deliveredAt != null
-                    // - Nếu payableNowOnly=true => vẫn OK vì delivered là NOW
-                    // =========================================================
                     if (o.getDeliveredAt() != null) {
                         BigDecimal shipDiff = R.subtract(E).max(BigDecimal.ZERO);
                         if (shipDiff.compareTo(BigDecimal.ZERO) <= 0) return Stream.empty();
@@ -490,14 +489,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
                                 .build());
                     }
 
-                    // =========================================================
-                    // 2) RTO_FEE
-                    // - payableNowOnly=true  => chỉ lấy cái đã “chốt phát sinh”
-                    //   (khuyến nghị: returnChargeApplied == true)
-                    // - payableNowOnly null/false => KHÔNG lọc (hiện cả pending)
-                    // =========================================================
                     if (Boolean.TRUE.equals(payableNowOnly)) {
-                        // NOW: phải chốt phí quay đầu
                         if (!Boolean.TRUE.equals(o.getReturnChargeApplied())) {
                             return Stream.empty();
                         }
@@ -964,7 +956,6 @@ public class StoreWalletServiceImpl implements StoreWalletService {
                 .debtBalance(nz(wallet.getDebtBalance()))
                 .build();
     }
-
 
 
 }

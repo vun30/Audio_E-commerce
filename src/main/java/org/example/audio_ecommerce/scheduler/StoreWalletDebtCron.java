@@ -20,7 +20,7 @@ public class StoreWalletDebtCron {
     private final ReturnShippingFeeRepository returnShippingFeeRepository;
     private final StoreWalletRepository storeWalletRepository;
 
-    @Scheduled(cron = "*/30 * * * * *") // mỗi 30s
+    @Scheduled(cron = "*/10 * * * * *") // mỗi 30s
     @Transactional
     public void recalcStoreDebtBalance() {
 

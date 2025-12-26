@@ -35,7 +35,7 @@ public class StoreDebtUnlockService {
     private final StoreWalletRepository storeWalletRepository;
     private final ProductRepository productRepository;
     private final EmailService emailService;
-    private final TaskScheduler taskScheduler; // giữ lại (để tương thích), nhưng không bắt buộc dùng nữa
+   // private final TaskScheduler taskScheduler; // giữ lại (để tương thích), nhưng không bắt buộc dùng nữa
 
     private static final BigDecimal LEGAL_BONUS_UNIT = new BigDecimal("100000");
     private static final BigDecimal SAFE_DEPOSIT_RATIO = new BigDecimal("0.10"); // 10%   cọc hơn nợ 10%
@@ -48,7 +48,7 @@ public class StoreDebtUnlockService {
      * Chỉ mở khi đủ điều kiện. Không đổi trạng thái => không gửi mail.
      */
     @Scheduled(cron = "0 */1 * * * *") // mỗi 2 phút
-    @Transactional
+//    @Transactional
     public void autoUnlockDebtStores() {
 
         List<Store> lockedStores = storeRepository.findByStatus(StoreStatus.SUSPENDED_DEBT);
