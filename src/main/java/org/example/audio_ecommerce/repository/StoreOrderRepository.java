@@ -28,7 +28,15 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
 
     Page<StoreOrder> findByStore_StoreId(UUID storeId, Pageable pageable);
 
-    List<StoreOrder> findAllByStore_StoreId(UUID customerOrderId);
+    List<StoreOrder> findAllByStore_StoreId(UUID storeId);
+
+    @Query("""
+        SELECT o FROM StoreOrder o
+        WHERE o.store.storeId = :storeId
+        AND o.status = org.example.audio_ecommerce.entity.Enum.OrderStatus.DELIVERY_SUCCESS
+        AND o.deliveredAt IS NOT NULL
+        """)
+    List<StoreOrder> findDeliveredOrdersByStoreId(@Param("storeId") UUID storeId);
 
     Page<StoreOrder> findByStore_StoreIdAndOrderCode(UUID storeId, String orderCode, Pageable pageable);
 

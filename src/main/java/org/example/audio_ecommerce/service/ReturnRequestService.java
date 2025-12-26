@@ -21,6 +21,7 @@ public interface ReturnRequestService {
             ReturnPackageInfoRequest req
     );
     ReturnPreviewResponse previewReturnForOrder(UUID orderId);
+    ReturnRequestResponse cancelReturnRequestByCustomer(UUID returnRequestId, String reason);
     // SHOP
     Page<ReturnRequestResponse> listForCurrentShop(Pageable pageable);
 

@@ -3,6 +3,7 @@ package org.example.audio_ecommerce.dto.response;
 import lombok.*;
 import org.example.audio_ecommerce.entity.Enum.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -34,4 +35,5 @@ public class CustomerResponse {
     private Integer unpaidOrderCount;
     private LocalDate lastOrderDate;
     private String preferredCategory;
+    private BigDecimal legalPoint;
 }
