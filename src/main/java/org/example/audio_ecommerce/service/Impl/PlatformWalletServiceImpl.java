@@ -488,93 +488,104 @@ public class PlatformWalletServiceImpl implements PlatformWalletService {
     }
 
 
-    @Override
-    public FlatGhnShipFeeOverviewResponse getFlatGhnShipFeeOverview(LocalDateTime from, LocalDateTime to) {
-
-        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
-
-        var agg = storeOrderRepository.aggGhnShipFeeFromOrders(from, toExclusive);
-
-        BigDecimal orderShipDelivered = nz(agg.getOrderShipDelivered());
-        BigDecimal orderShipReturning15 = nz(agg.getOrderShipReturning15());
-
-        BigDecimal returnShipFee = nz(returnShippingFeeRepository.sumReturnShipFee(from, toExclusive));
-
-        BigDecimal total = orderShipDelivered.add(orderShipReturning15).add(returnShipFee);
-
-        return FlatGhnShipFeeOverviewResponse.builder()
-                .from(from)
-                .toExclusive(toExclusive)
-                .orderShipDelivered(orderShipDelivered)
-                .orderShipReturning15(orderShipReturning15)
-                .returnShipFee(returnShipFee)
-                .totalGhnShipFee(total)
-                .note("GHN ship fee total = SUM(store_order.shipReal for delivered) + SUM(store_order.shipReal*1.5 for returnChargeApplied) + SUM(return_shipping_fees.shipping_fee). Range=[from,toExclusive).")
-                .build();
-    }
-
-
-    @Override
-    public FlatStoreDebtSummaryResponse getFlatStoreDebtSummary(LocalDateTime from, LocalDateTime to) {
-
-        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
-
-        // (A) Flat nợ GHN = order ship + return_shipping_fees.shipFee
-        BigDecimal orderDebtToGHN = nz(storeOrderRepository.sumFlatDebtToGHNFromOrders(from, toExclusive));
-        BigDecimal returnDebtToGHN = nz(returnShippingFeeRepository.sumReturnShipFee(from, toExclusive));
-        BigDecimal flatDebtToGHN = orderDebtToGHN.add(returnDebtToGHN);
-
-        // (B) Store nợ flat: paid + outstanding (chỉ tính order final)
-        var debtAgg = storeOrderRepository.aggStoreDebtToFlat(from, toExclusive);
-
-        BigDecimal storeOutstanding = nz(debtAgg.getStoreDebtOutstandingToFlat());
-        BigDecimal storePaid = nz(debtAgg.getStoreDebtPaidToFlat());
-        BigDecimal storeTotal = storeOutstanding.add(storePaid);
-
-        return FlatStoreDebtSummaryResponse.builder()
-                .from(from)
-                .toExclusive(toExclusive)
-                .flatDebtToGHN(flatDebtToGHN)
-                .storeDebtOutstandingToFlat(storeOutstanding)
-                .storeDebtPaidToFlat(storePaid)
-                .storeDebtTotalToFlat(storeTotal)
-                .note("flatDebtToGHN = SUM(store_order.shipReal delivered) + SUM(store_order.shipReal*1.5 where returnChargeApplied) + SUM(return_shipping_fees.shipping_fee). " +
-                        "storeDebtOutstandingToFlat = SUM(store_order.total_debt_for_order where (delivered_at!=null OR return_charge_applied=1) AND paid_by_shop=false). " +
-                        "storeDebtPaidToFlat = SUM(store_order.total_debt_for_order where (delivered_at!=null OR return_charge_applied=1) AND paid_by_shop=true). " +
-                        "Range=[from,toExclusive).")
-                .build();
-    }
-
-    @Override
-    public BigDecimal getTotalCustomerShipPaid(LocalDateTime from, LocalDateTime to) {
-
-        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
-
-        return nz(storeOrderRepository.sumCustomerShipPaidDelivered(from, toExclusive));
-    }
-
-    @Override
-    public ReturnShipFeeSummaryResponse getReturnShipFeeSummary(
-            LocalDateTime from,
-            LocalDateTime to
-    ) {
-        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
-
-        var agg = returnShippingFeeRepository.aggReturnShipFee(from, toExclusive);
-
-        BigDecimal paid = nz(agg.getPaid());
-        BigDecimal outstanding = nz(agg.getOutstanding());
-        BigDecimal total = paid.add(outstanding);
-
-        return ReturnShipFeeSummaryResponse.builder()
-                .from(from)
-                .toExclusive(toExclusive)
-                .totalReturnShipFee(total)
-                .returnShipFeePaid(paid)
-                .returnShipFeeOutstanding(outstanding)
-                .note("Return ship fee summary from return_shipping_fees. " +
-                        "paid_by_shop=true => paid, false => outstanding. " +
-                        "Range=[from,toExclusive).")
-                .build();
-    }
+//    @Override
+//    public FlatGhnShipFeeOverviewResponse getFlatGhnShipFeeOverview(LocalDateTime from, LocalDateTime to) {
+//
+//        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
+//
+//        var agg = storeOrderRepository.aggGhnShipFeeFromOrders(from, toExclusive);
+//
+//        BigDecimal orderShipDelivered = nz(agg.getOrderShipDelivered());
+//        BigDecimal orderShipReturning15 = nz(agg.getOrderShipReturning15());
+//
+//        BigDecimal returnShipFee = nz(returnShippingFeeRepository.sumReturnShipFee(from, toExclusive));
+//
+//        BigDecimal total = orderShipDelivered.add(orderShipReturning15).add(returnShipFee);
+//
+//        return FlatGhnShipFeeOverviewResponse.builder()
+//                .from(from)
+//                .toExclusive(toExclusive)
+//                .orderShipDelivered(orderShipDelivered)
+//                .orderShipReturning15(orderShipReturning15)
+//                .returnShipFee(returnShipFee)
+//                .totalGhnShipFee(total)
+//                .note("GHN ship fee total = SUM(store_order.shipReal for delivered) + SUM(store_order.shipReal*1.5 for returnChargeApplied) + SUM(return_shipping_fees.shipping_fee). Range=[from,toExclusive).")
+//                .build();
+//    }
+//
+//
+//    @Override
+//    public FlatStoreDebtSummaryResponse getFlatStoreDebtSummary(LocalDateTime from, LocalDateTime to) {
+//
+//        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
+//
+//        // (A) Flat nợ GHN = ship phí GHN tính theo order + ship phí return (return_shipping_fees)
+//        BigDecimal orderDebtToGHN = nz(storeOrderRepository.sumFlatDebtToGHNFromOrders(from, toExclusive));
+//        BigDecimal returnDebtToGHN = nz(returnShippingFeeRepository.sumReturnShipFee(from, toExclusive));
+//        BigDecimal flatDebtToGHN = orderDebtToGHN.add(returnDebtToGHN);
+//
+//        // (B1) Store nợ flat từ StoreOrder (theo rule)
+//        var debtAgg = storeOrderRepository.aggStoreDebtToFlat(from, toExclusive);
+//        BigDecimal orderOutstanding = nz(debtAgg.getStoreDebtOutstandingToFlat());
+//        BigDecimal orderPaid = nz(debtAgg.getStoreDebtPaidToFlat());
+//
+//        // (B2) Store nợ flat từ ReturnShippingFee (SHOP chịu)
+//        var returnAgg = returnShippingFeeRepository.aggReturnShipFee(from, toExclusive);
+//        BigDecimal returnOutstanding = nz(returnAgg.getOutstanding());
+//        BigDecimal returnPaid = nz(returnAgg.getPaid());
+//
+//        // (B) Tổng store nợ flat = orderDebt + returnDebt
+//        BigDecimal storeOutstanding = orderOutstanding.add(returnOutstanding);
+//        BigDecimal storePaid = orderPaid.add(returnPaid);
+//        BigDecimal storeTotal = storeOutstanding.add(storePaid);
+//
+//        return FlatStoreDebtSummaryResponse.builder()
+//                .from(from)
+//                .toExclusive(toExclusive)
+//                .flatDebtToGHN(flatDebtToGHN)
+//                .storeDebtOutstandingToFlat(storeOutstanding)
+//                .storeDebtPaidToFlat(storePaid)
+//                .storeDebtTotalToFlat(storeTotal)
+//                .note(
+//                        "flatDebtToGHN = SUM(order GHN fee) + SUM(return_shipping_fees.shipping_fee). " +
+//                                "storeDebtOutstandingToFlat = (order debt outstanding by rule) + (return debt outstanding). " +
+//                                "storeDebtPaidToFlat = (order debt paid by rule) + (return debt paid). " +
+//                                "Range=[from,toExclusive)."
+//                )
+//                .build();
+//    }
+//
+//
+//    @Override
+//    public BigDecimal getTotalCustomerShipPaid(LocalDateTime from, LocalDateTime to) {
+//
+//        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
+//
+//        return nz(storeOrderRepository.sumCustomerShipPaidDelivered(from, toExclusive));
+//    }
+//
+//    @Override
+//    public ReturnShipFeeSummaryResponse getReturnShipFeeSummary(
+//            LocalDateTime from,
+//            LocalDateTime to
+//    ) {
+//        LocalDateTime toExclusive = (to == null) ? null : to.plusDays(1);
+//
+//        var agg = returnShippingFeeRepository.aggReturnShipFee(from, toExclusive);
+//
+//        BigDecimal paid = nz(agg.getPaid());
+//        BigDecimal outstanding = nz(agg.getOutstanding());
+//        BigDecimal total = paid.add(outstanding);
+//
+//        return ReturnShipFeeSummaryResponse.builder()
+//                .from(from)
+//                .toExclusive(toExclusive)
+//                .totalReturnShipFee(total)
+//                .returnShipFeePaid(paid)
+//                .returnShipFeeOutstanding(outstanding)
+//                .note("Return ship fee summary from return_shipping_fees. " +
+//                        "paid_by_shop=true => paid, false => outstanding. " +
+//                        "Range=[from,toExclusive).")
+//                .build();
+//    }
 }

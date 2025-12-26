@@ -493,32 +493,48 @@ public interface StoreOrderRepository extends JpaRepository<StoreOrder, UUID>, J
 
 
     @Query(value = """
-            SELECT
-              COALESCE(SUM(
-                CASE
-                  WHEN (so.paid_by_shop = 0 OR so.paid_by_shop IS NULL)
-                   AND (so.delivered_at IS NOT NULL OR so.return_charge_applied = 1)
-                  THEN COALESCE(so.total_debt_for_order,0)
-                  ELSE 0
-                END
-              ),0) AS storeDebtOutstandingToFlat,
-            
-              COALESCE(SUM(
-                CASE
-                  WHEN so.paid_by_shop = 1
-                   AND (so.delivered_at IS NOT NULL OR so.return_charge_applied = 1)
-                  THEN COALESCE(so.total_debt_for_order,0)
-                  ELSE 0
-                END
-              ),0) AS storeDebtPaidToFlat
-            
-            FROM store_order so
-            WHERE (:from IS NULL OR so.created_at >= :from)
-              AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
-            """, nativeQuery = true)
+SELECT
+  COALESCE(SUM(
+    CASE
+      WHEN (so.paid_by_shop = 0 OR so.paid_by_shop IS NULL)
+       AND so.shipping_fee_real IS NOT NULL AND so.shipping_fee_real > 0
+      THEN
+        CASE
+          -- DELIVERED: shop nợ = max(real - estimate, 0)
+          WHEN so.delivered_at IS NOT NULL
+            THEN GREATEST(COALESCE(so.shipping_fee_real,0) - COALESCE(so.shipping_fee,0), 0)
+
+          -- BOOM: shop nợ = real * 1.5
+          WHEN so.return_charge_applied = 1
+            THEN COALESCE(so.shipping_fee_real,0) * 1.5
+
+          ELSE 0
+        END
+      ELSE 0
+    END
+  ),0) AS storeDebtOutstandingToFlat,
+
+  COALESCE(SUM(
+    CASE
+      WHEN so.paid_by_shop = 1
+       AND so.shipping_fee_real IS NOT NULL AND so.shipping_fee_real > 0
+      THEN
+        CASE
+          WHEN so.delivered_at IS NOT NULL
+            THEN GREATEST(COALESCE(so.shipping_fee_real,0) - COALESCE(so.shipping_fee,0), 0)
+          WHEN so.return_charge_applied = 1
+            THEN COALESCE(so.shipping_fee_real,0) * 1.5
+          ELSE 0
+        END
+      ELSE 0
+    END
+  ),0) AS storeDebtPaidToFlat
+FROM store_order so
+WHERE (:from IS NULL OR so.created_at >= :from)
+  AND (:toExclusive IS NULL OR so.created_at < :toExclusive)
+""", nativeQuery = true)
     StoreDebtAgg aggStoreDebtToFlat(@Param("from") LocalDateTime from,
                                     @Param("toExclusive") LocalDateTime toExclusive);
-
 
     @Query(value = """
             SELECT COALESCE(SUM(
