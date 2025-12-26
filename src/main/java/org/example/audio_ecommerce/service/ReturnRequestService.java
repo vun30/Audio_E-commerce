@@ -50,7 +50,7 @@ public interface ReturnRequestService {
     void autoApprovePendingReturns();
     void autoCancelUnshippedReturns();
     void autoHandleGhnPickupTimeout();
-
+    void autoEscalateToDisputeWhenShopNotCreateGhn();
     ReturnRequestResponse refundWithoutReturnByShop(UUID returnRequestId);
 
 }

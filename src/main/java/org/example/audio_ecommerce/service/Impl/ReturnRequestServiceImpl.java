@@ -382,10 +382,21 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                         : pickupAddr.getStreet()
         );
         r.setCustomerPhone(pickupAddr.getPhoneNumber());
-
+        r.setStatus(ReturnStatus.PACKAGE_SET);
         r.setUpdatedAt(LocalDateTime.now());
         returnRepo.save(r);
         fillFeeWhenCustomerHasPackage(r, fee);
+
+        notificationCreatorService.createAndSend(
+                NotificationTarget.STORE,
+                r.getShopId(),
+                NotificationType.RETURN_PACKAGE_SET, // nếu bạn chưa có thì tạo thêm enum này
+                "Khách đã đóng gói xong",
+                "Khách đã cập nhật thông tin đóng gói. Vui lòng chọn ca lấy hàng và tạo đơn GHN trả hàng.",
+                "/shop/returns/" + r.getId(),
+                null,
+                Map.of("returnRequestId", r.getId().toString())
+        );
 
         return ReturnPackageFeeResponse.builder()
                 .shippingFee(fee)
@@ -1401,6 +1412,55 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         feeLog.setShopFault(true); // optional
 
         shippingFeeRepo.save(feeLog);
+    }
+
+    @Override
+    @Transactional
+    public void autoEscalateToDisputeWhenShopNotCreateGhn() {
+        // ví dụ: 24h (bạn muốn 6h/12h/48h thì đổi ở đây)
+        LocalDateTime deadline = LocalDateTime.now().minusMinutes(5);
+
+        List<ReturnRequest> list =
+                returnRepo.findUnresponsiveReturns(ReturnStatus.PACKAGE_SET, deadline);
+
+        for (ReturnRequest r : list) {
+            // nếu đã tạo GHN rồi thì bỏ qua
+            if (r.getGhnOrderCode() != null && !r.getGhnOrderCode().isBlank()) {
+                continue;
+            }
+
+            r.setStatus(ReturnStatus.DISPUTE);
+            r.setShopDisputeReason(
+                    "AUTO: Shop chưa tạo đơn GHN return sau 24h kể từ khi khách đóng gói."
+            );
+            r.setUpdatedAt(LocalDateTime.now());
+            returnRepo.save(r);
+
+            // (Optional) notify shop + customer biết đã escalated
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.STORE,
+                    r.getShopId(),
+                    NotificationType.RETURN_ESCALATED, // nếu chưa có thì tạo thêm
+                    "Return bị đưa lên tranh chấp",
+                    "Hệ thống đã đưa yêu cầu trả hàng lên tranh chấp do shop chưa tạo đơn GHN đúng hạn.",
+                    "/shop/returns/" + r.getId(),
+                    null,
+                    Map.of("returnRequestId", r.getId().toString())
+            );
+
+            notificationCreatorService.createAndSend(
+                    NotificationTarget.CUSTOMER,
+                    r.getCustomerId(),
+                    NotificationType.RETURN_ESCALATED,
+                    "Return đang được admin xử lý",
+                    "Hệ thống đã chuyển yêu cầu trả hàng sang tranh chấp để admin xử lý.",
+                    "/customer/returns/" + r.getId(),
+                    null,
+                    Map.of("returnRequestId", r.getId().toString())
+            );
+
+            log.info("[AUTO DISPUTE] returnRequest={} escalated to DISPUTE because shop did not create GHN", r.getId());
+        }
     }
 
 }
