@@ -55,6 +55,14 @@ public class StoreOrderDebtCron {
                 continue;
             }
 
+            // ✅ BỎ QUA LUÔN NHÓM HOÀN / TRẢ
+            // (phí hoàn đã tách sang bảng ReturnShippingFee, tránh cron ghi đè mất SHIP_DIFF)
+            if (status == OrderStatus.RETURN_REQUESTED
+                    || status == OrderStatus.RETURNING
+                    || status == OrderStatus.RETURNED) {
+                continue;
+            }
+
             // 2) BỎ QUA 3 TRẠNG THÁI
             if (status == OrderStatus.UNPAID
                     || status == OrderStatus.PENDING
@@ -97,6 +105,7 @@ public class StoreOrderDebtCron {
             log.info("StoreOrderDebtCron updated {} orders", updated);
         }
     }
+
 
 
 //    @Transactional
