@@ -81,4 +81,11 @@ public interface StoreRepository extends JpaRepository<Store, UUID> {
     """, nativeQuery = true)
     java.util.List<Object[]> countNewStoresByMonth(@Param("year") int year);
 
+    @Query("""
+    select s.storeId
+    from Store s
+    where s.status = 'ACTIVE'
+""")
+    List<UUID> findAllActiveStoreIds();
+
 }
