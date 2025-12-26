@@ -1605,4 +1605,24 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
     }
 
+    @Override
+    @Transactional
+    public ReturnRequestResponse updateReturnRequestStatus(UUID returnRequestId, ReturnStatus newStatus) {
+        ReturnRequest r = returnRepo.findById(returnRequestId)
+                .orElseThrow(() -> new NoSuchElementException("ReturnRequest not found"));
+
+        r.setStatus(newStatus);
+        r.setUpdatedAt(LocalDateTime.now());
+        returnRepo.save(r);
+
+        return toResponse(r);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ReturnRequestResponse> listAllReturnRequests(Pageable pageable) {
+        return returnRepo.findAll(pageable)
+                .map(this::toResponse);
+    }
+
 }

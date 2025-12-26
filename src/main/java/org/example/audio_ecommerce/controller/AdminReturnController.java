@@ -7,6 +7,7 @@ import org.example.audio_ecommerce.dto.request.AdminRefundDisputeRequest;
 import org.example.audio_ecommerce.dto.request.ReturnDisputeResolveRequest;
 import org.example.audio_ecommerce.dto.response.BaseResponse;
 import org.example.audio_ecommerce.dto.response.ReturnRequestResponse;
+import org.example.audio_ecommerce.entity.Enum.ReturnStatus;
 import org.example.audio_ecommerce.service.CustomerReturnComplaintService;
 import org.example.audio_ecommerce.service.ReturnRequestService;
 import org.springframework.data.domain.Page;
@@ -93,5 +94,43 @@ public class AdminReturnController {
         String note = (req != null) ? req.getNote() : null;
         ReturnRequestResponse resp = returnService.adminRefundDisputeToCustomer(returnRequestId, note);
         return ResponseEntity.ok(BaseResponse.success("Success",resp));
+    }
+
+    @Operation(
+            summary = "Admin cập nhật trạng thái yêu cầu trả hàng",
+            description = """
+                ✅ API cho phép admin cập nhật trạng thái của một yêu cầu trả hàng
+                
+                Input:
+                - returnRequestId: UUID của yêu cầu trả hàng
+                - status: trạng thái mới (PENDING, APPROVED, REJECTED, SHIPPING, RECEIVED, REFUNDED, v.v...)
+                
+                Output: ReturnRequestResponse với trạng thái đã cập nhật
+                """
+    )
+    @PatchMapping("/{returnRequestId}/status")
+    public ReturnRequestResponse updateReturnRequestStatus(
+            @PathVariable UUID returnRequestId,
+            @RequestParam ReturnStatus status
+    ) {
+        return returnService.updateReturnRequestStatus(returnRequestId, status);
+    }
+
+    @Operation(
+            summary = "Admin xem tất cả yêu cầu trả hàng trong hệ thống",
+            description = """
+                ✅ API cho phép admin xem tất cả các yêu cầu trả hàng trong hệ thống
+                
+                Pagination: page/size.
+                Output: Page<ReturnRequestResponse> với tất cả các yêu cầu trả hàng
+                """
+    )
+    @GetMapping
+    public Page<ReturnRequestResponse> listAllReturnRequests(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        Pageable pageable = PageRequest.of(page, size);
+        return returnService.listAllReturnRequests(pageable);
     }
 }
