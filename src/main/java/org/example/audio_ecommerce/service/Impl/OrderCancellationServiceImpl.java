@@ -127,9 +127,9 @@ public class OrderCancellationServiceImpl implements OrderCancellationService {
             return BaseResponse.error("Store does not own this order");
         }
 
-        if (storeOrder.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
-            return BaseResponse.error("StoreOrder is not in AWAITING_SHIPMENT");
-        }
+//        if (storeOrder.getStatus() != OrderStatus.AWAITING_SHIPMENT) {
+//            return BaseResponse.error("StoreOrder is not in AWAITING_SHIPMENT");
+//        }
 
         LocalDateTime now = LocalDateTime.now();
 
