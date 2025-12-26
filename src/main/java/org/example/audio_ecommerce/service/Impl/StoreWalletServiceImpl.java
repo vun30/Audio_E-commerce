@@ -362,7 +362,7 @@ public class StoreWalletServiceImpl implements StoreWalletService {
                 .balanceAfter(platformAfter)
 
                 // audit
-                .description("Store pay debt (ledger-only, no wallet update) | storeTx=" + tx.getTransactionId())
+                .description("Cửa hàng đã thanh toán khoản nợ phí vận chuyển, khoản tiền lưu hành trong hệ thống !!" + tx.getTransactionId())
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
