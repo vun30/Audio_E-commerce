@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
+import org.example.audio_ecommerce.entity.Enum.OrderReturnState;
 import org.example.audio_ecommerce.entity.Enum.OrderStatus;
 import org.example.audio_ecommerce.entity.Enum.PaymentMethod;
 
@@ -208,6 +209,12 @@ public class StoreOrder {
     @Builder.Default
     @Column(name = "auto_cancel_applied", nullable = false, columnDefinition = "TINYINT(1) DEFAULT 0")
     private Boolean autoCancelApplied = false; // chống chạy cron trùng
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "return_state", nullable = false, length = 20)
+    @Builder.Default
+    private OrderReturnState returnState = OrderReturnState.NONE;
+
     @PrePersist
     @PreUpdate
     public void calculateTotalAmount() {
